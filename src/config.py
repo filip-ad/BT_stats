@@ -1,0 +1,19 @@
+# config.py: 
+
+LOG_FILE = "../data/logs/log.log"
+LOG_LEVEL = "INFO"  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+DB_NAME = "../data/table_tennis.db"
+
+TOURNAMENTS_URL = "https://resultat.ondata.se/?viewAll=1"
+TOURNAMENTS_START_DATE = "2025-06-15"
+
+CLASSES_MAX_TOURNAMENTS = 3  # Maximum number of tournaments to scrape classes from
+
+LICENSES_URL = "https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_public.php"
+
+SCRAPE_MAX_CLUBS = 0    # How many clubs to iterate, 0 for all clubs
+SCRAPE_SEASONS = 1      # Amount of seasons to iterate for each club, always starting with the oldest, 0 for all seasons
+
+
+
