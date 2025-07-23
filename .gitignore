@@ -1,0 +1,39 @@
+# Top level exclusions
+data/
+archive/
+archive2/
+archive3/
+
+# Python-specific
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+venv/
+.venv/
+env/
+.env
+*.env
+
+# Database files
+*.db
+*.sqlite3
+*.sql
+
+# VS Code and editor files
+.vscode/
+*.code-workspace
+
+# OS and miscellaneous
+.DS_Store
+Thumbs.db
+*.log
+
+# Dependency directories
+node_modules/  # If you have JavaScript in your project
