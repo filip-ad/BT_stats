@@ -1,0 +1,24 @@
+Done
+=================
+- Spara alla tournaments
+- Kan spara alla klasser i en tournament 
+
+
+To do
+====================
+- Spara startlistor -- behövs en ny tabell - koppla ihop player med class och tournament
+- get_players, get_licenses och get_ranking_groups ska kunna slås ihop 
+    - Spara allt nedan per säsong?
+    - först kolla spelare, lägg till i players om behövs
+    - kolla licensen (player_id, license_id, season_id, club_id)
+    - kolla ranking group
+
+- Gör om season tabellen så ID=1 är första säsongen. Kommer kräva att köra om get_licenses dock
+
+Tankingtabell Spelare + Datum - rankingpoäng per månad finns att hämta 
+
+- Runtime, logga hur lång tid varje get_-program tar.
+- Maybe also print timestamp
+
+
+player_license_raw.season rename to season_label
