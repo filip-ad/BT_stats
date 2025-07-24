@@ -8,6 +8,7 @@ from upd_players import upd_players
 from upd_player_licenses_raw import upd_player_licenses_raw
 from upd_player_ranking_groups import upd_player_ranking_groups
 from upd_player_licenses import upd_player_licenses
+from upd_player_transitions import upd_player_transitions
 # from scrape_player_licenses import get_player_license_table_raw
 # from upd_players import update_player_table
 # from upd_players_licenses import update_player_licenses
@@ -69,7 +70,7 @@ def main():
         # upd_player_licenses()
 
         # 6. Scrape and populate player_transition_raw table
-        # upd_player_transitions_raw()
+        upd_player_transitions()
 
 
         ################################################################################################

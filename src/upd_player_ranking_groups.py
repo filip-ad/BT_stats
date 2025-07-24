@@ -39,10 +39,10 @@ def upd_player_ranking_groups():
             # Step 4: Delete existing ranking groups for this player
             delete_result = PlayerRankingGroup.delete_by_player_id(cursor, player_id)
             if delete_result["status"] == "success":
-                logging.info(delete_result["reason"])
+                logging.debug(delete_result["reason"])
                 deleted_count += int(delete_result["reason"].split()[1])  
             else:
-                logging.warning(delete_result["reason"])       
+                logging.debug(delete_result["reason"])       
 
             groups = [g.strip() for g in raw_groups.split(",") if g.strip()]
             for group_name in groups:
