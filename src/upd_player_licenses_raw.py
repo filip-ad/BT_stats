@@ -15,8 +15,8 @@ def upd_player_licenses_raw():
     conn, cursor = get_conn()
     driver = setup_driver()
     try:
-        logging.info("Starting player license raw scraping process...")
-        print("ℹ️  Starting player license raw scraping process...")
+        logging.info("Scraping player license raw data...")
+        print("ℹ️  Scraping player license raw data...")
         scrape_player_licenses(driver, cursor)
 
     except Exception as e:
@@ -55,6 +55,7 @@ def scrape_player_licenses(driver, cursor):
     unchanged_ranking_groups = 0
 
     for season_value in seasons_to_process:
+
         # Select the season (this reloads the DOM)
         Select(driver.find_element(By.NAME, "periode")).select_by_value(season_value)
 
@@ -130,9 +131,17 @@ def scrape_player_licenses(driver, cursor):
                 try:
                     cursor.execute('''
                         INSERT OR IGNORE INTO player_license_raw (
-                            season_label, season_id_ext, club_name, club_id_ext, player_id_ext,
-                            firstname, lastname, gender, year_born,
-                            license_info_raw, ranking_group_raw
+                            season_label, 
+                            season_id_ext, 
+                            club_name, 
+                            club_id_ext, 
+                            player_id_ext,
+                            firstname, 
+                            lastname, 
+                            gender, 
+                            year_born,
+                            license_info_raw, 
+                            ranking_group_raw
                         )
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (

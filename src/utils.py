@@ -34,29 +34,56 @@ def setup_logging():
 # %(process)d: Process ID (useful for multi-process logging).
 # %(thread)d: Thread ID (useful for multi-threaded logging).
 
-    # Ensure log directory exists
-    log_dir = os.path.dirname(LOG_FILE)
-    if log_dir and not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-        logging.info(f"utils: Created log directory: {log_dir}")
+    # # Ensure log directory exists
+    # log_dir = os.path.dirname(LOG_FILE)
+    # if log_dir and not os.path.exists(log_dir):
+    #     os.makedirs(log_dir)
+    #     logging.info(f"utils: Created log directory: {log_dir}")
     
+    # # Configure logging
+    # logging.basicConfig(
+    #     filename=LOG_FILE,
+    #     level=getattr(logging, LOG_LEVEL),
+    #     # format='[%(asctime)s] [%(levelname)s] [%(filename)s/%(funcName)s/%(lineno)d] - %(message)s',
+    #     format='[%(asctime)s] %(levelname)-8s %(filename)-20.20s%(lineno)-5d%(funcName)-35.35s: %(message)-100s',
+    #     datefmt='%b %d %a] [%H:%M:%S'
+    # )
+    # print(f"ℹ️  Logging configured to {LOG_FILE} at level {LOG_LEVEL}")
+    # logging.info("")
+    # logging.info("")
+    # logging.info("")
+    # logging.info(f"Logging configured to {LOG_FILE} at level {LOG_LEVEL}")
+    # logging.info("-------------------------------------------------------------------")
 
-    # Configure logging
-    logging.basicConfig(
-        filename=LOG_FILE,
-        level=getattr(logging, LOG_LEVEL),
-        # format='[%(asctime)s] [%(levelname)s] [%(filename)s/%(funcName)s/%(lineno)d] - %(message)s',
-        format='[%(asctime)s] %(levelname)-8s %(filename)-20.20s%(lineno)-5d%(funcName)-35.35s: %(message)-100s',
-        datefmt='%b %d %a] [%H:%M:%S'
-    )
-    print(f"ℹ️  Logging configured to {LOG_FILE} at level {LOG_LEVEL}")
-    logging.info("")
-    logging.info("")
-    logging.info("")
+    # Create log directory if not exists (derive from LOG_FILE)
+    log_dir = os.path.dirname(os.path.abspath(LOG_FILE))
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # Clear any existing handlers to avoid duplicates
+    logging.getLogger().handlers = []
+    
+    # File handler with UTF-8 encoding
+    file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8', mode='a')  # 'a' for append
+    file_handler.setLevel(LOG_LEVEL)
+    # file_formatter = logging.Formatter('[%(asctime)s] [%(levelname)-8s] %(module)s.py %(lineno)-4d %(funcName)-35s : %(message)s', datefmt='%b %d %a %H:%M:%S')
+    file_formatter = logging.Formatter('[%(asctime)s] %(levelname)-8s %(filename)-32.32s%(lineno)-5d%(funcName)-35.35s: %(message)-100s', datefmt='%b %d %a] [%H:%M:%S')
+    file_handler.setFormatter(file_formatter)
+    
+    # Console handler for real-time output
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(LOG_LEVEL)
+    console_formatter = logging.Formatter('[%(asctime)s] [%(levelname)-7s] %(funcName)-35s : %(message)s', datefmt='%b %d %a %H:%M:%S')
+    console_handler.setFormatter(console_formatter)
+    
+    # Add handlers to root logger
+    logging.getLogger().addHandler(file_handler)
+    # logging.getLogger().addHandler(console_handler)
+    logging.getLogger().setLevel(LOG_LEVEL)
+    
     logging.info(f"Logging configured to {LOG_FILE} at level {LOG_LEVEL}")
     logging.info("-------------------------------------------------------------------")
-
-
+    print(f"Logging configured to {LOG_FILE} at level {LOG_LEVEL}")
+    print("-------------------------------------------------------------------")
 
 def setup_driver():
     chrome_options = Options()
@@ -81,20 +108,29 @@ def setup_driver():
 #     """Wait for an element to be present."""
 #     return WebDriverWait(driver, timeout).until(EC.presence_of_element_located((by, value)))
 
-def parse_date(date_str):
+def parse_date(date_str, context=None):
     """Parse a date string in 'YYYY-MM-DD' or 'YYYY.MM.DD' format into a datetime.date object.
     If input is already a datetime.date, returns it unchanged."""
     if isinstance(date_str, date):
         # Already a date object, no need to parse
         return date_str
 
-    date_str = date_str.strip()
+    # date_str = date_str.strip()
+    # for fmt in ("%Y-%m-%d", "%Y.%m.%d"):
+    #     try:
+    #         return datetime.strptime(date_str, fmt).date()
+    #     except ValueError:
+    #         continue
+    # logging.warning("Invalid date format: %s (context: transition date parsing)", date_str)
+    # return None
+
+    date_str = date_str.strip() if date_str else "None"
     for fmt in ("%Y-%m-%d", "%Y.%m.%d"):
         try:
             return datetime.strptime(date_str, fmt).date()
         except ValueError:
             continue
-    logging.warning("Invalid date format: %s", date_str)
+    logging.warning(f"Invalid date format: {date_str} (context: {context or 'unknown calling function'})")
     return None
 
 def print_db_insert_results(db_results):

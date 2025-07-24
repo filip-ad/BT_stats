@@ -13,4 +13,4 @@ CLASSES_MAX_TOURNAMENTS = 3  # Maximum number of tournaments to scrape classes f
 LICENSES_URL = "https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_public.php"
 
 SCRAPE_MAX_CLUBS = 0    # How many clubs to iterate, 0 for all clubs
-SCRAPE_SEASONS = 1      # Amount of seasons to iterate for each club, always starting with the oldest, 0 for all seasons
+SCRAPE_SEASONS = 0      # Amount of seasons to iterate for each club, always starting with the oldest, 0 for all seasons

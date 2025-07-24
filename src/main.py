@@ -8,7 +8,7 @@ from upd_players import upd_players
 from upd_player_licenses_raw import upd_player_licenses_raw
 from upd_player_ranking_groups import upd_player_ranking_groups
 from upd_player_licenses import upd_player_licenses
-from upd_player_transitions import upd_player_transitions
+from upd_player_transitions_raw import upd_player_transitions_raw
 # from scrape_player_licenses import get_player_license_table_raw
 # from upd_players import update_player_table
 # from upd_players_licenses import update_player_licenses
@@ -27,24 +27,25 @@ def main():
         # Get the connection and cursor
         conn, cursor = get_conn()
 
-        # # Drop existing tables to ensure a clean slate
-        # drop_tables(cursor, [
-        #     # 'player_license',
-        #     # 'player'
-        #     # 'license'
-        #     # 'season'
-        #     # 'tournament', 
-        #     # 'tournament_class', 
-        #     # 'player_ranking_group', 
-        #     # 'ranking_group'
-        #     # 'player_ranking', 
-        #     'player_license'
-        #     # 'player_license_raw',
-        #     # 'club'
-        # ])
+        # Drop existing tables to ensure a clean slate
+        drop_tables(cursor, [
+            # 'player_license',
+            # 'player'
+            # 'license'
+            # 'season'
+            # 'tournament', 
+            # 'tournament_class', 
+            # 'player_ranking_group', 
+            # 'ranking_group'
+            # 'player_ranking', 
+            # 'player_license'
+            # 'player_license_raw',
+            'player_transition_raw'
+            # 'club'
+        ])
 
         # # # Create tables if they don't exist
-        # create_tables(cursor)  
+        create_tables(cursor)  
 
         # Create static tables
         # create_and_populate_static_tables(cursor)
@@ -70,7 +71,7 @@ def main():
         # upd_player_licenses()
 
         # 6. Scrape and populate player_transition_raw table
-        upd_player_transitions()
+        upd_player_transitions_raw()
 
 
         ################################################################################################

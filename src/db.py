@@ -737,10 +737,29 @@ def create_tables(cursor):
         )
     ''')
 
+    # Create player transition raw data table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS player_transition_raw (
+            row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            season_id_ext INTEGER NOT NULL,
+            season_label TEXT NOT NULL,
+            firstname TEXT NOT NULL,
+            lastname TEXT NOT NULL,   
+            date_born DATE NOT NULL,
+            year_born INTEGER NOT NULL,                
+            club_from TEXT NOT NULL,
+            club_to TEXT NOT NULL,
+            transition_date DATE NOT NULL,
+            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (firstname, lastname, date_born, transition_date)
+        )
+    ''')               
+
     # Create player transition table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player_transition (
             player_transition_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            season_id INTEGER NOT NULL,
             player_id INTEGER NOT NULL,
             club_id_from INTEGER NOT NULL,
             club_id_to INTEGER NOT NULL,
