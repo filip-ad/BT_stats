@@ -1,238 +1,189 @@
-import logging
-from datetime import datetime, timedelta
-from collections import defaultdict
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait, Select
-from selenium.webdriver.support import expected_conditions as EC
-from bs4 import BeautifulSoup
-from utils import setup_driver, parse_date
-from config import LICENSES_URL, SCRAPE_SEASONS
+# src/upd_player_transitions.py
+
 from db import get_conn, get_from_db_season
-
-def save_to_db_transitions(cursor, transitions):
-    status_list = []
-    for t in transitions:
-        try:
-            # Check if the transition already exists
-            cursor.execute("""
-                SELECT COUNT(*) FROM player_transition
-                WHERE lastname = ? AND firstname = ? AND year_born = ? 
-                AND club_from = ? AND club_to = ? AND transition_date = ? AND season = ?
-            """, (t['lastname'], t['firstname'], t['year_born'], t['club_from'], t['club_to'], t['transition_date'], t['season']))
-            exists = cursor.fetchone()[0] > 0
-
-            if exists:
-                status_list.append({
-                    "status": "skipped",
-                    "player": f"{t['firstname']} {t['lastname']}",
-                    "reason": "duplicate"
-                })
-                continue
-
-            # Insert the new transition
-            cursor.execute("""
-                INSERT INTO player_transitions (lastname, firstname, year_born, club_from, club_to, transition_date, season)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (t['lastname'], t['firstname'], t['year_born'], t['club_from'], t['club_to'], t['transition_date'], t['season']))
-
-            status_list.append({
-                "status": "inserted",
-                "player": f"{t['firstname']} {t['lastname']}",
-                "reason": "success"
-            })
-        except Exception as e:
-            status_list.append({
-                "status": "failed",
-                "player": f"{t['firstname']} {t['lastname']}",
-                "reason": str(e)
-            })
-
-    return status_list
-
-def scrape_transitions(driver, season_value, season_label):
-    # Select season in dropdown
-    period_dropdown = Select(driver.find_element(By.ID, "periode"))
-    period_dropdown.select_by_value(season_value)
-
-    logging.debug(f"Selected season {season_label} (value: {season_value})")
-
-    # Wait until the page loads table rows inside any <table>
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_all_elements_located((By.CSS_SELECTOR, "table tbody tr"))
-    )
-
-    html = driver.page_source
-    soup = BeautifulSoup(html, "html.parser")
-
-    update_text = soup.find(string=lambda text: text and "Uppdaterad" in text)
-    if not update_text:
-        logging.warning(f"⚠️ Could not find 'Uppdaterad' marker for season {season_label}")
-        return []
-
-    table = update_text.find_next("table")
-
-    if not table:
-        logging.warning(f"⚠️ Could not find transitions table after 'Uppdaterad' for season {season_label}")
-        return []
-
-    rows = table.find_all("tr")
-    logging.debug(f"Number of rows found in transitions table: {len(rows)}")
-
-    transitions = []
-
-    for i, row in enumerate(rows):
-        if "tabellhode" in row.get("class", []):
-            logging.debug(f"ℹ️ Skipping header row at index {i}")
-            continue
-
-        cols = row.find_all("td")
-        if len(cols) < 6:
-            logging.debug(f"Skipping row {i} due to insufficient columns ({len(cols)})")
-            continue 
-
-        lastname = cols[0].get_text(strip=True)
-        firstname = cols[1].get_text(strip=True)
-        date_born_str = cols[2].get_text(strip=True)
-        date_born = parse_date(date_born_str)
-        year_born = str(date_born.year) if date_born else None
-        club_from = cols[3].get_text(strip=True)
-        club_to = cols[4].get_text(strip=True)
-        transition_date_str = cols[5].get_text(strip=True)
-        transition_date = parse_date(transition_date_str)
-
-        if not transition_date:
-            logging.warning(f"Skipping transition due to invalid date: {transition_date_str}")
-            continue
-
-        if not year_born:
-            logging.warning(f"Skipping transition due to invalid year of birth: {date_born_str}")
-            continue
-
-        transitions.append({
-            "lastname": lastname,
-            "firstname": firstname,
-            "year_born": year_born,
-            "club_from": club_from,
-            "club_to": club_to,
-            "transition_date": transition_date,
-            "season": season_value,
-        })
-
-    return transitions
+import re
+from datetime import datetime
+import logging
+from collections import defaultdict
+from models.player_license import PlayerLicense
+from utils import print_db_insert_results
 
 def upd_player_transitions():
     conn, cursor = get_conn()
-    driver = setup_driver()
+    load_results = []
 
     try:
-        logging.info("Scraping transition data...")
-        print("ℹ️  Scraping transition data...")
+        logging.info("Updating player transitions...")
+        print("ℹ️  Updating player transitions...")
 
-        driver.get(LICENSES_URL)
+        cursor.execute('''
+            SELECT 
+                count(*)
+            FROM player_transition_raw
+        ''')
 
-        # Click the "Spelklarlistor" link
-        spelklar_link = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.LINK_TEXT, "Spelklarlistor"))
-        )
-        spelklar_link.click()        
+        rows = cursor.fetchone()
+        count = rows[0] if rows else 0
 
-        # Click the "Övergångar" link
-        overgang_link = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.LINK_TEXT, "Övergångar"))
-        )
-        overgang_link.click()
+        print(f"ℹ️  Found {count} player transitions in player_transition_raw")
+        logging.info(f"Found {count} player transitions in player_transition_raw")
 
-        # Wait for season dropdown
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "periode"))
-        )
+        cursor.execute('''
+            SELECT row_id, season_id_ext, season_label, firstname, lastname, date_born, year_born, club_from, club_to, transition_date
+            FROM player_transition_raw
+        ''')
 
-        period_dropdown = Select(driver.find_element(By.ID, "periode"))
-        all_seasons = sorted(
-            [opt.get_attribute("value") for opt in period_dropdown.options if opt.get_attribute("value").isdigit()],
-            key=int,
-            reverse=True
-        )
+        rows = cursor.fetchall()
 
-        season_map = {
-            opt.get_attribute("value"): opt.text.strip()
-            for opt in period_dropdown.options if opt.get_attribute("value").isdigit()
-        }
+        if not rows:
+            print("⚠️ No player transition data found in player_transition_raw.")
+            logging.warning("No player transition data found in player_transition_raw.")
+            return []
 
-        seasons_to_process = all_seasons[:SCRAPE_SEASONS] if SCRAPE_SEASONS > 0 else all_seasons
+        for row in rows:
+            (row_id, season_id_ext, season_label, firstname, lastname, date_born, year_born, club_from, club_to, transition_date_str) = row
 
-        for season_value in seasons_to_process:
-            season_label = season_map.get(season_value, season_value)
-            logging.info(f"Scraping transitions for season {season_label}")
-            print(f"ℹ️  Scraping transitions for season {season_label}")
+            # Capitalize firstname and lastname
+            firstname = firstname.strip().capitalize()
+            lastname = lastname.strip().capitalize()
 
-            season = get_from_db_season(cursor, season_id_ext=int(season_value))
-            if not season:
-                logging.warning(f"Skipping season {season_value} - not found in DB.")
-                continue                  
+            # Detect duplicates in raw data
+            cursor.execute("""
+                SELECT row_id, SUBSTR(license_info_raw, INSTR(license_info_raw, '(') + 1, 10) AS valid_from_raw
+                FROM player_license_raw
+                WHERE player_id_ext = ? AND club_id_ext = ? AND season_id_ext = ?
+                AND LOWER(TRIM(SUBSTR(license_info_raw, 1, INSTR(license_info_raw, '(') - 1))) = LOWER(?)
+                ORDER BY valid_from_raw
+            """, (
+                player_id_ext,
+                club_id_ext,
+                season_id_ext,
+                f"{license_type} {license_age_group}".strip() if license_age_group else license_type.strip()
+            ))
 
+            duplicate_rows = cursor.fetchall()
+            if len(duplicate_rows) > 1:
+                # Get the current row's index in duplicate_rows
+                current_index = next((i for i, r in enumerate(duplicate_rows) if r[0] == row_id), -1)
+                if current_index > 0:  # Not the earliest
+                    logging.warning(f"Duplicate license detected for player_id_ext {player_id_ext}: {license_type} "
+                                f"(age group: {license_age_group}) for club_id_ext {club_id_ext}, season_id_ext {season_id_ext}")
+                    load_results.append({
+                        "status": "failed",
+                        "row_id": row_id,
+                        "reason": "Player has duplicate license type and age group for the same club and season"
+                    })
+                    continue
+            
             try:
-                transitions = scrape_transitions(driver, season_value, season_label)
-
-                if transitions:
-                    logging.info(f"Found {len(transitions)} transitions for season {season_label}")
-                    print(f"✅ Found {len(transitions)} transitions for season {season_label}") 
-                    print_details_transition(transitions)  # Print details for debugging
-                    db_results = save_to_db_transitions(cursor, transitions)
-
-                    if db_results:
-                        print_db_insert_results(db_results)
-                        log_failed_or_skipped_entries(db_results)  # log detailed failure info
-                    else:
-                        logging.warning(f"No transitions saved to database.")
-                        print(f"⚠️ No transitions saved to database.")
-                else:
-                    logging.warning(f"No transitions scraped.")
-                    print(f"⚠️ No transitions scraped.") 
+                valid_from = datetime.strptime(license_date, "%Y.%m.%d").date()
 
             except Exception as e:
-                logging.error(f"Error processing season {season_label}: {e}")
-                print(f"❌ Error processing season {season_label}: {e}")
+                msg = f"Date parsing error for {license_part}: {e}"
+                logging.warning(msg)
+                load_results.append({
+                    "status": "failed",
+                    "row_id": row_id,
+                    "reason": msg
+                })
+
+            # Fetch season data
+            season_data = get_from_db_season(cursor, season_label=season_label)
+            if not season_data:
+                msg = f"No matching season found for season_label '{season_label}'"
+                logging.warning(msg)
+                load_results.append({
+                    "status": "failed",
+                    "row_id": row_id,
+                    "reason": msg
+                })
+                continue
+            season_id = season_data["season_id"]
+            valid_to = season_data["season_end_date"]
+
+            # Map player_id_ext to player_id
+            cursor.execute("SELECT player_id FROM player WHERE player_id_ext = ?", (player_id_ext,))
+            player_result = cursor.fetchone()
+            if not player_result:
+                msg = f"Foreign key violation: player_id_ext {player_id_ext} does not exist in player table"
+                logging.warning(msg)
+                load_results.append({
+                    "status": "failed",
+                    "row_id": row_id,
+                    "reason": msg
+                })
+                continue
+            player_id = player_result[0]
+
+            # Map club_id_ext to club_id
+            cursor.execute("SELECT club_id FROM club WHERE club_id_ext = ?", (club_id_ext,))
+            club_result = cursor.fetchone()
+            if not club_result:
+                msg = f"Foreign key violation: club_id_ext {club_id_ext} does not exist in club table"
+                logging.warning(msg)
+                load_results.append({
+                    "status": "failed",
+                    "row_id": row_id,
+                    "reason": msg
+                })
+                continue
+            club_id = club_result[0]
+
+            # Map season_id_ext to season_id
+            cursor.execute("SELECT season_id FROM season WHERE season_id_ext = ?", (season_id_ext,))
+            season_result = cursor.fetchone()
+            if not season_result:
+                msg = f"Foreign key violation: season_id_ext {season_id_ext} does not exist in season table"
+                logging.warning(msg)
+                load_results.append({
+                    "status": "failed",
+                    "row_id": row_id,
+                    "reason": msg
+                })
+                continue
+            season_id = season_result[0]
+
+            # Map license_type and license_age_group to license_id
+            if license_age_group is None:
+                cursor.execute("SELECT license_id FROM license WHERE license_type = ? AND (license_age_group IS NULL OR license_age_group = '')", 
+                            (license_type,))
+            else:
+                cursor.execute("SELECT license_id FROM license WHERE license_type = ? AND license_age_group = ?", 
+                            (license_type, license_age_group))
+            license_result = cursor.fetchone()
+            if not license_result:
+                msg = f"Foreign key violation: license_type {license_type} and age group {license_age_group} do not exist in license table"
+                logging.warning(msg)
+                load_results.append({
+                    "status": "failed",
+                    "row_id": row_id,
+                    "reason": msg
+                })
+                continue
+            license_id = license_result[0]
+
+            # Create PlayerLicense object
+            player_license = PlayerLicense(
+                player_id=player_id,
+                club_id=club_id,
+                season_id=season_id,
+                license_id=license_id,
+                valid_from=valid_from,
+                valid_to=valid_to
+            )
+
+            # Save to database
+            result = player_license.save_to_db(cursor)
+            load_results.append(result)
+            
+        print_db_insert_results(load_results)
+
+    except Exception as e:
+        logging.error(f"Failed to process licenses: {e}")
+        print(f"❌ Failed to process licenses: {e}")
+        return load_results
 
     finally:
-        logging.info("-------------------------------------------------------------------")
-        print("-------------------------------------------------------------------")
-        driver.quit()
         conn.commit()
         conn.close()
-
-def print_details_transition(transitions):
-    for t in transitions:
-        logging.debug(f"Lastname: {t.get('lastname', 'N/A')}")
-        logging.debug(f"Firstname: {t.get('firstname', 'N/A')}")
-        logging.debug(f"Year born: {t.get('year_born', 'N/A')}")
-        logging.debug(f"From club: {t.get('club_from', 'N/A')}")
-        logging.debug(f"To club: {t.get('club_to', 'N/A')}")
-        logging.debug(f"Transition date: {t.get('transition_date', 'N/A')}")
-
-def print_db_insert_results(status_list):
-    summary = defaultdict(lambda: defaultdict(int))  # summary[status][reason] = count
-
-    for entry in status_list:
-        status = entry.get("status", "unknown")
-        reason = entry.get("reason", "unspecified")
-        summary[status][reason] += 1
-
-    logging.info("Transition insert summary:")
-    print("ℹ️  Transition insert summary:")
-
-    for status in summary:
-        status_total = sum(summary[status].values())
-        logging.info(f"  {status.title()}: {status_total}")
-        print(f"  {status.title()}: {status_total}")
-
-        for reason, count in summary[status].items():
-            logging.info(f"    - {reason}: {count}")
-            print(f"    - {reason}: {count}")
-
-def log_failed_or_skipped_entries(status_list):
-    for entry in status_list:
-        if entry.get("status") in ("skipped", "failed"):
-            player = entry.get("player", "Unknown player")
-            reason = entry.get("reason", "No reason given")
-            logging.debug(f"{entry['status'].title()} transition for {player}: {reason}")
+        logging.info("-------------------------------------------------------------------")

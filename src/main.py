@@ -13,6 +13,7 @@ from upd_player_transitions_raw import upd_player_transitions_raw
 # from upd_players import update_player_table
 # from upd_players_licenses import update_player_licenses
 from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables
+from upd_player_rankings_raw import upd_player_rankings_raw
 
 def main():
 
@@ -29,7 +30,8 @@ def main():
 
         # Drop existing tables to ensure a clean slate
         drop_tables(cursor, [
-            # 'player_license',
+            # 'club',
+            # 'player_license'
             # 'player'
             # 'license'
             # 'season'
@@ -40,8 +42,8 @@ def main():
             # 'player_ranking', 
             # 'player_license'
             # 'player_license_raw',
-            'player_transition_raw'
-            # 'club'
+            # 'player_transition_raw'
+            'player_ranking_raw'
         ])
 
         # # # Create tables if they don't exist
@@ -55,23 +57,26 @@ def main():
 
         ################################################################################################
 
-        # 1. Scrape and update club data
+        # 1. Scrape and update club data.
         # upd_clubs()        
 
-        # 2. Scrape and populate player_license_raw table
+        # 2. Scrape and populate player_license_raw table. No dependency.
         # upd_player_licenses_raw()
 
-        # 3. Update player table
+        # 3. Update player table. Depends on player_license_raw.
         # upd_players()
 
-        # 4. Update player_ranking_group table
+        # 4. Update player_ranking_group table. Depends on player_license_raw.
         # upd_player_ranking_groups()
 
-        # 5. Update player license table
+        # 5. Update player license table. Depends on player_license_raw, club, player, season, and license tables.
         # upd_player_licenses()
 
-        # 6. Scrape and populate player_transition_raw table
-        upd_player_transitions_raw()
+        # 6. Scrape and populate player_transition_raw table. No dependency.
+        # upd_player_transitions_raw()
+
+        # Scrape clubs from rankings
+        upd_player_rankings_raw()
 
 
         ################################################################################################

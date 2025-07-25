@@ -678,7 +678,10 @@ def create_tables(cursor):
             name TEXT NOT NULL,
             city TEXT,
             country_code TEXT,
-            UNIQUE (name)
+            remarks TEXT,
+            link TEXT,
+            active INTEGER DEFAULT 1 CHECK (active IN (0, 1)),
+            UNIQUE (name),
             UNIQUE (club_id_ext)
         )
     ''')
@@ -771,7 +774,7 @@ def create_tables(cursor):
             UNIQUE (player_id, club_id_from, club_id_to, transition_date)
         )
     ''')
-                
+
     # Create player ranking group table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player_ranking_group (
@@ -793,6 +796,25 @@ def create_tables(cursor):
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (player_id, date),
             FOREIGN KEY (player_id) REFERENCES player(player_id)
+        )
+    ''')
+
+    # Create player ranking raw table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS player_ranking_raw (
+            row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER,
+            run_date DATE,
+            player_id_ext INTEGER,
+            firstname TEXT,
+            lastname TEXT,
+            year_born INTEGER,
+            club_name TEXT,
+            points INTEGER,
+            points_change_since_last INTEGER,
+            position_world INTEGER,
+            position INTEGER,
+            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
@@ -848,7 +870,7 @@ def create_and_populate_static_tables(cursor):
         )
     ''')
 
-    # Define classes
+    # Define ranking groups
     classes = [
         ('H', 2250, 100000, 'Elitklass (minst 2250 p)', 'HE'),
         ('H', 2000, 2249, 'Klass 1 (2000-2249 p)', 'H1'),
@@ -874,7 +896,7 @@ def create_and_populate_static_tables(cursor):
         ('HD', 0, 999, 'Ungdom u1000 (0-999)', 'u1000')
     ]
 
-    # Insert classes with IGNORE to avoid duplicates if rerun
+    # Insert ranking groups
     cursor.executemany('''
         INSERT OR IGNORE INTO ranking_group 
         (gender, min_rank, max_rank, class_description, class_short)
@@ -916,7 +938,7 @@ def create_and_populate_static_tables(cursor):
         (39, '2010-07-01', '2011-06-30', 2010, 2011, '2010-11', 'Licens 10/11')
     ]
 
-    # Insert seasons with IGNORE to avoid duplicates if rerun
+    # Insert seasons
     cursor.executemany('''
         INSERT OR IGNORE INTO season
         (season_id_ext, season_start_date, season_end_date, season_start_year, season_end_year, season_description, season_label)
@@ -945,11 +967,246 @@ def create_and_populate_static_tables(cursor):
         ('Paralicens', '')
     ]
 
-    # Insert licenses with IGNORE to avoid duplicates if rerun
+    # Insert licenses 
     cursor.executemany('''
         INSERT OR IGNORE INTO license (license_type, license_age_group)
         VALUES (?, ?)
     ''', licenses)  
+
+    # Create player transition club mapping table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS player_transition_club_mapping (
+            club_name_raw TEXT NOT NULL,
+            club_name_mapped TEXT NOT NULL,
+            club_id_mapped INTEGER NOT NULL,
+            club_id_ext_mapped INTEGER NOT NULL,
+            remarks TEXT,
+            link TEXT,
+            UNIQUE (club_name_raw),
+            FOREIGN KEY (club_id_mapped) REFERENCES club(club_id),
+            FOREIGN KEY (club_id_ext_mapped) REFERENCES club(club_id_ext)
+        )
+    ''')
+
+    # Define club mappings
+    club_mappings = [
+        ('Allerums Bordtennissällskap', 'Allerums GIF', 2646, 5),
+        ('Askims PK', 'Askims BTK', 2659, 13),
+        ('Askims BTS', 'Askims BTK', 2659, 13),
+        ('Aspuddens BTK', 'No match', None, None),
+        ('BTF Warta', 'BTK Warta', 2736, 48),
+        ('BTS Warta', 'BTK Warta', 2736, 48),
+        ('BTK Kviberg', 'BTK Kviberg', 2716, 40),
+        ('BTK Lesseboiterna', 'Lessebo BTK', 3011, 237),
+        ('BTK Loket', 'BTK Loket', 2701, 31),
+        ('BTK Munken', 'BTK Munken', 2710, 37),
+        ('BTK Nissan', 'BTK Nissan', 2714, 38),
+        ('BTK Smaragd', 'BTK Smaragd', 2726, 45),
+        ('BTK Söder', 'BTK Söder', 2727, 46),
+        ('BTK Telje', 'BTK Telje', 2728, 47),
+        ('BTK Triss', 'BTK Triss', 2725, 44),
+        ('BTS Dalen', 'BTK Dalen', 2701, 31),
+        ('BTS Gunhild', 'No match', None, None),
+        ('BTsyd BTK', 'No match', None, None),
+        ('Bele Barkarby BTF', 'No match', None, None),
+        ('Blackebergs SK', 'No match', None, None),
+        ('Blåkulla BTK', 'No match', None, None),
+        ('Bollmora BTK', 'No match', None, None),
+        ('Bordtennisklubben Akvedukt', 'No match', None, None),
+        ('Bordtennisklubben Gruvan', 'No match', None, None),
+        ('Brännkyrka BTK', 'No match', None, None),
+        ('Cafe Norr BTF', 'No match', None, None),
+        ('Dala BTK', 'No match', None, None),
+        ('Dänningelanda BTS', 'Dänningelanda BTK', 2776, 81),
+        ('Eslövs BTK', 'Eslövs AI BTK', 2785, 88),
+        ('Eslövs PK', 'Eslövs AI BTK', 2785, 88),
+        ('Finspångs AIK Bordtennisklubb', 'Finspångs AIK', 2952, 91),
+        ('Fridtuna BTK', 'No match', None, None),
+        ('Götene Pingisklubb', 'Götene/Tor BTK', 2844, 125),
+        ('Hallsta BTK', 'Hallstahammars BTK', 2849, 129),
+        ('Hammarby Boll - och Pucksällskap', 'Hammarby IF BTF', 2783, 131),
+        ('Harbo IF', 'No match', None, None),
+        ('Heby/Runhällen BTK', 'Heby AIF', 2860, 135),
+        ('Helgonabackens Bordtennisklubb', 'No match', None, None),
+        ('Herrljunga PK', 'Herrljunga BTK', 2864, 137),
+        ('Hovmantorp GoIF', 'No match', None, None),
+        ('Hovsta IF', 'No match', None, None),
+        ('Hudiksvalls IF', 'Hudiksvalls IF BTK', 3654, 142),
+        ('Huvudsta BTK', 'No match', None, None),
+        ('Hysingsvik SK', 'No match', None, None),
+        ('Höganäs BTK', 'Halmstad BTK', 2850, 130),
+        ('Hörnebo SK', 'No match', None, None),
+        ('IF Brunskog United', 'No match', None, None),
+        ('IF Kil', 'No match', None, None),
+        ('IF Laputa PPP', 'No match', None, None),
+        ('IFK Hedemora BTK', 'No match', None, None),
+        ('IFK Täby', 'IFK Täby BTK', 2928, 174),
+        ('IFK Ölme', 'No match', None, None),
+        ('IK Studenterna i Umeå', 'No match', None, None),
+        ('IK Sturehov', 'No match', None, None),
+        ('Innerstans BTK', 'No match', None, None),
+        ('Islandstorgets SK', 'Islandstorgets SK', 3018, 241),
+        ('Juno BTK', 'IK Juno', 2909, 165),
+        ('Järva BTK', 'No match', None, None),
+        ('KFUK-KFUM:s IA Säffle', 'KFUM Jönköping IA', 2963, 204),
+        ('KFUM Bankeryds BTK', 'KFUM Bankeryd BTK', 2963, 204),
+        ('KFUM Kristianstad', 'KFUM Kristianstad BTF', 6204, 204),
+        ('KFUM Ljura Bordtennisklubb', 'KFUM Ljura BTK', 2966, 205),
+        ('KFUM Norrköping', 'KFUM Norrköping', 3059, 239),
+        ('KFUM Norrköping BTK', 'KFUM Norrköping BTK', 3059, 239),
+        ('KFUM Urania BTK', 'KFUM Urania BTK', 2966, 205),
+        ('Kalix BTK', 'Kalix BTK-Bordtennis', 24234, 197),
+        ('Korsbacka BTK', 'No match', None, None),
+        ('Kristianstad BTK', 'Kristianstad BTK', 2978, 214),
+        ('Kristianstad PK', 'Kristianstad PK', 2955, 195),
+        ('Kullens BTK', 'Kullåkra BTK', 2980, 216),
+        ('Kvarnby BTK', 'Kvarnby AK', 2982, 218),
+        ('Kvibille BTK', 'Kvibille BTK', 2955, 195),
+        ('Kärrbacka BTK', 'Kärrtorps BTK', 2985, 221),
+        ('Kärrtorps SK', 'Kärrtorps BTK', 2985, 221),
+        ('Kävlinge Pingisklubb', 'Kävlinge Pingisklubb', 2996, 232),
+        ('Köpingebro IF', 'No match', None, None),
+        ('Landeryds PK', 'Landeryds PK', 2963, 204),
+        ('Lekstorps BTK', 'Lekstorps IF', 3000, 236),
+        ('Lerums BTS', 'Lerums BTS', 3007, 242),
+        ('Lidhults GOIF', 'Lidhults GOIF', 2955, 195),
+        ('Lidhults PK', 'Lidhults PK', 2955, 195),
+        ('Limhamns BTK', 'Limhamns BTK', 3005, 241),
+        ('Lindsdals IF', 'Lindsdals IF', 3013, 249),
+        ('Linkeboda BTK', 'Linkeboda BTK', 3062, 299),
+        ('Linköpings BTK', 'Linköpings Pingisklubb', 3010, 246),
+        ('Linköpings BTS', 'Linköpings Pingisklubb', 3010, 246),
+        ('Linné IF', 'Linné IF', 3011, 247),
+        ('Linné Sydsport BTK', 'Linné Sydsport BTK', 3012, 248),
+        ('Ljunghusens MIF', 'Ljunghusens MIF', 3014, 250),
+        ('Ljusdals BTK', 'Ljusdals BTK', 3015, 351),
+        ('Ljusdalsfritid IK', 'Ljusdalsfritid IK', 3016, 352),
+        ('Ljusne Vallviks BTK', 'Ljusne Vallviks BTK', 3017, 353),
+        ('Lohärads IF', 'Lohärads IF', 3018, 354),
+        ('Lunds BTK', 'Lunds BTK', 3019, 355),
+        ('Lunds PK', 'Lunds PK', 3020, 356),
+        ('Lyckeby BTS', 'Lyckeby BTK', 3019, 355),
+        ('Lyckeby Bordtennisförening', 'Lyckeby BTK', 3019, 355),
+        ('Lysekils PK', 'Lysekils PK', 3021, 357),
+        ('Läckeby BTK', 'Läckeby BTK', 3022, 358),
+        ('Malmö BTK', 'Malmö IF', 3025, 361),
+        ('Mariedals BTK', 'Mariedals IK', 3026, 362),
+        ('Mattmar SK', 'Mattmar SK', 3077, 407),
+        ('Mellösa IF', 'Mellösa IF', 3039, 379),
+        ('Memnon IF', 'Memnon IF', 3080, 410),
+        ('Midsommarkransens BTK', 'Midsommarkransens BTK', 3081, 411),
+        ('Motala BTK', 'Motala BTK', 3032, 368),
+        ('Myrstugubergets IF', 'Myrstugubergets IF', 3082, 412),
+        ('Mölndals BTS', 'Mölndals BTK', 3034, 370),
+        ('Norco BTK', 'Norco BTK', 3039, 379),
+        ('Norra Härene GOIF', 'Norra Härene GOIF', 3041, 381),
+        ('Norre Port BTK', 'Norre Port BTK', 3042, 382),
+        ('Norrtulls BTK', 'Norrtulls SK', 3043, 383),
+        ('Norsholms IF', 'Norsholms IF', 3044, 384),
+        ('Nybban Pingisklubb', 'Nybban Pingisklubb', 3045, 385),
+        ('Nybro Pingisklubb', 'Nybro Pingisklubb', 3046, 386),
+        ('Oden BTK', 'Oden BTK', 3047, 387),
+        ('Olofströms BTK', 'Olofströms BTK', 3048, 388),
+        ('Onsala BTK', 'Onsala BTK', 3049, 389),
+        ('Orminge BTK', 'Orminge BTK', 3050, 390),
+        ('Oskarshamns PK', 'Oskarshamns PK', 3051, 391),
+        ('Ovansiljans Pingisklubb', 'Ovansiljans Sportklubb', 3052, 392),
+        ('Oxie SK', 'Oxie SK', 3053, 393),
+        ('PK Force', 'PK Force', 3054, 394),
+        ('PK GV', 'PK GV', 3055, 395),
+        ('PK Södertälje', 'PK Södertälje', 3056, 396),
+        ('PK Waldners Vänner', 'PK Waldners Vänner', 3057, 397),
+        ('PK Österlen', 'PK Österlen', 3058, 398),
+        ('Partille BTK', 'Partille BTK', 3059, 399),
+        ('Partille BTS', 'Partille BTS', 3060, 400),
+        ('Peng Da Bordtennisklubb', 'Peng Da Bordtennisklubb', 3061, 401),
+        ('RK Fisklir', 'RK Fisklir', 3062, 402),
+        ('Rantens BTK', 'Rantens BTK', 3063, 403),
+        ('Riddaren BTK', 'Riddaren BTK', 3064, 404),
+        ('Rimbo BTK', 'Rimbo BTK', 3065, 405),
+        ('Roma IF', 'Roma IF', 3066, 406),
+        ('Ronneby BTK', 'Ronneby BTK', 3067, 407),
+        ('Rotebro PK', 'Rotebro BTK', 3068, 408),
+        ('Runhällens BOIS', 'Runhällens BOIS', 3069, 409),
+        ('Råcksta SK', 'Råcksta SK', 3070, 410),
+        ('Råda-Hindås BTK', 'Råda-Hindås BTK', 3071, 411),
+        ('Råda-Hindås BTS', 'Råda-Hindås BTK', 3071, 411),
+        ('Råslätts PK', 'Råslätts PK', 3072, 412),
+        ('Råå BTK', 'Råå BTK', 3073, 413),
+        ('Rönninge SK BTF', 'Rönninge SK BTF', 3074, 414),
+        ('SK Iron', 'SK Iron', 3075, 415),
+        ('SUIF 2000', 'SUIF 2000', 3076, 416),
+        ('Sandåkerns SK', 'Sandåkerns SK', 3077, 417),
+        ('Sessmans BTK', 'Sems FF', 3070, 406),
+        ('Sickla IF', 'Sickla IF', 3074, 418),
+        ('Sjöbo Pingisklubb', 'Sjöbo BTK', 3077, 417),
+        ('Skepptuna IK', 'Skepptuna IK', 3078, 418),
+        ('Skillingaryds BTK', 'Skillingaryds BTK', 3079, 419),
+        ('Skurups PK', 'Skurups BTK', 3082, 418),
+        ('Skövde BTK', 'Skövde PK', 3088, 424),
+        ('Skövde FK', 'Skövde PK', 3088, 424),
+        ('Solsta BTK', 'Solsta BTK', 3089, 425),
+        ('Steninge GoIF', 'Steninge GoIF', 3090, 426),
+        ('Stenkumla BTK', 'Stenkumla BTK', 3091, 427),
+        ('Stocksunds BTK', 'Stocksunds BTK', 3092, 428),
+        ('Stratos Enköping IF', 'Stratos Enköping BTK', 3097, 433),
+        ('Stratos Enköping PS', 'Stratos Enköping BTK', 3097, 433),
+        ('Stratos Enköpings PK', 'Stratos Enköping BTK', 3097, 433),
+        ('Strövelstorp BTK', 'Strövelstorp BTK', 3100, 436),
+        ('Styrnäs BTK', 'Styrnäs BTK', 3101, 437),
+        ('Sunnersta BTK', 'Sunnersta AIF', 3104, 440),
+        ('Sunnersta Bordtennisklubb', 'Sunnersta AIF', 3104, 440),
+        ('Sunnersta PS', 'Sunnersta AIF', 3104, 440),
+        ('Sunnersta Pingissällskap', 'Sunnersta AIF', 3104, 440),
+        ('Svanesunds PK', 'Svanesunds GIF', 3105, 441),
+        ('Svedala BTK', 'Svedala BTK', 3109, 445),
+        ('Söderbrons BTK', 'Söderbrons BTK', 3110, 446),
+        ('Söderhamns PK', 'Söderhamns PK', 3111, 447),
+        ('Söderkulla BTK', 'Söderkulla BTK', 3112, 448),
+        ('Söderkulla IK', 'Söderkulla IK', 3113, 449),
+        ('Södertälje PS', 'Södertälje PS', 3114, 450),
+        ('Tabergs PK', 'Tabergs PK', 3115, 451),
+        ('Telia IoFF', 'Telia IoFF', 3116, 452),
+        ('Tierps BTK', 'Tierps BTK', 3117, 453),
+        ('Timrå AIF', 'Timrå AIF', 3118, 454),
+        ('Tjörns BTK', 'Tjörns BTK', 3119, 455),
+        ('Torrbergs Bordtennisklubb', 'Torrbergs Bordtennisklubb', 3120, 456),
+        ('Trollbäckens BTK', 'Trollbäckens BTK', 3121, 457),
+        ('Tullbrons BTK', 'Tullbrons BTK', 3122, 458),
+        ('Tullinge PK', 'Tullinge TP BTK', 3131, 467),
+        ('Tuna BTK', 'Tuna BTK', 3132, 468),
+        ('Täby BTK', 'Täby BTK', 3133, 469),
+        ('Täfteå IK', 'Täfteå IK', 3134, 470),
+        ('Tålebo BTK', 'Tålebo Bordtennisklubb', 3133, 469),
+        ('Tölö BTK', 'Tölö BTK', 3135, 471),
+        ('Tölö IF', 'Tölö IF', 3136, 472),
+        ('Ulvsunda IF', 'Ulvsunda IF', 3137, 473),
+        ('Umeå BTS', 'Umeå BTS', 3138, 474),
+        ('Umeå PK', 'Umeå PK', 3139, 475),
+        ('Umeå PS', 'Umeå PS', 3140, 476),
+        ('VIK-47', 'VIK-47', 3141, 477),
+        ('VMA IK', 'VMA IK', 3142, 478),
+        ('Valla BTK', 'Valla BTK', 3143, 479),
+        ('Varamons Ping-Pong Pojkar', 'Varamons Ping-Pong Pojkar', 3144, 480),
+        ('Vartofta SK', 'Vartofta SK', 3145, 481),
+        ('Vasastans Bordtennisklubb', 'Vasastans Bordtennisklubb', 3146, 482),
+        ('Vegby SK', 'Vegby SK', 3147, 483),
+        ('Vendelsö IK', 'Vendelsö IK', 3148, 484),
+        ('Vikingstad BTK', 'Vikingstad BTK', 3149, 485),
+        ('Vikingstad SK', 'Vikingstad SK', 3150, 486),
+        ('Vinbergs BTK', 'Vinbergs BTK', 3151, 487),
+        ('Vindelälvens BTK', 'Vindelälvens BTK', 3152, 488),
+        ('Virebergs BTK', 'Virebergs BTK', 3153, 489),
+        ('Vällingby SK', 'Vällingby SK', 3154, 490),
+        ('Vällingby SK', 'Vällingby SK', 3154, 490)
+    ]
+
+    # Insert club mappings
+    cursor.executemany('''
+        INSERT OR IGNORE INTO player_transition_club_mapping 
+        (club_name_raw, club_name_mapped, club_id_mapped, club_id_ext_mapped)
+        VALUES (?, ?, ?, ?)
+    ''', club_mappings)
 
 def create_indexes(cursor):
 
