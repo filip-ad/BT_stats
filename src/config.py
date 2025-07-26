@@ -16,3 +16,4 @@ SCRAPE_MAX_CLUBS = 0    # How many clubs to iterate, 0 for all clubs
 SCRAPE_SEASONS = 0      # Amount of seasons to iterate for each club, always starting with the oldest, 0 for all seasons
 
 SCRAPE_RANKING_RUNS = 2         # How many rankings runs to scrape, 0 for all runs
+SCRAPE_RANKING_ORDER = "oldest"  # Order of ranking runs to scrape, "oldest" or "newest"

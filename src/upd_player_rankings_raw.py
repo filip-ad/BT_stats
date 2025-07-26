@@ -1,13 +1,16 @@
 # src/upd_player_rankings_raw.py
 
+from concurrent.futures import wait
 import logging
+from pdb import run
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
+from selenium.common.exceptions import TimeoutException
 from collections import defaultdict
 from utils import setup_driver, print_db_insert_results, parse_date
-from config import SCRAPE_RANKING_RUNS
+from config import SCRAPE_RANKING_RUNS, SCRAPE_RANKING_ORDER
 from db import get_conn
 from bs4 import BeautifulSoup
 
@@ -40,10 +43,7 @@ def scrape_player_rankings(driver, cursor, url, gender):
     total_inserted = 0
     total_inserted_skipped = 0
     
-    
     try:
-
-
 
         driver.get(url)
         wait = WebDriverWait(driver, 10)
@@ -54,35 +54,56 @@ def scrape_player_rankings(driver, cursor, url, gender):
         runs = [(opt.get_attribute("value"), opt.text.strip()) for opt in select.options if opt.get_attribute("value")]
         # runs = [(opt.get_attribute("value"), opt.text.strip()) for opt in select.options if opt.get_attribute("value")]
 
+        if SCRAPE_RANKING_ORDER.lower() == 'oldest':
+            # Reverse the list to process from oldest to newest
+            logging.info("Reversing runs to process from oldest to newest.")
+            print("ℹ️  Reversing runs to process from oldest to newest.")
+            runs = runs[::-1] # Reverse the list to process from oldest to newest. Comment this line to process from newest to oldest.
+
         if SCRAPE_RANKING_RUNS > 0:
-            runs = runs[:SCRAPE_RANKING_RUNS]
+            runs = runs[:SCRAPE_RANKING_RUNS]            
+
+        # Print all runs to be scraped in the order they will be processed
+        print(f"ℹ️  Runs to be scraped for {gender} in order: {[(run_id, date) for run_id, date in runs]}")
+        logging.info(f"Runs to be scraped for {gender} in order: {[(run_id, date) for run_id, date in runs]}")
 
         for run in runs:
-
-            run_id_str, run_date_str = run
-            print(f"ℹ️  Processing ranking run: {run_id_str} (ID: {run_date_str}) for {gender}")
-            logging.info(f"Processing ranking run: {run_id_str} (ID: {run_date_str}) for {gender}")
 
             run_scraped = 0
             run_scraped_skipped = 0
             run_inserted = 0
             run_inserted_skipped = 0
-
+            
+            run_id_str, run_date_str = run
             run_id = None
             if run_id_str.isdigit():
                 run_id = int(run_id_str)
             else:
                 logging.warning(f"⚠️  Invalid run_id value: '{run_id_str}'")
                 continue
-
             run_date = parse_date(run_date_str, context="upd_player_rankings_raw: Parsing player ranking run date")
 
+            print(f"ℹ️  Processing ranking run: {run_id_str} (ID: {run_date_str}) for {gender}")
+            logging.info(f"Processing ranking run: {run_id_str} (ID: {run_date_str}) for {gender}")
+
+            # Re-locate and select the new run
+            select_element = wait.until(EC.presence_of_element_located((By.NAME, "rid")))
+            select = Select(select_element)
+            select.select_by_value(str(run_id))
+            
             # Click the submit button
             submit_button = driver.find_element(By.CSS_SELECTOR, 'input[type="submit"][value="Sök"]')
             submit_button.click()
 
             # Wait for the table to be present after submission
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "table.table.table-condensed.table-hover.table-striped")))
+
+            # Then, wait specifically for a span in the table whose id contains the new run_id (confirms data refresh)
+            try:
+                wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, f'span[id*=":{run_id}:"]')))
+            except TimeoutException:
+                logging.warning(f"Timeout waiting for table update to run_id {run_id}. Scraping may use stale data.")
+                print(f"⚠️ Timeout waiting for table update to run_id {run_id}.")
 
             soup = BeautifulSoup(driver.page_source, "html.parser")
             table = soup.find("table", class_="table table-condensed table-hover table-striped")
@@ -194,19 +215,21 @@ def scrape_player_rankings(driver, cursor, url, gender):
                 run_scraped += 1
 
                 # Debug log to inspect data
-                logging.info({
-                    "run_id": run_id,
-                    "run_date": run_date,
-                    "player_id_ext": player_id_ext,
-                    "firstname": firstname,
-                    "lastname": lastname,
-                    "year_born": year_born,
-                    "club_name": club_name,
-                    "position_world": position_world,
-                    "position": position,
-                    "points": points,
-                    "points_change_since_last": points_change_since_last
-                })
+                if player_id_ext == 14450:
+
+                    logging.info({
+                        "run_id": run_id,
+                        "run_date": run_date,
+                        "player_id_ext": player_id_ext,
+                        "firstname": firstname,
+                        "lastname": lastname,
+                        "year_born": year_born,
+                        "club_name": club_name,
+                        "position_world": position_world,
+                        "position": position,
+                        "points": points,
+                        "points_change_since_last": points_change_since_last
+                    })
 
                 try:
                     cursor.execute("""
