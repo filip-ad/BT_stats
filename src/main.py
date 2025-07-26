@@ -46,11 +46,11 @@ def main():
             'player_ranking_raw'
         ])
 
-        # # # Create tables if they don't exist
+        # Create tables if they don't exist
         create_tables(cursor)  
 
         # Create static tables
-        # create_and_populate_static_tables(cursor)
+        create_and_populate_static_tables(cursor)
 
         conn.commit()
         conn.close()

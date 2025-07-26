@@ -7,9 +7,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from collections import defaultdict
 from utils import setup_driver, print_db_insert_results, parse_date
-from config import LICENSES_URL, SCRAPE_RANKING_RUNS
+from config import SCRAPE_RANKING_RUNS
 from db import get_conn
-from models.club import Club
 from bs4 import BeautifulSoup
 
 def upd_player_rankings_raw():
@@ -20,16 +19,13 @@ def upd_player_rankings_raw():
     try:
         logging.info("Starting player ranking scraping process...")
         print("ℹ️  Starting player ranking scraping process...")
-        db_results = scrape_player_rankings(driver, cursor)
+        scrape_player_rankings(driver, cursor, 'https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_list.php?gender=m', 'Men')
+        scrape_player_rankings(driver, cursor, 'https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_list.php?gender=k', 'Women')
 
-        if db_results:
-            logging.info(f"Successfully scraped {len(db_results)} player rankings.")
-            print(f"✅ Successfully scraped {len(db_results)} player rankings.")
-            print_db_insert_results(db_results)
+    except Exception as e:
+        logging.error(f"An error occurred while scraping player rankings: {e}")
+        print(f"❌ An error occurred while scraping player rankings: {e}")
 
-        else:
-            logging.warning("No player rankings scraped.")
-            print("⚠️  No player rankings scraped.")
 
     finally:
         logging.info("-------------------------------------------------------------------")
@@ -37,34 +33,47 @@ def upd_player_rankings_raw():
         conn.commit()
         conn.close()
 
-def scrape_player_rankings(driver, cursor):
-    player_rankings = []
-    db_results = []
-    total_skipped = 0
+def scrape_player_rankings(driver, cursor, url, gender):
+
+    total_scraped = 0
+    total_scraped_skipped = 0
+    total_inserted = 0
+    total_inserted_skipped = 0
+    
     
     try:
-        driver.get('https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_list.php?gender=m')
+
+
+
+        driver.get(url)
         wait = WebDriverWait(driver, 10)
 
-        # Find the select for körning and get all non-empty values
+        # Find the select for run and get all non-empty values
         select_element = wait.until(EC.presence_of_element_located((By.NAME, "rid")))
         select = Select(select_element)
         runs = [(opt.get_attribute("value"), opt.text.strip()) for opt in select.options if opt.get_attribute("value")]
         # runs = [(opt.get_attribute("value"), opt.text.strip()) for opt in select.options if opt.get_attribute("value")]
 
         if SCRAPE_RANKING_RUNS > 0:
-            run = runs[:SCRAPE_RANKING_RUNS]
+            runs = runs[:SCRAPE_RANKING_RUNS]
 
         for run in runs:
 
             run_id_str, run_date_str = run
-            print(f"ℹ️  Processing körning: {run_id_str} (ID: {run_date_str})")
+            print(f"ℹ️  Processing ranking run: {run_id_str} (ID: {run_date_str}) for {gender}")
+            logging.info(f"Processing ranking run: {run_id_str} (ID: {run_date_str}) for {gender}")
+
+            run_scraped = 0
+            run_scraped_skipped = 0
+            run_inserted = 0
+            run_inserted_skipped = 0
 
             run_id = None
             if run_id_str.isdigit():
                 run_id = int(run_id_str)
             else:
                 logging.warning(f"⚠️  Invalid run_id value: '{run_id_str}'")
+                continue
 
             run_date = parse_date(run_date_str, context="upd_player_rankings_raw: Parsing player ranking run date")
 
@@ -79,11 +88,9 @@ def scrape_player_rankings(driver, cursor):
             table = soup.find("table", class_="table table-condensed table-hover table-striped")
             
             if not table:
-                logging.warning(f"No table found.")
-                print(f"⚠️ No table found.")
+                logging.warning(f"No table found for ranking run: {run_id_str} (ID: {run_date_str})")
+                print(f"⚠️ No table found for ranking run: {run_id_str} (ID: {run_date_str})")
                 continue
-            
-            print(f"Table found for körning: {run}, processing rows...")
 
             tbody = table.find("tbody")
             if not tbody:
@@ -93,7 +100,7 @@ def scrape_player_rankings(driver, cursor):
                 cols = row.find_all("td")
                 
                 if len(cols) != 7:
-                    print("Skipping row with unexpected number of columns.")
+                    logging.debug("Skipping row with unexpected number of columns.")
                     continue
 
                 # Extract player_id_ext from span in name column
@@ -105,12 +112,15 @@ def scrape_player_rankings(driver, cursor):
                         try:
                             player_id_ext = int(id_parts[1])
                         except ValueError:
-                            logging.warning(f"Invalid player_id_ext value: {id_parts[1]}")
-                            print(f"⚠️  Invalid player_id_ext value: {id_parts[1]}")
-                            pass
+                            logging.warning(f"Invalid player_id_ext value: {id_parts[1]}, row skipped.")
+                            print(f"⚠️  Invalid player_id_ext value: {id_parts[1]}, row skipped.")
+                            run_scraped_skipped += 1
+                            continue
 
                 if player_id_ext is None:
                     logging.warning("Skipping row without valid player_id_ext.")
+                    print("⚠️  Skipping row without valid player_id_ext.")
+                    run_scraped_skipped += 1
                     continue
 
                 # Fullname from span or td
@@ -120,25 +130,37 @@ def scrape_player_rankings(driver, cursor):
                 else:
                     firstname = None
                     lastname = fullname
-                    logging.warning(f"⚠️  Could not parse fullname: '{fullname}'")
+                    logging.warning(f"Could not parse fullname: '{fullname}', skipping row.")
+                    print(f"⚠️  Could not parse fullname: '{fullname}', skipping row.")
+                    run_scraped_skipped += 1
+                    continue
+                    
 
                 year_born_str = cols[3].get_text(strip=True)
                 year_born = None
                 if year_born_str.isdigit() and len(year_born_str) == 4:
                     year_born = int(year_born_str)
                 else:
-                    logging.warning(f"⚠️  Invalid year_born value: '{year_born_str}'")
+                    logging.warning(f"Invalid year_born value: '{year_born_str}', skipping row.")
+                    print(f"⚠️  Invalid year_born value: '{year_born_str}', skipping row.")
+                    run_scraped_skipped += 1
+                    continue
 
                 club_name_raw = cols[4].get_text(strip=True)
                 club_name = club_name_raw.rstrip('*')
 
                 position_world_str = cols[0].get_text(strip=True)
-                # Extract the last number after space, e.g., "WR06 1" -> 1
-                try:
-                    position_world = int(position_world_str.split()[-1])
-                except (ValueError, IndexError):
-                    position_world = 0
-                    logging.warning(f"⚠️ Invalid position_world value: '{position_world_str}'")
+
+                # Extract number after "WR" and ignore the rest
+                if position_world_str.startswith("WR"):
+                    wr_part = position_world_str.split()[0]  # "WR06 1" -> "WR06"
+                    try:
+                        position_world = int(wr_part[2:])  # "06" -> 6
+                    except ValueError:
+                        position_world = 0
+                        logging.warning(f"⚠️ Could not parse WR number from: '{position_world_str}', defaulting to 0.")
+                else:
+                    position_world = 0  # Not a world-ranked player
 
                 position_str = cols[1].get_text(strip=True)
                 # Remove parentheses and convert to int
@@ -146,25 +168,33 @@ def scrape_player_rankings(driver, cursor):
                     clean_position = position_str.strip("()")
                     position = int(clean_position) if clean_position else 0
                 except ValueError:
-                    position = 0
-                    logging.warning(f"⚠️ Invalid position value: '{position_str}'")
+                    logging.warning(f"Invalid position value: '{position_str}'")
+                    print(f"⚠️ Invalid position value: '{position_str}'")
+                    run_scraped_skipped += 1
+                    continue
 
                 points_str = cols[5].get_text(strip=True)
                 try:
                     points = int(points_str)
                 except ValueError:
-                    points = 0
-                    logging.warning(f"⚠️ Invalid points value: '{points_str}'")
+                    logging.warning(f"Invalid points value: '{points_str}'")
+                    print(f"⚠️ Invalid points value: '{points_str}'")
+                    run_scraped_skipped += 1
+                    continue
 
                 points_change_since_last_str = cols[6].get_text(strip=True).strip("()")
                 try:
                     points_change_since_last = int(points_change_since_last_str) if points_change_since_last_str else 0
                 except ValueError:
-                    points_change_since_last = 0
-                    logging.warning(f"⚠️ Invalid points_change_since_last value: '{points_change_since_last_str}'")
+                    logging.warning(f"Invalid points_change_since_last value: '{points_change_since_last_str}'")
+                    print(f"⚠️ Invalid points_change_since_last value: '{points_change_since_last_str}'")
+                    run_scraped_skipped += 1
+                    continue
+
+                run_scraped += 1
 
                 # Debug log to inspect data
-                logging.debug({
+                logging.info({
                     "run_id": run_id,
                     "run_date": run_date,
                     "player_id_ext": player_id_ext,
@@ -207,21 +237,32 @@ def scrape_player_rankings(driver, cursor):
                         position
                     ))
 
-                    if cursor.rowcount > 0:
-                        db_results.append((run_date, player_id_ext, firstname, lastname, year_born, club_name, points, points_change_since_last, position_world, position))
+                    if cursor.rowcount == 0:
+                        run_inserted_skipped += 1
                     else:
-                        total_skipped += 1
-                        logging.warning(f"Record already exists, skipping insert for player_id_ext: {player_id_ext} on run_date: {run_date}")
+                        run_inserted += 1
 
                 except Exception as e:
-                    total_skipped += 1
+                    run_inserted_skipped += 1
                     logging.error(f"Failed to insert record for player_id_ext: {player_id_ext} on run_date: {run_date}: {e}")
 
-            if total_skipped > 0:
-                print(f"⚠️ Skipped {total_skipped} duplicate or invalid records.")
+            print(f"ℹ️  Processed ranking run: {run_id_str} (ID: {run_date_str}) for {gender} - "
+                f"Scraped: {run_scraped}, scrape skips: {run_scraped_skipped}, "
+                f"inserted to db: {run_inserted}, insert skips: {run_inserted_skipped}")
+            logging.info(f"Processed ranking run: {run_id_str} (ID: {run_date_str}) for {gender} - "
+                        f"Scraped: {run_scraped}, scrape skips: {run_scraped_skipped}, "
+                        f"inserted to db: {run_inserted}, insert skips: {run_inserted_skipped}")
+
+            total_scraped += run_scraped
+            total_scraped_skipped += run_scraped_skipped
+            total_inserted += run_inserted  
+            total_inserted_skipped += run_inserted_skipped
+
+        logging.info(f"Total rankings scraped for {gender}: {total_scraped}, scrape skipped: {total_scraped_skipped}, "
+                     f"inserted to db: {total_inserted}, insert skips: {total_inserted_skipped}")
+        print(f"✅ Total rankings scraped for {gender}: {total_scraped}, scrape skipped: {total_scraped_skipped}, "
+              f"inserted to db: {total_inserted}, insert skips: {total_inserted_skipped}")
 
     except Exception as e:
         logging.error(f"An error occurred while scraping player rankings: {e}")
         print(f"❌ An error occurred while scraping player rankings: {e}")
-
-    return db_results

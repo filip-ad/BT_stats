@@ -97,7 +97,7 @@ def scrape_transitions(driver, cursor):
             rows = table.find_all("tr")
             logging.debug(f"Number of rows found in transitions table: {len(rows)}")        
 
-            transitions = []
+            # transitions = []
 
             for i, row in enumerate(rows):
                 if "tabellhode" in row.get("class", []):
@@ -144,17 +144,17 @@ def scrape_transitions(driver, cursor):
                     "transition_date": transition_date
                 })
 
-                transitions.append({
-                    "season_id_ext": season_id_ext,
-                    "season_label": season_label,
-                    "firstname": firstname,
-                    "lastname": lastname,
-                    "date_born": date_born,
-                    "year_born": year_born,
-                    "club_from": club_from,
-                    "club_to": club_to,
-                    "transition_date": transition_date,
-                })
+                # transitions.append({
+                #     "season_id_ext": season_id_ext,
+                #     "season_label": season_label,
+                #     "firstname": firstname,
+                #     "lastname": lastname,
+                #     "date_born": date_born,
+                #     "year_born": year_born,
+                #     "club_from": club_from,
+                #     "club_to": club_to,
+                #     "transition_date": transition_date,
+                # })
                 season_scraped += 1
 
                 try:

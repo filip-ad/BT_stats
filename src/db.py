@@ -814,7 +814,8 @@ def create_tables(cursor):
             points_change_since_last INTEGER,
             position_world INTEGER,
             position INTEGER,
-            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (run_id, player_id_ext)
         )
     ''')
 
