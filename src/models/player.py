@@ -1,6 +1,7 @@
 # src/models/player.py
 
 from dataclasses import dataclass
+from typing import Optional
 
 @dataclass
 class Player:
@@ -8,6 +9,7 @@ class Player:
     firstname: str
     lastname: str
     year_born: int
+    player_id: Optional[int] = None  # Add this optional field for internal ID, as it is not know at the time of creation
 
     @staticmethod
     def from_dict(data: dict):
@@ -63,3 +65,63 @@ class Player:
                 "player": f"{self.firstname} {self.lastname}",
                 "reason": f"Insertion error: {e}"
             }
+
+    @staticmethod
+    def get_by_id_ext(cursor, player_id_ext: int) -> Optional['Player']:
+        """Retrieve a Player instance by player_id_ext, or None if not found."""
+        try:
+            cursor.execute("""
+                SELECT player_id, player_id_ext, firstname, lastname, year_born
+                FROM player WHERE player_id_ext = ?
+            """, (player_id_ext,))
+            row = cursor.fetchone()
+            if row:
+                return Player.from_dict({
+                    "player_id": row[0],
+                    "player_id_ext": row[1],
+                    "firstname": row[2],
+                    "lastname": row[3],
+                    "year_born": row[4]
+                })
+            return None
+        except Exception as e:
+            return {
+                "status": "failed",
+                "player": f"Unknown Player",
+                "reason": f"Error retrieving player by player_id_ext {player_id_ext}: {e}"
+            }
+
+    @staticmethod
+    def get_by_id(cursor, player_id: int) -> Optional['Player']:
+        """Retrieve a Player instance by internal player_id, or None if not found."""
+        try:
+            cursor.execute("""
+                SELECT player_id, player_id_ext, firstname, lastname, year_born
+                FROM player WHERE player_id = ?
+            """, (player_id,))
+            row = cursor.fetchone()
+            if row:
+                return Player.from_dict({
+                    "player_id": row[0],
+                    "player_id_ext": row[1],
+                    "firstname": row[2],
+                    "lastname": row[3],
+                    "year_born": row[4]
+                })
+            return None
+        except Exception as e:
+            return {
+                "status": "failed",
+                "player": f"Unknown Player",
+                "reason": f"Error retrieving player by player_id {player_id}: {e}"
+            }
+
+    def validate_against(self, other: 'Player') -> bool:
+        """
+        Validate if this player's data matches another's, ignoring player_id.
+        Assumes both are sanitized.
+        """
+        return (self.player_id_ext == other.player_id_ext and
+                self.firstname == other.firstname and
+                self.lastname == other.lastname and
+                self.year_born == other.year_born)

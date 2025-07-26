@@ -9,7 +9,8 @@ from upd_player_licenses_raw import upd_player_licenses_raw
 from upd_player_ranking_groups import upd_player_ranking_groups
 from upd_player_licenses import upd_player_licenses
 from upd_player_transitions_raw import upd_player_transitions_raw
-from upd_player_rankings_raw_popup import upd_player_rankings_raw_popup
+from upd_player_rankings import upd_player_rankings
+# from src.utils_scripts.upd_player_rankings_raw_popup import upd_player_rankings_raw_popup
 # from scrape_player_licenses import get_player_license_table_raw
 # from upd_players import update_player_table
 # from upd_players_licenses import update_player_licenses
@@ -58,6 +59,10 @@ def main():
 
         ################################################################################################
 
+        #
+        # Describe all functions, what they do, what tables are updated, variables etc etc
+        #
+
         # 1. Scrape and update club data.
         # upd_clubs()        
 
@@ -78,7 +83,6 @@ def main():
 
         # Scrape clubs from rankings
         upd_player_rankings_raw()
-        # upd_player_rankings_raw_popup()
 
 
         ################################################################################################

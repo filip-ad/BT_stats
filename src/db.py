@@ -790,11 +790,14 @@ def create_tables(cursor):
     # Create player ranking table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player_ranking (
-            player_id INTEGER NOT NULL,
-            date DATE,
-            ranking_points INTEGER NOT NULL,
-            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (player_id, date),
+            run_id INTEGER NOT NULL,
+            run_date DATE NOT NULL,
+            player_id INTEGER NOT NULL, 
+            points INTEGER NOT NULL,
+            points_change_since_last INTEGER NOT NULL,
+            position_world INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (player_id, run_date),
             FOREIGN KEY (player_id) REFERENCES player(player_id)
         )
     ''')

@@ -4,13 +4,12 @@ from db import get_conn, get_from_db_season
 import re
 from datetime import datetime
 import logging
-from collections import defaultdict
 from models.player_license import PlayerLicense
 from utils import print_db_insert_results
 
 def upd_player_licenses():
     conn, cursor = get_conn()
-    load_results = []
+    db_results = []
 
     try:
         logging.info("Updating player licenses...")
@@ -56,7 +55,7 @@ def upd_player_licenses():
             if not license_part:
                 logging.warning(f"Empty license part after splitting: {license_part}")
                 print(f"⚠️ Empty license part after splitting: {license_part}")
-                load_results.append({
+                db_results.append({
                     "status": "failed",
                     "row_id": row_id,
                     "reason": "Empty license part after splitting"
@@ -67,7 +66,7 @@ def upd_player_licenses():
             match = license_regex.search(license_part)
             if not match:
                 logging.warning(f"Invalid license format: {license_part}")
-                load_results.append({
+                db_results.append({
                     "status": "failed",
                     "row_id": row_id,
                     "reason": "Invalid license format"
@@ -106,7 +105,7 @@ def upd_player_licenses():
                 if current_index > 0:  # Not the earliest
                     logging.warning(f"Duplicate license detected for player_id_ext {player_id_ext}: {license_type} "
                                 f"(age group: {license_age_group}) for club_id_ext {club_id_ext}, season_id_ext {season_id_ext}")
-                    load_results.append({
+                    db_results.append({
                         "status": "failed",
                         "row_id": row_id,
                         "reason": "Player has duplicate license type and age group for the same club and season"
@@ -119,7 +118,7 @@ def upd_player_licenses():
             except Exception as e:
                 msg = f"Date parsing error for {license_part}: {e}"
                 logging.warning(msg)
-                load_results.append({
+                db_results.append({
                     "status": "failed",
                     "row_id": row_id,
                     "reason": msg
@@ -130,7 +129,7 @@ def upd_player_licenses():
             if not season_data:
                 msg = f"No matching season found for season_label '{season_label}'"
                 logging.warning(msg)
-                load_results.append({
+                db_results.append({
                     "status": "failed",
                     "row_id": row_id,
                     "reason": msg
@@ -145,7 +144,7 @@ def upd_player_licenses():
             if not player_result:
                 msg = f"Foreign key violation: player_id_ext {player_id_ext} does not exist in player table"
                 logging.warning(msg)
-                load_results.append({
+                db_results.append({
                     "status": "failed",
                     "row_id": row_id,
                     "reason": msg
@@ -159,7 +158,7 @@ def upd_player_licenses():
             if not club_result:
                 msg = f"Foreign key violation: club_id_ext {club_id_ext} does not exist in club table"
                 logging.warning(msg)
-                load_results.append({
+                db_results.append({
                     "status": "failed",
                     "row_id": row_id,
                     "reason": msg
@@ -173,7 +172,7 @@ def upd_player_licenses():
             if not season_result:
                 msg = f"Foreign key violation: season_id_ext {season_id_ext} does not exist in season table"
                 logging.warning(msg)
-                load_results.append({
+                db_results.append({
                     "status": "failed",
                     "row_id": row_id,
                     "reason": msg
@@ -192,7 +191,7 @@ def upd_player_licenses():
             if not license_result:
                 msg = f"Foreign key violation: license_type {license_type} and age group {license_age_group} do not exist in license table"
                 logging.warning(msg)
-                load_results.append({
+                db_results.append({
                     "status": "failed",
                     "row_id": row_id,
                     "reason": msg
@@ -212,14 +211,14 @@ def upd_player_licenses():
 
             # Save to database
             result = player_license.save_to_db(cursor)
-            load_results.append(result)
+            db_results.append(result)
             
-        print_db_insert_results(load_results)
+        print_db_insert_results(db_results)
 
     except Exception as e:
         logging.error(f"Failed to process licenses: {e}")
         print(f"❌ Failed to process licenses: {e}")
-        return load_results
+        return db_results
 
     finally:
         conn.commit()

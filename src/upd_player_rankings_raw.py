@@ -53,6 +53,7 @@ def scrape_player_rankings(driver, cursor, url, gender):
         select = Select(select_element)
         runs = [(opt.get_attribute("value"), opt.text.strip()) for opt in select.options if opt.get_attribute("value")]
         # runs = [(opt.get_attribute("value"), opt.text.strip()) for opt in select.options if opt.get_attribute("value")]
+        print(f"ℹ️  Found {len(runs)} ranking runs for {gender}")
 
         if SCRAPE_RANKING_ORDER.lower() == 'oldest':
             # Reverse the list to process from oldest to newest
@@ -214,22 +215,22 @@ def scrape_player_rankings(driver, cursor, url, gender):
 
                 run_scraped += 1
 
-                # Debug log to inspect data
-                if player_id_ext == 14450:
+                # # Debug log to inspect data
+                # if player_id_ext == 14450: # Use Truls as debug example, has many datapoints
 
-                    logging.info({
-                        "run_id": run_id,
-                        "run_date": run_date,
-                        "player_id_ext": player_id_ext,
-                        "firstname": firstname,
-                        "lastname": lastname,
-                        "year_born": year_born,
-                        "club_name": club_name,
-                        "position_world": position_world,
-                        "position": position,
-                        "points": points,
-                        "points_change_since_last": points_change_since_last
-                    })
+                #     logging.debug({
+                #         "run_id": run_id,
+                #         "run_date": run_date,
+                #         "player_id_ext": player_id_ext,
+                #         "firstname": firstname,
+                #         "lastname": lastname,
+                #         "year_born": year_born,
+                #         "club_name": club_name,
+                #         "position_world": position_world,
+                #         "position": position,
+                #         "points": points,
+                #         "points_change_since_last": points_change_since_last
+                #     })
 
                 try:
                     cursor.execute("""
