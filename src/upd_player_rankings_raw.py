@@ -1,16 +1,13 @@
 # src/upd_player_rankings_raw.py
 
-from concurrent.futures import wait
 import logging
-from pdb import run
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import TimeoutException
-from collections import defaultdict
-from utils import setup_driver, print_db_insert_results, parse_date
-from config import SCRAPE_RANKING_RUNS, SCRAPE_RANKING_ORDER
+from utils import setup_driver, parse_date
+from config import SCRAPE_RANKINGS_NBR_OF_RUNS, SCRAPE_RANKINGS_RUN_ORDER
 from db import get_conn
 from bs4 import BeautifulSoup
 
@@ -48,21 +45,20 @@ def scrape_player_rankings(driver, cursor, url, gender):
         driver.get(url)
         wait = WebDriverWait(driver, 10)
 
-        # Find the select for run and get all non-empty values
+        # Find the select element for Körning (rid) and get all non-empty values
         select_element = wait.until(EC.presence_of_element_located((By.NAME, "rid")))
         select = Select(select_element)
         runs = [(opt.get_attribute("value"), opt.text.strip()) for opt in select.options if opt.get_attribute("value")]
-        # runs = [(opt.get_attribute("value"), opt.text.strip()) for opt in select.options if opt.get_attribute("value")]
         print(f"ℹ️  Found {len(runs)} ranking runs for {gender}")
 
-        if SCRAPE_RANKING_ORDER.lower() == 'oldest':
+        if SCRAPE_RANKINGS_RUN_ORDER.lower() == 'oldest':
             # Reverse the list to process from oldest to newest
             logging.info("Reversing runs to process from oldest to newest.")
             print("ℹ️  Reversing runs to process from oldest to newest.")
             runs = runs[::-1] # Reverse the list to process from oldest to newest. Comment this line to process from newest to oldest.
 
-        if SCRAPE_RANKING_RUNS > 0:
-            runs = runs[:SCRAPE_RANKING_RUNS]            
+        if SCRAPE_RANKINGS_NBR_OF_RUNS > 0:
+            runs = runs[:SCRAPE_RANKINGS_NBR_OF_RUNS]            
 
         # Print all runs to be scraped in the order they will be processed
         print(f"ℹ️  Runs to be scraped for {gender} in order: {[(run_id, date) for run_id, date in runs]}")
@@ -215,22 +211,22 @@ def scrape_player_rankings(driver, cursor, url, gender):
 
                 run_scraped += 1
 
-                # # Debug log to inspect data
-                # if player_id_ext == 14450: # Use Truls as debug example, has many datapoints
+                # Debug log to inspect data
+                if player_id_ext == 14450: # Use Truls as debug example, has many datapoints
 
-                #     logging.debug({
-                #         "run_id": run_id,
-                #         "run_date": run_date,
-                #         "player_id_ext": player_id_ext,
-                #         "firstname": firstname,
-                #         "lastname": lastname,
-                #         "year_born": year_born,
-                #         "club_name": club_name,
-                #         "position_world": position_world,
-                #         "position": position,
-                #         "points": points,
-                #         "points_change_since_last": points_change_since_last
-                #     })
+                    logging.debug({
+                        "run_id": run_id,
+                        "run_date": run_date,
+                        "player_id_ext": player_id_ext,
+                        "firstname": firstname,
+                        "lastname": lastname,
+                        "year_born": year_born,
+                        "club_name": club_name,
+                        "position_world": position_world,
+                        "position": position,
+                        "points": points,
+                        "points_change_since_last": points_change_since_last
+                    })
 
                 try:
                     cursor.execute("""

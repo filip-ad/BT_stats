@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Optional
+import logging
 
 @dataclass
 class Player:
@@ -18,6 +19,7 @@ class Player:
             firstname=data.get("firstname"),
             lastname=data.get("lastname"),
             year_born=data.get("year_born"),
+            player_id=data.get("player_id", None)  # Default to None if not provided
         )
     
     def sanitize(self):
@@ -44,9 +46,8 @@ class Player:
                 VALUES (?, ?, ?, ?)
             """, (self.player_id_ext, self.firstname, self.lastname, self.year_born))
 
-            # Check if the insert was successful
-            # If no rows were inserted, it means the player already exists
             if cursor.rowcount == 0:
+                logging.info(f"Skipped player_id_ext {self.player_id_ext}: Player already exists")
                 return {
                     "status": "skipped",
                     "player": f"{self.firstname} {self.lastname}",

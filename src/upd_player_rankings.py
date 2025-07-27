@@ -5,7 +5,7 @@ from datetime import datetime
 from collections import defaultdict
 import logging
 from models.player_license import PlayerLicense
-from src.models.player import Player
+from models.player import Player
 from utils import print_db_insert_results
 
 def upd_player_rankings():

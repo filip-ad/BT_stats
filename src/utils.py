@@ -104,25 +104,12 @@ def setup_driver():
     logging.info("-------------------------------------------------------------------")
     return driver
 
-# def wait_for_element(driver, by, value, timeout=20):
-#     """Wait for an element to be present."""
-#     return WebDriverWait(driver, timeout).until(EC.presence_of_element_located((by, value)))
-
 def parse_date(date_str, context=None):
     """Parse a date string in 'YYYY-MM-DD' or 'YYYY.MM.DD' format into a datetime.date object.
     If input is already a datetime.date, returns it unchanged."""
     if isinstance(date_str, date):
         # Already a date object, no need to parse
         return date_str
-
-    # date_str = date_str.strip()
-    # for fmt in ("%Y-%m-%d", "%Y.%m.%d"):
-    #     try:
-    #         return datetime.strptime(date_str, fmt).date()
-    #     except ValueError:
-    #         continue
-    # logging.warning("Invalid date format: %s (context: transition date parsing)", date_str)
-    # return None
 
     date_str = date_str.strip() if date_str else "None"
     for fmt in ("%Y-%m-%d", "%Y.%m.%d"):
@@ -152,8 +139,20 @@ def print_db_insert_results(db_results):
 
     for status in all_statuses:
         total = sum(summary[status].values())
-        logging.info(f"   - {status}: {total}")
-        print(f"   - {status}: {total}")
+        capitalized_status = status.capitalize()
+        logging.info(f"   - {capitalized_status}: {total}")
+
+        # Determine prefix for print based on status
+        if status == "success":
+            prefix = "✅"
+        elif status == "failed":
+            prefix = "❌"
+        elif status == "skipped":
+            prefix = "⚠️ "
+        else:
+            prefix = "-"
+
+        print(f"   {prefix} {capitalized_status}: {total}")
 
         for reason, count in summary[status].items():
             logging.info(f"      • {reason}: {count}")

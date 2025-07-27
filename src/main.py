@@ -14,7 +14,7 @@ from upd_player_rankings import upd_player_rankings
 # from scrape_player_licenses import get_player_license_table_raw
 # from upd_players import update_player_table
 # from upd_players_licenses import update_player_licenses
-from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables
+from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes
 from upd_player_rankings_raw import upd_player_rankings_raw
 
 def main():
@@ -33,8 +33,8 @@ def main():
         # # Drop existing tables to ensure a clean slate
         # drop_tables(cursor, [
         #     # 'club',
-        #     # 'player_license'
-        #     # 'player'
+        #     # 'club_alias',
+        #     # 'player',
         #     # 'license'
         #     # 'season'
         #     # 'tournament', 
@@ -45,14 +45,18 @@ def main():
         #     # 'player_license'
         #     # 'player_license_raw',
         #     # 'player_transition_raw'
-        #     'player_ranking_raw'
+        #     # 'player_ranking_raw'
         # ])
 
-        # # Create tables if they don't exist
-        # create_tables(cursor)  
 
-        # Create static tables
+        # # Create static tables
         create_and_populate_static_tables(cursor)
+
+        # Create tables if they don't exist
+        create_tables(cursor)  
+
+        # Create indexes
+        create_indexes(cursor)
 
         conn.commit()
         conn.close()
@@ -63,8 +67,20 @@ def main():
         # Describe all functions, what they do, what tables are updated, variables etc etc
         #
 
-        # 1. Scrape and update club data.
-        # upd_clubs()        
+        # Scrape and update club data
+        #
+        #  It seems that player licenses and transitions are only available for clubs that are currently active. 
+        #  If a club is no longer active, it won't have any player licenses or transitions listed, not even historical ones.
+        #  However, player rankings are available for all clubs, even those that are no longer active.
+        #
+        #  This means we need to:
+        #
+        #   1. Scrape active clubs from the license lists.
+        #   2. Scrape inactive clubs from the player ranking lists.
+        #
+        # But it should be enought with 2. !!!!!!!!!!!!!!!!!!!!
+        # upd_clubs()
+        #### Backup this table as a create statement because it won't be updated often
 
         # 2. Scrape and populate player_license_raw table. No dependency.
         # upd_player_licenses_raw()
@@ -81,8 +97,13 @@ def main():
         # 6. Scrape and populate player_transition_raw table. No dependency.
         # upd_player_transitions_raw()
 
-        # Scrape clubs from rankings
+        # 7. Update player transitions. Depends on player_transition_raw, club, player, season, and license tables.
+        # upd_player_transitions()
+
+        # 8. Update player rankings raw table. No dependency.
         upd_player_rankings_raw()
+
+        # 9. 
 
 
         ################################################################################################

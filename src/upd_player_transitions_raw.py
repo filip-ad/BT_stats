@@ -7,7 +7,7 @@ from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 from utils import setup_driver, parse_date
-from config import LICENSES_URL, SCRAPE_SEASONS
+from config import LICENSES_URL, SCRAPE_TRANSITIONS_NBR_OF_SEASONS, SCRAPE_TRANSITIONS_RUN_ORDER
 from db import get_conn
 
 
@@ -38,19 +38,27 @@ def scrape_transitions(driver, cursor):
     WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "periode")))
 
     period_dropdown = Select(driver.find_element(By.ID, "periode"))
-    all_seasons = sorted(
-        [opt.get_attribute("value") for opt in period_dropdown.options if opt.get_attribute("value").isdigit() and int(opt.get_attribute("value")) != 0],
-        key=int,
-        reverse=False # Sort in descending order (True = newest to oldest), set to False for oldest to newest
-    )
+    all_seasons = [opt.get_attribute("value") for opt in period_dropdown.options if opt.get_attribute("value").isdigit() and int(opt.get_attribute("value")) != 0]
+    if SCRAPE_TRANSITIONS_RUN_ORDER.lower() == 'oldest':
+        logging.info("Sorting seasons from oldest to newest.")
+        print("ℹ️ Sorting seasons from oldest to newest.")
+        reverse = False
+    else:
+        logging.info("Sorting seasons from newest to oldest.")
+        print("ℹ️ Sorting seasons from newest to oldest.")
+        reverse = True
+    all_seasons = sorted(all_seasons, key=int, reverse=reverse)
 
-    # Ensure seasons_to_process is valid; if SCRAPE_SEASONS <= 0, use all seasons
-    seasons_to_process = all_seasons[:SCRAPE_SEASONS] if SCRAPE_SEASONS > 0 else all_seasons
+    # Ensure seasons_to_process is valid; if SCRAPE_TRANSITIONS_NBR_OF_SEASONS <= 0, use all seasons
+    seasons_to_process = all_seasons[:SCRAPE_TRANSITIONS_NBR_OF_SEASONS] if SCRAPE_TRANSITIONS_NBR_OF_SEASONS > 0 else all_seasons
     if not seasons_to_process:
         logging.warning("No valid seasons found in dropdown to process.")
         print("⚠️ No valid seasons found in dropdown to process.")
-        return 0, 0  # Return early if no seasons
 
+    # In player_licenses_raw.py (within the scraping function)
+    logging.info(f"Scraping {len(seasons_to_process)} season(s) in {SCRAPE_TRANSITIONS_RUN_ORDER.lower()} order.")
+    print(f"ℹ️  Scraping {len(seasons_to_process)} season(s) in {SCRAPE_TRANSITIONS_RUN_ORDER.lower()} order.")
+    
     total_scraped = 0
     total_scraped_skipped = 0
     total_inserted = 0
@@ -208,5 +216,5 @@ def scrape_transitions(driver, cursor):
         logging.info(f"Scraped {season_scraped} transitions ({season_scraped_skipped} skipped) for season {season_label} and inserted {season_inserted} transitions ({season_inserted_skipped} skipped).")
         print(f"✅ Scraped {season_scraped} transitions ({season_scraped_skipped} skipped) for season {season_label} and inserted {season_inserted} transitions ({season_inserted_skipped} skipped).")
 
-    logging.info(f"Scraping completed - Total transitions scraped: {total_scraped} ({total_scraped_skipped} skipped). Total transitions inserted to database: {total_inserted} ({total_inserted_skipped} skipped).")
-    print(f"✅ Scraping completed - Total transitions scraped: {total_scraped} ({total_scraped_skipped} skipped). Total transitions inserted to database: {total_inserted} ({total_inserted_skipped} skipped).")
+    logging.info(f"Scraping completed - Total transitions scraped: {total_scraped} ({total_scraped_skipped} skipped). Total transitions inserted: {total_inserted} ({total_inserted_skipped} skipped).")
+    print(f"✅ Scraping completed - Total transitions scraped: {total_scraped} ({total_scraped_skipped} skipped). Total transitions inserted: {total_inserted} ({total_inserted_skipped} skipped).")

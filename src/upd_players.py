@@ -1,7 +1,6 @@
 # src/upd_players.py
 
 import logging
-from collections import defaultdict
 from models.player import Player
 from typing import List
 from db import get_conn
@@ -13,26 +12,40 @@ def upd_players():
     print("ℹ️  Updating player table...")
 
     try:
-        # Fetch all players and their oldest license row for each unique player
+    # Fetch unique players from both player_license_raw and player_ranking_raw
         cursor.execute('''
-            SELECT pl.player_id_ext, pl.firstname, pl.lastname, pl.year_born
-            FROM player_license_raw pl
-            INNER JOIN (
-                SELECT player_id_ext, MIN(row_id) AS min_row_id
+            WITH CombinedPlayers AS (
+                SELECT player_id_ext, firstname, lastname, year_born, row_id, 'license' AS source
                 FROM player_license_raw
                 WHERE player_id_ext IS NOT NULL
                   AND TRIM(firstname) != ''
                   AND TRIM(lastname) != ''
                   AND year_born IS NOT NULL
-                GROUP BY player_id_ext
-            ) earliest ON pl.row_id = earliest.min_row_id
-            ORDER BY pl.row_id ASC
+                UNION
+                SELECT player_id_ext, firstname, lastname, year_born, row_id, 'ranking' AS source
+                FROM player_ranking_raw
+                WHERE player_id_ext IS NOT NULL
+                  AND TRIM(firstname) != ''
+                  AND TRIM(lastname) != ''
+                  AND year_born IS NOT NULL
+            ),
+            RankedPlayers AS (
+                SELECT player_id_ext, firstname, lastname, year_born,
+                       ROW_NUMBER() OVER (PARTITION BY player_id_ext ORDER BY 
+                           CASE source WHEN 'license' THEN 1 ELSE 2 END, row_id) AS rn
+                FROM CombinedPlayers
+            )
+            SELECT player_id_ext, firstname, lastname, year_born
+            FROM RankedPlayers
+            WHERE rn = 1
+            ORDER BY player_id_ext
         ''')
-
-        players: List[Player] = [
+        players = [
             Player(player_id_ext=row[0], firstname=row[1], lastname=row[2], year_born=row[3])
             for row in cursor.fetchall()
         ]
+        logging.info(f"Found {len(players)} unique players from player_license_raw and player_ranking_raw.")
+        print(f"ℹ️  Found {len(players)} unique players from player_license_raw and player_ranking_raw.")
 
         # Save players to the database
         db_results = [player.save_to_db(cursor) for player in players]

@@ -1,12 +1,9 @@
 To do
 =======================================================
-upd_player_licenses.py
-    - line 129: season_data = get_from_db_season(cursor, season_label=season_label)
-    Implement a season object and use this!
 
-
+    
 
 Improvements long term
 =======================================================
 - Runtime in logs and prints?
-
+- Fix the pathing/packages whatever so everything doesnt have to be in /src
