@@ -6,16 +6,14 @@ from utils import setup_logging
 from upd_clubs import upd_clubs
 from upd_players import upd_players
 from upd_player_licenses_raw import upd_player_licenses_raw
-from upd_player_ranking_groups import upd_player_ranking_groups
 from upd_player_licenses import upd_player_licenses
-from upd_player_transitions_raw import upd_player_transitions_raw
-from upd_player_rankings import upd_player_rankings
-# from src.utils_scripts.upd_player_rankings_raw_popup import upd_player_rankings_raw_popup
-# from scrape_player_licenses import get_player_license_table_raw
-# from upd_players import update_player_table
-# from upd_players_licenses import update_player_licenses
-from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes
+from upd_player_ranking_groups import upd_player_ranking_groups
 from upd_player_rankings_raw import upd_player_rankings_raw
+from upd_player_rankings import upd_player_rankings
+from upd_player_transitions_raw import upd_player_transitions_raw
+from upd_tournaments import upd_tournaments
+from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes
+
 
 def main():
 
@@ -101,7 +99,7 @@ def main():
         # upd_player_transitions()
 
         # 8. Update player rankings raw table. No dependency.
-        upd_player_rankings_raw()
+        # upd_player_rankings_raw()
 
         # 9. 
 
@@ -109,7 +107,7 @@ def main():
         ################################################################################################
 
         # # Get tournaments
-        # get_tournaments()
+        upd_tournaments()
         
         # # # Scrape classes
         # get_classes()

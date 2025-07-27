@@ -29,6 +29,7 @@ def upd_player_ranking_groups():
         seen = set()
         db_results = []
         deleted_count = 0  # Track how many rows were deleted
+        new_groups_count = 0  # Track new groups inserted
 
         for row in cursor.fetchall():
             player_id_ext, raw_groups = row
@@ -58,6 +59,7 @@ def upd_player_ranking_groups():
                 seen.add(key)
 
                 rel = PlayerRankingGroup(player_id=player_id, ranking_group_id=ranking_group_id)
+                result = rel.save_to_db(cursor)
                 db_results.append(rel.save_to_db(cursor))
 
         # Print deletion summary
@@ -66,7 +68,9 @@ def upd_player_ranking_groups():
 
         print_db_insert_results(db_results)
 
-
+        # Print new groups inserted
+        print(f"ℹ️  New player ranking groups inserted: {new_groups_count}")
+        logging.info(f"New player ranking groups inserted: {new_groups_count}")
 
     finally:
         conn.commit()

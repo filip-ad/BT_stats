@@ -5,5 +5,6 @@ To do
 
 Improvements long term
 =======================================================
+- Fix player transitions and add new licenses... will probably only work for "active" clubs but will help when matching old match data
 - Runtime in logs and prints?
 - Fix the pathing/packages whatever so everything doesnt have to be in /src
