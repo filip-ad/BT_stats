@@ -4,10 +4,12 @@ import logging
 from datetime import datetime
 import re
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from urllib.parse import urljoin
 from utils import setup_driver, parse_date
 from db import get_conn, save_to_db_tournaments
-from config import TOURNAMENTS_URL, TOURNAMENTS_START_DATE
+from config import SCRAPE_TOURNAMENTS_ORDER, SCRAPE_TOURNAMENTS_URL, SCRAPE_TOURNAMENTS_START_DATE
 
 
 #  main function to scrape tournaments from site and save them to the database
@@ -18,8 +20,8 @@ def upd_tournaments():
     driver = setup_driver()
     
     try:
-        logging.info("Starting tournament scraping process.")
-        print("ℹ️  Starting tournament scarping process.")
+        logging.info("Starting tournament scraping process...")
+        print("ℹ️  Starting tournament scraping process...")
         tournaments = scrape_tournaments(driver)
         
         if tournaments:
@@ -59,13 +61,16 @@ def scrape_tournaments(driver):
     tournaments = []
 
     try:
-        driver.get(TOURNAMENTS_URL)
+        driver.get(SCRAPE_TOURNAMENTS_URL)
 
-        wait_for_element(driver, By.ID, "listtable", 3)  # Wait until the table is present
+        WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.ID, "listtable")))  # Wait until the table is present
 
         rows = driver.find_elements(By.CSS_SELECTOR, "#listtable tr")
         current_date = datetime.now().date()  # Dynamically set to run date
-        start_cutoff = parse_date(TOURNAMENTS_START_DATE)  # Define the cutoff date
+        start_cutoff = parse_date(SCRAPE_TOURNAMENTS_START_DATE)  # Define the cutoff date
+
+        logging.info(f"Scraping tournaments starting from {start_cutoff} to {current_date} in {SCRAPE_TOURNAMENTS_ORDER.lower()} order...")
+        print(f"ℹ️  Scraping tournaments starting from {start_cutoff} to {current_date} in {SCRAPE_TOURNAMENTS_ORDER.lower()} order...")
 
         for i, row in enumerate(rows[1:], 1):
             cols = row.find_elements(By.TAG_NAME, "td")
@@ -86,7 +91,7 @@ def scrape_tournaments(driver):
             end_dt = parse_date(end_str)
             if not start_dt or not end_dt:
                 logging.warning(f"Skipping tournament {name} due to invalid start or end date")
-                print(f"⚠️ Skipping tournament {name} due to invalid start or end date")
+                print(f"⚠️   Skipping tournament {name} due to invalid start or end date")
                 continue
 
             # Skip tournaments that start before the cutoff date
@@ -104,7 +109,7 @@ def scrape_tournaments(driver):
             full_url = extract_tournament_url(onclick)
             if not full_url:
                 logging.warning(f"Skipping tournament {name} (Status: {status}) due to invalid URL format")
-                print(f"⚠️ Skipping tournament {name} (Status: {status}) due to invalid URL format")
+                print(f"⚠️   Skipping tournament {name} (Status: {status}) due to invalid URL format")
                 continue
 
             # Extract ondata_id from URL
@@ -135,6 +140,12 @@ def scrape_tournaments(driver):
                 "start_dt": start_dt,           # The datetime object for start date (used for comparisons)
                 "end_dt": end_dt,               # The datetime object for end date (used for comparisons)
             })
+
+        # Sort tournaments by start_dt based on SCRAPE_TOURNAMENTS_ORDER
+        if SCRAPE_TOURNAMENTS_ORDER.lower() == 'oldest':
+            tournaments = sorted(tournaments, key=lambda x: x['start_dt'])
+        else:
+            tournaments = sorted(tournaments, key=lambda x: x['start_dt'], reverse=True)
 
         return tournaments
 
@@ -184,4 +195,4 @@ def print_db_insert_results(status_list):
     skipped_count = sum(1 for status in status_list if status["status"] == "skipped")
 
     logging.info(f"Database summary: {success_count} tournaments inserted, {failed_count} failed, {skipped_count} skipped")
-    print(f"ℹ️ Database summary: {success_count} tournaments inserted, {failed_count} failed, {skipped_count} skipped")
+    print(f"ℹ️  Database summary: {success_count} tournaments inserted, {failed_count} failed, {skipped_count} skipped")

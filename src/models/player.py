@@ -1,7 +1,7 @@
 # src/models/player.py
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 import logging
 
 @dataclass
@@ -126,3 +126,24 @@ class Player:
                 self.firstname == other.firstname and
                 self.lastname == other.lastname and
                 self.year_born == other.year_born)
+    
+    @staticmethod
+    def search_by_name_and_year(cursor, firstname: str, lastname: str, year_born: int) -> List['Player']:
+        """Retrieve Player instances by firstname, lastname, and year_born."""
+        try:
+            cursor.execute("""
+                SELECT player_id, player_id_ext, firstname, lastname, year_born
+                FROM player
+                WHERE firstname = ? AND lastname = ? AND year_born = ?
+            """, (firstname, lastname, year_born))
+            rows = cursor.fetchall()
+            return [Player.from_dict({
+                "player_id": row[0],
+                "player_id_ext": row[1],
+                "firstname": row[2],
+                "lastname": row[3],
+                "year_born": row[4]
+            }) for row in rows]
+        except Exception as e:
+            logging.error(f"Error retrieving players by name {firstname} {lastname} and year_born {year_born}: {e}")
+            return []

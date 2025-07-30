@@ -7,7 +7,7 @@ from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 from utils import setup_driver, parse_date
-from config import LICENSES_URL, SCRAPE_TRANSITIONS_NBR_OF_SEASONS, SCRAPE_TRANSITIONS_RUN_ORDER
+from config import LICENSES_URL, SCRAPE_TRANSITIONS_NBR_OF_SEASONS, SCRAPE_TRANSITIONS_ORDER
 from db import get_conn
 
 
@@ -39,7 +39,7 @@ def scrape_transitions(driver, cursor):
 
     period_dropdown = Select(driver.find_element(By.ID, "periode"))
     all_seasons = [opt.get_attribute("value") for opt in period_dropdown.options if opt.get_attribute("value").isdigit() and int(opt.get_attribute("value")) != 0]
-    if SCRAPE_TRANSITIONS_RUN_ORDER.lower() == 'oldest':
+    if SCRAPE_TRANSITIONS_ORDER.lower() == 'oldest':
         logging.info("Sorting seasons from oldest to newest.")
         print("ℹ️ Sorting seasons from oldest to newest.")
         reverse = False
@@ -56,8 +56,8 @@ def scrape_transitions(driver, cursor):
         print("⚠️ No valid seasons found in dropdown to process.")
 
     # In player_licenses_raw.py (within the scraping function)
-    logging.info(f"Scraping {len(seasons_to_process)} season(s) in {SCRAPE_TRANSITIONS_RUN_ORDER.lower()} order.")
-    print(f"ℹ️  Scraping {len(seasons_to_process)} season(s) in {SCRAPE_TRANSITIONS_RUN_ORDER.lower()} order.")
+    logging.info(f"Scraping {len(seasons_to_process)} season(s) in {SCRAPE_TRANSITIONS_ORDER.lower()} order.")
+    print(f"ℹ️  Scraping {len(seasons_to_process)} season(s) in {SCRAPE_TRANSITIONS_ORDER.lower()} order.")
     
     total_scraped = 0
     total_scraped_skipped = 0

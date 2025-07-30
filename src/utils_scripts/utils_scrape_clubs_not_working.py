@@ -15,6 +15,12 @@ from db import get_conn
 from models.club import Club
 from models.district import District
 
+#
+# Scrapes the player rankings lists for clubs. 
+# Currently not working because the club class has been updated to handle club aliases.
+# This script should be rewritten to only scrape and log clubs (club_id_ext) not in the club table.
+#
+
 def upd_clubs():
 
     conn, cursor = get_conn()
@@ -24,30 +30,29 @@ def upd_clubs():
         # Scrape clubs
         logging.info("Starting club scraping process...")
         print("ℹ️  Starting club scraping process...")
-        # clubs = scrape_clubs(driver)
-        clubs2 = scrape_clubs_(driver, cursor)
+        clubs = scrape_clubs(driver, cursor)
 
-        if clubs2:
-            logging.info(f"Successfully scraped {len(clubs2)} clubs.")
-            print(f"✅ Successfully scraped {len(clubs2)} clubs.")
+        if clubs:
+            logging.info(f"Successfully scraped {len(clubs)} clubs.")
+            print(f"✅ Successfully scraped {len(clubs)} clubs.")
 
-            # Fetch and update club names using run_id and club_id_ext
-            clubs2 = fetch_club_names_by_runs(driver, cursor, clubs2)
+            # # Fetch and update club names using run_id and club_id_ext
+            # clubs = fetch_club_names_by_runs(driver, cursor, clubs)
 
-            try: 
-                # Insert clubs into the database
-                db_results = [club.save_to_db(cursor) for club in clubs2]
+            # try: 
+            #     # Insert clubs into the database
+            #     db_results = [club.save_to_db(cursor) for club in clubs]
 
-                if db_results:
-                    print_db_insert_results(db_results)
+            #     if db_results:
+            #         print_db_insert_results(db_results)
 
-                else: 
-                    logging.warning("No clubs saved to database.")
-                    print("⚠️ No clubs saved to database.")
+            #     else: 
+            #         logging.warning("No clubs saved to database.")
+            #         print("⚠️ No clubs saved to database.")
 
-            except Exception as e:
-                logging.error(f"Error during database insertion: {e}") 
-                print(f"❌ Error during database insertion: {e}")
+            # except Exception as e:
+            #     logging.error(f"Error during database insertion: {e}") 
+            #     print(f"❌ Error during database insertion: {e}")
 
         else:
             logging.warning("No clubs scraped.")
@@ -60,11 +65,11 @@ def upd_clubs():
         conn.close()
 
 
-def scrape_clubs_(driver, cursor):
+def scrape_clubs(driver, cursor):
 
     clubs = []
     try:
-        driver.get("https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_list.php?gender=k")
+        driver.get("https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_list.php?gender=m")
         wait = WebDriverWait(driver, 10)
 
         # Find the select element for Distrikt (distr) and get all non-empty values
@@ -239,55 +244,6 @@ def fetch_club_names_by_runs(driver, cursor, clubs, max_clubs=None):
         print(f"❌ An error occurred while fetching club names: {e}")
         return clubs
 
-# # New function to fetch club names
-# def fetch_club_names(driver, cursor, clubs):
-
-#     try:
-
-#         wait = WebDriverWait(driver, 10)
-#         # Group clubs by district_id to minimize district switches
-#         clubs_by_district = defaultdict(list)
-#         for club in clubs:
-#             clubs_by_district[club.district_id].append(club)
-
-#         for district_id, district_clubs in clubs_by_district.items():
-#             # Fetch district to get ext ID for selection
-#             cursor.execute("SELECT district_id_ext FROM district WHERE district_id = ?", (district_id,))
-#             district_id_ext_str = cursor.fetchone()[0]
-
-#             # Select district
-#             district_select = Select(wait.until(EC.presence_of_element_located((By.NAME, "distr"))))
-#             district_select.select_by_value(district_id_ext_str)
-
-#             for club in district_clubs:
-#                 # Select club
-#                 club_dropdown = Select(wait.until(EC.presence_of_element_located((By.NAME, "club"))))
-#                 club_dropdown.select_by_value(str(club.club_id_ext))
-
-#                 # Click "Sök"
-#                 submit_button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'input[type="submit"][value="Sök"]')))
-#                 submit_button.click()
-
-#                 # Fetch club name from table
-#                 try:
-#                     table = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'table.table.table-condensed.table-hover.table-striped')))
-#                     rows = table.find_elements(By.CSS_SELECTOR, 'tbody tr')
-#                     if len(rows) < 2:
-#                         logging.warning(f"No data rows for club ID {club.club_id_ext}. Skipping name update.")
-#                         continue
-#                     club_name_cell = rows[1].find_element(By.CSS_SELECTOR, 'td:nth-child(5)')
-#                     club.name = club_name_cell.text.strip().rstrip('*')
-#                 except TimeoutException:
-#                     logging.warning(f"Timeout waiting for table for club ID {club.club_id_ext}. Skipping name update.")
-#                 except NoSuchElementException:
-#                     logging.warning(f"Club name cell not found for club ID {club.club_id_ext}. Skipping name update.")
-                    
-#     except Exception as e:
-#         logging.error(f"An error occurred while fetching club names: {e}")
-#         print(f"❌ An error occurred while fetching club names: {e}")
-
-#     return clubs
-
 def fetch_club_names(driver, cursor, clubs):
     try:
         wait = WebDriverWait(driver, 10)
@@ -379,38 +335,3 @@ def fetch_club_names(driver, cursor, clubs):
         print(f"❌ An error occurred while fetching club names: {e}")
 
     return clubs
-
-
-# def scrape_clubs(driver):
-#     """ 
-#     Scrape clubs from the specified URL and return a list of Club objects.
-#     """
-#     clubs = []
-#     try:
-#         driver.get(LICENSES_URL)
-
-#         # Click on the "Spelklarlistor" link
-#         spelklar_link = WebDriverWait(driver, 5).until(
-#             EC.element_to_be_clickable((By.LINK_TEXT, "Spelklarlistor"))
-#         )
-#         spelklar_link.click()
-    
-#         WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.NAME, "klubbid"))) # Wait for the page to load and the club dropdown to be present
-
-#         club_dropdown = Select(driver.find_element(By.NAME, "klubbid"))
-#         for option in club_dropdown.options:
-#             club_name = option.text.strip()
-#             club_id_ext = option.get_attribute("value").strip()
-#             if club_name and club_id_ext:
-#                 clubs.append(Club(
-#                     club_id_ext=int(club_id_ext),
-#                     name=club_name,
-#                     city=None,
-#                     country_code=None
-#                 ))
-
-#     except Exception as e:
-#         logging.error(f"An error occurred while scraping clubs: {e}")
-#         print(f"❌ An error occurred while scraping clubs: {e}")
-
-#     return clubs

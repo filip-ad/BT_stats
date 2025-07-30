@@ -135,8 +135,18 @@ def upd_player_licenses():
                     "row_id": row_id,
                     "reason": "Valid from date is outside the season range"
                 })
-                continue                  
-            
+                continue            
+
+            # Skip if valid_from equals season end date
+            if valid_from == season.season_end_date:
+                logging.warning(f"{firstname} {lastname} (player_id_ext: {player_id_ext}) - Skipped because valid_from ({valid_from}) equals season end date.")
+                db_results.append({
+                    "status": "skipped",
+                    "row_id": row_id,
+                    "reason": "Valid from date equals season end date"
+                })
+                continue        
+
             # Fetch and validate season data
             if not season:
                 logging.warning(f"No matching season found for season_label '{season_label}'")

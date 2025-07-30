@@ -8,7 +8,7 @@ from selenium.webdriver.support.ui import Select
 from bs4 import BeautifulSoup
 from utils import setup_driver
 from db import get_conn
-from config import SCRAPE_LICENSES_MAX_CLUBS, SCRAPE_LICENSES_NBR_OF_SEASONS, SCRAPE_LICENSES_RUN_ORDER, LICENSES_URL
+from config import SCRAPE_LICENSES_MAX_CLUBS, SCRAPE_LICENSES_NBR_OF_SEASONS, SCRAPE_LICENSES_ORDER, LICENSES_URL
 
 def upd_player_licenses_raw():
     conn, cursor = get_conn()
@@ -35,7 +35,7 @@ def scrape_player_licenses(driver, cursor):
 
     period_dropdown = Select(driver.find_element(By.NAME, "periode"))
     all_seasons = [opt.get_attribute("value") for opt in period_dropdown.options if opt.get_attribute("value").isdigit()]
-    if SCRAPE_LICENSES_RUN_ORDER.lower() == 'oldest':
+    if SCRAPE_LICENSES_ORDER.lower() == 'oldest':
         reverse = False
     else:
         reverse = True
@@ -50,8 +50,8 @@ def scrape_player_licenses(driver, cursor):
     clubs = club_map[:SCRAPE_LICENSES_MAX_CLUBS] if SCRAPE_LICENSES_MAX_CLUBS > 0 else club_map
 
     # In player_licenses_raw.py (within the scraping function)
-    logging.info(f"Scraping {len(clubs)} clubs for {len(seasons_to_process)} season(s) in {SCRAPE_LICENSES_RUN_ORDER.lower()} order.")
-    print(f"ℹ️  Scraping {len(clubs)} clubs for {len(seasons_to_process)} season(s) in {SCRAPE_LICENSES_RUN_ORDER.lower()} order.")
+    logging.info(f"Scraping {len(clubs)} clubs for {len(seasons_to_process)} season(s) in {SCRAPE_LICENSES_ORDER.lower()} order.")
+    print(f"ℹ️  Scraping {len(clubs)} clubs for {len(seasons_to_process)} season(s) in {SCRAPE_LICENSES_ORDER.lower()} order.")
 
     total_inserted = 0
     total_skipped = 0

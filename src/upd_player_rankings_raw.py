@@ -7,7 +7,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import TimeoutException
 from utils import setup_driver, parse_date
-from config import SCRAPE_RANKINGS_NBR_OF_RUNS, SCRAPE_RANKINGS_RUN_ORDER
+from config import SCRAPE_RANKINGS_NBR_OF_RUNS, SCRAPE_RANKINGS_ORDER
 from db import get_conn
 from bs4 import BeautifulSoup
 
@@ -51,7 +51,7 @@ def scrape_player_rankings(driver, cursor, url, gender):
         runs = [(opt.get_attribute("value"), opt.text.strip()) for opt in select.options if opt.get_attribute("value")]
         print(f"ℹ️  Found {len(runs)} ranking runs for {gender}")
 
-        if SCRAPE_RANKINGS_RUN_ORDER.lower() == 'oldest':
+        if SCRAPE_RANKINGS_ORDER.lower() == 'oldest':
             # Reverse the list to process from oldest to newest
             logging.info("Reversing runs to process from oldest to newest.")
             print("ℹ️  Reversing runs to process from oldest to newest.")

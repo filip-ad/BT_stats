@@ -1,10 +1,7 @@
 # src/utils_scripts/upd_player_rankings.py
 
-from db import get_conn, get_from_db_season
-from datetime import datetime
-from collections import defaultdict
+from db import get_conn
 import logging
-from models.player_license import PlayerLicense
 from models.player import Player
 from utils import print_db_insert_results
 

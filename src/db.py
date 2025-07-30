@@ -18,59 +18,6 @@ def get_conn():
         print(f"❌ Database connection failed: {e}")
         raise
 
-def is_duplicate_tournament(cursor, ondata_id):
-    cursor.execute("SELECT tournament_id FROM tournament WHERE ondata_id = ?", (ondata_id,))
-    return cursor.fetchone() is not None
-
-def save_to_db_tournaments(cursor, tournaments):
-    db_results = []
-    for tournament in tournaments:
-        if is_duplicate_tournament(cursor, tournament["ondata_id"]):
-            logging.debug(f"Skipping duplicate tournament: {tournament['name']}")
-            db_results.append({"status": "skipped", "tournament": tournament["name"]})
-            continue
-        try:
-            cursor.execute('''
-                INSERT INTO tournament (name, startdate, enddate, city, arena, country_code, ondata_id, url, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (tournament["name"], tournament["start_date"], tournament["end_date"], 
-                  tournament["city"], tournament["arena"], tournament["country_code"], 
-                  tournament["ondata_id"], tournament["url"], tournament["status"]))
-            logging.debug(f"Inserted tournament into DB: {tournament['name']}")
-            db_results.append({"status": "success", "tournament": tournament["name"]})
-        except sqlite3.Error as e:
-            logging.error(f"Error inserting tournament into DB {tournament['name']}: {e}")
-            db_results.append({"status": "failed", "tournament": tournament["name"]})
-    return db_results
-
-def get_from_db_club(cursor, club_id=None, club_id_ext=None, club_name=None):
-    if club_id is not None:
-        cursor.execute("""
-            SELECT club_id, club_id_ext, name, city, country_code
-            FROM club
-            WHERE club_id = ?
-        """, (club_id,))
-    elif club_id_ext is not None:
-        cursor.execute("""
-            SELECT club_id, club_id_ext, name, city, country_code
-            FROM club
-            WHERE club_id_ext = ?
-        """, (club_id_ext,))
-    elif club_name is not None:
-        cursor.execute("""
-            SELECT club_id, club_id_ext, name, city, country_code
-            FROM club
-            WHERE name = ?
-        """, (club_name,))
-    else:
-        raise ValueError("Must provide either club_id, club_id_ext, or club name")
-
-    row = cursor.fetchone()
-    if row:
-        keys = ['club_id', 'club_id_ext', 'name', 'city', 'country_code']
-        return dict(zip(keys, row))
-    return None
-
 def save_to_db_transitions(cursor, transitions):
     db_results = []
 
@@ -307,6 +254,30 @@ def save_to_db_transitions(cursor, transitions):
 
     return db_results
 
+def save_to_db_tournaments(cursor, tournaments):
+    db_results = []
+    for tournament in tournaments:
+        if is_duplicate_tournament(cursor, tournament["ondata_id"]):
+            logging.debug(f"Skipping duplicate tournament: {tournament['name']}")
+            db_results.append({"status": "skipped", "tournament": tournament["name"]})
+            continue
+        try:
+            cursor.execute('''
+                INSERT INTO tournament (name, startdate, enddate, city, arena, country_code, ondata_id, url, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (tournament["name"], tournament["start_date"], tournament["end_date"], 
+                  tournament["city"], tournament["arena"], tournament["country_code"], 
+                  tournament["ondata_id"], tournament["url"], tournament["status"]))
+            logging.debug(f"Inserted tournament into DB: {tournament['name']}")
+            db_results.append({"status": "success", "tournament": tournament["name"]})
+        except sqlite3.Error as e:
+            logging.error(f"Error inserting tournament into DB {tournament['name']}: {e}")
+            db_results.append({"status": "failed", "tournament": tournament["name"]})
+    return db_results
+
+def is_duplicate_tournament(cursor, ondata_id):
+    cursor.execute("SELECT tournament_id FROM tournament WHERE ondata_id = ?", (ondata_id,))
+    return cursor.fetchone() is not None
 
 def get_from_db_tournaments(cursor):
     try:
@@ -339,243 +310,6 @@ def get_from_db_tournaments(cursor):
         logging.error(f"Error fetching tournaments from database: {e}")
         print(f"❌ Error fetching tournaments from database: {e}")
         return []
-
-def get_from_db_season(cursor, season_id=None, season_id_ext=None, season_label=None, date_object=None):
-    if season_id is not None:
-        cursor.execute('''
-            SELECT season_id, season_id_ext, season_start_date, season_end_date,
-                   season_start_year, season_end_year, season_description
-            FROM season
-            WHERE season_id = ?
-        ''', (season_id,))
-    elif season_id_ext is not None:
-        cursor.execute('''
-            SELECT season_id, season_id_ext, season_start_date, season_end_date,
-                   season_start_year, season_end_year, season_description
-            FROM season
-            WHERE season_id_ext = ?
-        ''', (season_id_ext,))
-    elif date_object is not None:
-        cursor.execute('''
-            SELECT season_id, season_id_ext, season_start_date, season_end_date,
-                   season_start_year, season_end_year, season_description
-            FROM season
-            WHERE season_start_date <= ? AND season_end_date >= ?
-        ''', (date_object, date_object))
-    elif season_label is not None:
-        cursor.execute('''
-            SELECT season_id, season_id_ext, season_start_date, season_end_date,
-                   season_start_year, season_end_year, season_description
-            FROM season
-            WHERE season_label = ?
-        ''', (season_label,))
-    else:
-        raise ValueError("Must provide either season_id, season_id_ext, or date_value")
-
-    row = cursor.fetchone()
-    if row:
-        keys = ['season_id', 'season_id_ext', 'season_start_date', 'season_end_date',
-                'season_start_year', 'season_end_year', 'season_description']
-        return dict(zip(keys, row))
-    return None
-
-def get_from_db_club(cursor, club_id=None, club_id_ext=None, club_name=None):
-    if club_id is not None:
-        cursor.execute("""
-            SELECT club_id, club_id_ext, name
-            FROM club
-            WHERE club_id = ?
-        """, (club_id,))
-    elif club_id_ext is not None:
-        cursor.execute("""
-            SELECT club_id, club_id_ext, name
-            FROM club
-            WHERE club_id_ext = ?
-        """, (club_id_ext,))
-    elif club_name is not None:
-        cursor.execute("""
-            SELECT club_id, club_id_ext, name
-            FROM club
-            WHERE name = ?
-        """, (club_name,))
-    else:
-        raise ValueError("Must provide club_id, club_id_ext, or club name")
-
-    row = cursor.fetchone()
-    if row:
-        keys = ['club_id', 'club_id_ext', 'name']
-        return dict(zip(keys, row))
-    return None
-
-def get_from_db_player(cursor, player_id=None, player_id_ext=None):
-    if player_id is not None:
-        cursor.execute('''
-            SELECT player_id, player_id_ext, firstname, lastname, year_born
-            FROM player
-            WHERE player_id = ?
-        ''', (player_id,))
-    elif player_id_ext is not None:
-        cursor.execute('''
-            SELECT player_id, player_id_ext, firstname, lastname, year_born
-            FROM player
-            WHERE player_id_ext = ?
-        ''', (player_id_ext,))
-    else:
-        raise ValueError("Must provide either player_id or player_id_ext")
-
-    row = cursor.fetchone()
-    if row:
-        keys = ['player_id', 'player_id_ext', 'firstname', 'lastname', 'year_born']
-        return dict(zip(keys, row))
-    return None
-
-def get_from_db_license(cursor, license_id=None, license_type=None, license_age_group=None):
-    if license_id is not None:
-        cursor.execute("""
-            SELECT license_id, license_type, license_age_group
-            FROM license
-            WHERE license_id = ?
-        """, (license_id,))
-    elif license_type is not None and license_age_group is not None:
-        cursor.execute("""
-            SELECT license_id, license_type, license_age_group
-            FROM license
-            WHERE license_type = ? AND license_age_group = ?
-        """, (license_type, license_age_group))
-    else:
-        raise ValueError("Must provide either license_id or both license_type and license_age_group")
-
-    row = cursor.fetchone()
-    if row:
-        keys = ['license_id', 'license_type', 'license_age_group']
-        return dict(zip(keys, row))
-    return None
-
-def get_from_db_player_license_raw_count(cursor):
-    """
-    Returns the count of all player_license records in the database.
-    """
-    cursor.execute("SELECT COUNT(*) FROM player_license_raw")
-    row = cursor.fetchone()
-    if row:
-        return row[0]
-    return 0
-
-def get_from_db_player_license(
-    cursor,
-    player_license_id=None,
-    player_id=None,
-    license_id=None,
-    season_id=None,
-    club_id=None
-):
-    """
-    Fetch exactly one player_license row using either:
-      - player_license_id
-      - OR the unique combination of (player_id, license_id, season_id, club_id)
-
-    Returns:
-        - dict if exactly one match is found
-        - None if no match is found
-    Raises:
-        - ValueError if input is invalid or if multiple matches are found
-    """
-    if player_license_id is not None:
-        query = """
-            SELECT player_license_id, player_id, player_id_ext, club_id, club_id_ext, 
-                   valid_from, valid_to, license_id, season_id
-            FROM player_license
-            WHERE player_license_id = ?
-        """
-        cursor.execute(query, (player_license_id,))
-    
-    elif all(param is not None for param in (player_id, license_id, season_id, club_id)):
-        query = """
-            SELECT player_license_id, player_id, player_id_ext, club_id, club_id_ext, 
-                   valid_from, valid_to, license_id, season_id
-            FROM player_license
-            WHERE player_id = ? AND license_id = ? AND season_id = ? AND club_id = ?
-        """
-        cursor.execute(query, (player_id, license_id, season_id, club_id))
-
-    else:
-        raise ValueError("Must provide either 'player_license_id' or all of: 'player_id', 'license_id', 'season_id', 'club_id'")
-
-    rows = cursor.fetchall()
-
-    if len(rows) == 0:
-        return None
-    elif len(rows) == 1:
-        keys = ['player_license_id', 'player_id', 'player_id_ext', 'club_id', 'club_id_ext', 
-                'valid_from', 'valid_to', 'license_id', 'season_id']
-        return dict(zip(keys, rows[0]))
-    else:
-        raise ValueError(f"Expected 1 result, but found {len(rows)} matching records.")
-
-def get_player_ids_by_name_and_birth(cursor, firstname, lastname, year_born):
-    cursor.execute("""
-        SELECT player_id
-        FROM player
-        WHERE firstname = ? AND lastname = ? AND year_born = ?
-    """, (firstname, lastname, year_born))
-    
-    rows = cursor.fetchall()
-    return [row[0] for row in rows] if rows else []
-
-def search_from_db_player_licenses(cursor, player_ids, club_id, season_id):
-    """
-    Returns a list of matching player_license records for one or more player_ids,
-    a specific club_id, and a season_id.
-    """
-
-    # Normalize to list if single ID is passed
-    if isinstance(player_ids, (str, int)):
-        player_ids = [player_ids]
-
-    if not player_ids:
-        return []
-
-    placeholders = ','.join(['?'] * len(player_ids))
-    query = f"""
-        SELECT player_license_id, player_id, player_id_ext, club_id, club_id_ext, 
-               valid_from, valid_to, license_id, season_id
-        FROM player_license
-        WHERE player_id IN ({placeholders})
-          AND club_id = ?
-          AND season_id = ?
-    """
-
-    params = player_ids + [club_id, season_id]
-    cursor.execute(query, params)
-
-    keys = ['player_license_id', 'player_id', 'player_id_ext', 'club_id', 'club_id_ext',
-            'valid_from', 'valid_to', 'license_id', 'season_id']
-
-    return [dict(zip(keys, row)) for row in cursor.fetchall()]
-
-def search_from_db_players(cursor, firstname=None, lastname=None, year_born=None):
-    query = """
-        SELECT player_id, player_id_ext, firstname, lastname, year_born
-        FROM player
-        WHERE 1=1
-    """
-    params = []
-
-    if firstname:
-        query += " AND firstname = ?"
-        params.append(firstname)
-
-    if lastname:
-        query += " AND lastname = ?"
-        params.append(lastname)
-
-    if year_born:
-        query += " AND year_born = ?"
-        params.append(year_born)
-
-    cursor.execute(query, params)
-    return cursor.fetchall()
-
 
 def drop_tables(cursor, tables):
     dropped = []
@@ -745,7 +479,6 @@ def create_tables(cursor):
     # Create player transition table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player_transition (
-            player_transition_id INTEGER PRIMARY KEY AUTOINCREMENT,
             season_id INTEGER NOT NULL,
             player_id INTEGER NOT NULL,
             club_id_from INTEGER NOT NULL,
@@ -906,24 +639,23 @@ def create_and_populate_static_tables(cursor):
         )
     ''')
 
-    # Define seasons
     seasons = [
-        (181, '2025-07-01', '2026-06-30', 2025, 2026, '2025-26', 'Licens 2025-26'),
-        (171, '2024-07-01', '2025-06-30', 2024, 2025, '2024-25', 'Licens 2024-25'),
-        (135, '2023-07-01', '2024-06-30', 2023, 2024, '2023-24', 'Licens 2023-24'),
-        (126, '2022-07-01', '2023-06-30', 2022, 2023, '2022-23', 'Licens 2022-23'),
-        (121, '2021-07-01', '2022-06-30', 2021, 2022, '2021-22', 'Licens 2021-22'),
-        (114, '2020-07-01', '2021-06-30', 2020, 2021, '2020-21', 'Licens 2020-21'),
-        (109, '2019-07-01', '2020-06-30', 2019, 2020, '2019-20', 'Licens 2019-20'),
-        (103, '2018-07-01', '2019-06-30', 2018, 2019, '2018-19', 'Licens 2018-19'),
-        (99, '2017-07-01', '2018-06-30', 2017, 2018, '2017-18', 'Licens 2017-18'),
-        (80, '2016-07-01', '2017-06-30', 2016, 2017, '2016-17', 'Licens 2016-17'),
-        (73, '2015-07-01', '2016-06-30', 2015, 2016, '2015-16', 'Licens 2015-16'),
-        (68, '2014-07-01', '2015-06-30', 2014, 2015, '2014-15', 'Licens 2014-15'),
-        (56, '2013-07-01', '2014-06-30', 2013, 2014, '2013-14', 'Licens 2013-14'),
-        (54, '2012-07-01', '2013-06-30', 2012, 2013, '2012-13', 'Licens 2012-13'),
+        (39, '2010-07-01', '2011-06-30', 2010, 2011, '2010-11', 'Licens 10/11'),
         (50, '2011-07-01', '2012-06-30', 2011, 2012, '2011-12', 'Licens 11-12'),
-        (39, '2010-07-01', '2011-06-30', 2010, 2011, '2010-11', 'Licens 10/11')
+        (54, '2012-07-01', '2013-06-30', 2012, 2013, '2012-13', 'Licens 2012-13'),
+        (56, '2013-07-01', '2014-06-30', 2013, 2014, '2013-14', 'Licens 2013-14'),
+        (68, '2014-07-01', '2015-06-30', 2014, 2015, '2014-15', 'Licens 2014-15'),
+        (73, '2015-07-01', '2016-06-30', 2015, 2016, '2015-16', 'Licens 2015-16'),
+        (80, '2016-07-01', '2017-06-30', 2016, 2017, '2016-17', 'Licens 2016-17'),
+        (99, '2017-07-01', '2018-06-30', 2017, 2018, '2017-18', 'Licens 2017-18'),
+        (103, '2018-07-01', '2019-06-30', 2018, 2019, '2018-19', 'Licens 2018-19'),
+        (109, '2019-07-01', '2020-06-30', 2019, 2020, '2019-20', 'Licens 2019-20'),
+        (114, '2020-07-01', '2021-06-30', 2020, 2021, '2020-21', 'Licens 2020-21'),
+        (121, '2021-07-01', '2022-06-30', 2021, 2022, '2021-22', 'Licens 2021-22'),
+        (126, '2022-07-01', '2023-06-30', 2022, 2023, '2022-23', 'Licens 2022-23'),
+        (135, '2023-07-01', '2024-06-30', 2023, 2024, '2023-24', 'Licens 2023-24'),
+        (171, '2024-07-01', '2025-06-30', 2024, 2025, '2024-25', 'Licens 2024-25'),
+        (181, '2025-07-01', '2026-06-30', 2025, 2026, '2025-26', 'Licens 2025-26')
     ]
 
     # Insert seasons
@@ -1072,7 +804,12 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_club_alias_long_name ON club_alias (LOWER(long_name))",
         "CREATE INDEX IF NOT EXISTS idx_player_license_raw_id_ext ON player_license_raw (player_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_player_ranking_raw_id_ext ON player_ranking_raw (player_id_ext)",
-        "CREATE INDEX IF NOT EXISTS idx_player_id_ext ON player (player_id_ext)"
+        "CREATE INDEX IF NOT EXISTS idx_player_id_ext ON player (player_id_ext)",
+        "CREATE INDEX IF NOT EXISTS idx_player_name_year ON player (firstname, lastname, year_born)",
+        "CREATE INDEX IF NOT EXISTS idx_player_license_player_season_club ON player_license (player_id, season_id, club_id)",
+        "CREATE INDEX IF NOT EXISTS idx_club_alias_name ON club_alias (name)",
+        "CREATE INDEX IF NOT EXISTS idx_club_alias_long_name ON club_alias (long_name)",
+        "CREATE INDEX IF NOT EXISTS idx_season_label ON season (season_label)"
     ]
 
     for stmt in indexes:

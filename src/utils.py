@@ -157,3 +157,8 @@ def print_db_insert_results(db_results):
         for reason, count in summary[status].items():
             logging.info(f"      • {reason}: {count}")
             print(f"      • {reason}: {count}")
+
+
+def sanitize_name(name: str) -> str:
+    """Sanitize a name by stripping, splitting, and title-casing each word."""
+    return ' '.join(word.strip().title() for word in name.split())
