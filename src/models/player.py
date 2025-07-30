@@ -3,37 +3,84 @@
 from dataclasses import dataclass
 from typing import Optional, List
 import logging
+from utils import sanitize_name
 
 @dataclass
 class Player:
-    player_id_ext: int
-    firstname: str
-    lastname: str
-    year_born: int
-    player_id: Optional[int] = None  # Add this optional field for internal ID, as it is not know at the time of creation
+    player_id: Optional[int] = None
+    firstname: Optional[str] = None
+    lastname: Optional[str] = None
+    year_born: Optional[int] = None
+    aliases: List[dict] = None  # [{player_id_ext, firstname, lastname, year_born}]
+
+    def __post_init__(self):
+        if self.aliases is None:
+            self.aliases = []
+
+    def sanitize(self):
+        if self.firstname:
+            self.firstname = self.firstname.strip().title()
+        if self.lastname:
+            self.lastname = self.lastname.strip().title()
 
     @staticmethod
     def from_dict(data: dict):
         return Player(
-            player_id_ext=data.get("player_id_ext"),
+            player_id=data.get("player_id"),
             firstname=data.get("firstname"),
             lastname=data.get("lastname"),
             year_born=data.get("year_born"),
-            player_id=data.get("player_id", None)  # Default to None if not provided
+            aliases=data.get("aliases", [])
         )
-    
-    def sanitize(self):
-        # Trim and title-case names
-        self.firstname = self.firstname.strip().title()
-        self.lastname = self.lastname.strip().title()
 
-    def save_to_db(self, cursor):
+    @staticmethod
+    def get_by_id_ext(cursor, player_id_ext: int) -> Optional['Player']:
+        try:
+            # Get canonical player_id from alias
+            cursor.execute("SELECT player_id FROM player_alias WHERE player_id_ext = ?", (player_id_ext,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return Player.get_by_id(cursor, row[0])
+        except Exception as e:
+            logging.error(f"Error retrieving player by player_id_ext {player_id_ext}: {e}")
+            return None
 
-        # Sanitize player data
+    @staticmethod
+    def get_by_id(cursor, player_id: int) -> Optional['Player']:
+        try:
+            # Fetch canonical player
+            cursor.execute("""
+                SELECT player_id, firstname, lastname, year_born FROM player WHERE player_id = ?
+            """, (player_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            # Fetch aliases
+            cursor.execute("""
+                SELECT player_id_ext, firstname, lastname, year_born FROM player_alias WHERE player_id = ?
+            """, (player_id,))
+            aliases = [
+                {"player_id_ext": r[0], "firstname": r[1], "lastname": r[2], "year_born": r[3]}
+                for r in cursor.fetchall()
+            ]
+
+            return Player(
+                player_id=row[0],
+                firstname=row[1],
+                lastname=row[2],
+                year_born=row[3],
+                aliases=aliases
+            )
+        except Exception as e:
+            logging.error(f"Error retrieving player by ID {player_id}: {e}")
+            return None
+
+    def save_to_db(self, cursor, player_id_ext: int):
         self.sanitize()
 
-        # Validate required fields
-        if not all([self.player_id_ext, self.firstname, self.lastname, self.year_born]):
+        if not all([player_id_ext, self.firstname, self.lastname, self.year_born]):
             return {
                 "status": "failed",
                 "player": f"{self.firstname} {self.lastname}",
@@ -41,23 +88,32 @@ class Player:
             }
 
         try:
-            cursor.execute("""
-                INSERT OR IGNORE INTO player (player_id_ext, firstname, lastname, year_born)
-                VALUES (?, ?, ?, ?)
-            """, (self.player_id_ext, self.firstname, self.lastname, self.year_born))
-
-            if cursor.rowcount == 0:
-                logging.info(f"Skipped player_id_ext {self.player_id_ext}: Player already exists")
+            # Check if alias already exists
+            cursor.execute("SELECT player_id FROM player_alias WHERE player_id_ext = ?", (player_id_ext,))
+            if cursor.fetchone():
                 return {
                     "status": "skipped",
                     "player": f"{self.firstname} {self.lastname}",
-                    "reason": "Player already exists"
+                    "reason": "Alias already exists"
                 }
+
+            # Always insert a new canonical player first (1-to-1 assumption)
+            cursor.execute("""
+                INSERT INTO player (firstname, lastname, year_born)
+                VALUES (?, ?, ?)
+            """, (self.firstname, self.lastname, self.year_born))
+            self.player_id = cursor.lastrowid
+
+            # Link alias to new canonical player
+            cursor.execute("""
+                INSERT INTO player_alias (player_id, player_id_ext, firstname, lastname, year_born)
+                VALUES (?, ?, ?, ?, ?)
+            """, (self.player_id, player_id_ext, self.firstname, self.lastname, self.year_born))
 
             return {
                 "status": "success",
                 "player": f"{self.firstname} {self.lastname}",
-                "reason": "Player inserted successfully"
+                "reason": "Inserted new canonical player and alias"
             }
 
         except Exception as e:
@@ -66,84 +122,41 @@ class Player:
                 "player": f"{self.firstname} {self.lastname}",
                 "reason": f"Insertion error: {e}"
             }
-
-    @staticmethod
-    def get_by_id_ext(cursor, player_id_ext: int) -> Optional['Player']:
-        """Retrieve a Player instance by player_id_ext, or None if not found."""
-        try:
-            cursor.execute("""
-                SELECT player_id, player_id_ext, firstname, lastname, year_born
-                FROM player WHERE player_id_ext = ?
-            """, (player_id_ext,))
-            row = cursor.fetchone()
-            if row:
-                return Player.from_dict({
-                    "player_id": row[0],
-                    "player_id_ext": row[1],
-                    "firstname": row[2],
-                    "lastname": row[3],
-                    "year_born": row[4]
-                })
-            return None
-        except Exception as e:
-            return {
-                "status": "failed",
-                "player": f"Unknown Player",
-                "reason": f"Error retrieving player by player_id_ext {player_id_ext}: {e}"
-            }
-
-    @staticmethod
-    def get_by_id(cursor, player_id: int) -> Optional['Player']:
-        """Retrieve a Player instance by internal player_id, or None if not found."""
-        try:
-            cursor.execute("""
-                SELECT player_id, player_id_ext, firstname, lastname, year_born
-                FROM player WHERE player_id = ?
-            """, (player_id,))
-            row = cursor.fetchone()
-            if row:
-                return Player.from_dict({
-                    "player_id": row[0],
-                    "player_id_ext": row[1],
-                    "firstname": row[2],
-                    "lastname": row[3],
-                    "year_born": row[4]
-                })
-            return None
-        except Exception as e:
-            return {
-                "status": "failed",
-                "player": f"Unknown Player",
-                "reason": f"Error retrieving player by player_id {player_id}: {e}"
-            }
-
-    def validate_against(self, other: 'Player') -> bool:
-        """
-        Validate if this player's data matches another's, ignoring player_id.
-        Assumes both are sanitized.
-        """
-        return (self.player_id_ext == other.player_id_ext and
-                self.firstname == other.firstname and
-                self.lastname == other.lastname and
-                self.year_born == other.year_born)
-    
+        
     @staticmethod
     def search_by_name_and_year(cursor, firstname: str, lastname: str, year_born: int) -> List['Player']:
-        """Retrieve Player instances by firstname, lastname, and year_born."""
+        """Search for Player instances by firstname, lastname, and year_born in player_alias."""
         try:
+            firstname = sanitize_name(firstname)
+            lastname = sanitize_name(lastname)
             cursor.execute("""
-                SELECT player_id, player_id_ext, firstname, lastname, year_born
-                FROM player
-                WHERE firstname = ? AND lastname = ? AND year_born = ?
+                SELECT DISTINCT p.player_id, p.firstname, p.lastname, p.year_born
+                FROM player p
+                JOIN player_alias pa ON p.player_id = pa.player_id
+                WHERE pa.firstname = ? AND pa.lastname = ? AND pa.year_born = ?
             """, (firstname, lastname, year_born))
             rows = cursor.fetchall()
-            return [Player.from_dict({
-                "player_id": row[0],
-                "player_id_ext": row[1],
-                "firstname": row[2],
-                "lastname": row[3],
-                "year_born": row[4]
-            }) for row in rows]
+            players = []
+            for row in rows:
+                player_id = row[0]
+                # Fetch aliases for this player
+                cursor.execute("""
+                    SELECT player_id_ext, firstname, lastname, year_born
+                    FROM player_alias
+                    WHERE player_id = ?
+                """, (player_id,))
+                aliases = [
+                    {"player_id_ext": r[0], "firstname": r[1], "lastname": r[2], "year_born": r[3]}
+                    for r in cursor.fetchall()
+                ]
+                players.append(Player(
+                    player_id=row[0],
+                    firstname=row[1],
+                    lastname=row[2],
+                    year_born=row[3],
+                    aliases=aliases
+                ))
+            return players
         except Exception as e:
-            logging.error(f"Error retrieving players by name {firstname} {lastname} and year_born {year_born}: {e}")
+            logging.error(f"Error searching players by name {firstname} {lastname} and year_born {year_born}: {e}")
             return []

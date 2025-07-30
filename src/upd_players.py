@@ -12,9 +12,9 @@ def upd_players():
     print("ℹ️  Updating player table...")
 
     try:
-    # Fetch unique players from both player_license_raw and player_ranking_raw
+        # Fetch unique players from raw sources
         cursor.execute('''
-            WITH CombinedPlayers AS (
+            WITH Combined AS (
                 SELECT player_id_ext, firstname, lastname, year_born, row_id, 'license' AS source
                 FROM player_license_raw
                 WHERE player_id_ext IS NOT NULL
@@ -29,31 +29,32 @@ def upd_players():
                   AND TRIM(lastname) != ''
                   AND year_born IS NOT NULL
             ),
-            RankedPlayers AS (
+            Ranked AS (
                 SELECT player_id_ext, firstname, lastname, year_born,
                        ROW_NUMBER() OVER (PARTITION BY player_id_ext ORDER BY 
                            CASE source WHEN 'license' THEN 1 ELSE 2 END, row_id) AS rn
-                FROM CombinedPlayers
+                FROM Combined
             )
             SELECT player_id_ext, firstname, lastname, year_born
-            FROM RankedPlayers
+            FROM Ranked
             WHERE rn = 1
             ORDER BY player_id_ext
         ''')
-        players = [
-            Player(player_id_ext=row[0], firstname=row[1], lastname=row[2], year_born=row[3])
-            for row in cursor.fetchall()
-        ]
-        logging.info(f"Found {len(players)} unique players from player_license_raw and player_ranking_raw.")
-        print(f"ℹ️  Found {len(players)} unique players from player_license_raw and player_ranking_raw.")
 
-        # Save players to the database
-        db_results = [player.save_to_db(cursor) for player in players]
+        players = cursor.fetchall()
+        logging.info(f"ℹ️  Found {len(players):,} unique player_id_exts")
+        print(f"ℹ️  Found {len(players):,} unique player_id_exts")
 
-        # Print results of database insertions
-        print_db_insert_results(db_results)
+        results = []
+        for row in players:
+            player_id_ext, firstname, lastname, year_born = row
+            player = Player(firstname=firstname, lastname=lastname, year_born=year_born)
+            result = player.save_to_db(cursor, player_id_ext)
+            results.append(result)
+
+        print_db_insert_results(results)
 
     finally:
         conn.commit()
         conn.close()
-        logging.info("-------------------------------------------------------------------")
+        logging.info("✔️  Done updating players.")

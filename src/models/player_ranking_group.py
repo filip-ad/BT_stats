@@ -1,6 +1,7 @@
 # src/models/player_ranking_group.py
 
 from dataclasses import dataclass
+import logging
 
 @dataclass
 class PlayerRankingGroup:

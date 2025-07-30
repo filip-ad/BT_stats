@@ -97,7 +97,7 @@ class PlayerTransition:
                 VALUES (?, ?, ?, ?, ?)
             """, (self.season_id, self.player_id, self.club_id_from, self.club_id_to, self.transition_date))
             if cursor.rowcount == 0:
-                logging.warning(f"Transition already exists for player_id {self.player_id} in season {self.season_id}")
+                logging.debug(f"Transition already exists for player_id {self.player_id} in season {self.season_id}")
                 return {
                     "status": "skipped",
                     "player": f"Player ID {self.player_id}",

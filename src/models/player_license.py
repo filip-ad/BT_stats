@@ -127,7 +127,7 @@ class PlayerLicense:
             ))
 
             if overlapping_license == 1:
-                logging.warning(f"Player {self.firstname} {self.lastname} ({self.player_id}) already has a license of the same type with overlapping dates. Club: {self.club_id}, Season: {self.season_id}, License: {self.license_id}, Dates: {self.valid_from} - {self.valid_to}")
+                logging.warning(f"Player player_id: {self.player_id} already has a license of the same type with overlapping dates. Club: {self.club_id}, Season: {self.season_id}, License: {self.license_id}, Dates: {self.valid_from} - {self.valid_to}")
                 return {
                         "status": "success",
                         "player_id": self.player_id,

@@ -405,17 +405,29 @@ def create_tables(cursor):
         )
     ''')
 
-    # Create player table
+    # Create player table (cannonical player data)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player (
             player_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            firstname TEXT,
+            lastname TEXT,
+            year_born INTEGER,
+            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Create player alias table (include firstname, lastname, year_born to cater for different spellings in the future)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS player_alias (
+            player_id INTEGER NOT NULL,
             player_id_ext INTEGER,
             firstname TEXT,
             lastname TEXT,
             year_born INTEGER,
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (player_id_ext)
-        )
+            UNIQUE (player_id_ext),
+            FOREIGN KEY (player_id) REFERENCES player(player_id)
+        ) 
     ''')
 
     # Create raw data table for player_licenses_raw
@@ -498,7 +510,6 @@ def create_tables(cursor):
             player_id INTEGER NOT NULL,
             ranking_group_id INTEGER NOT NULL,
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (player_id, ranking_group_id),
             FOREIGN KEY (ranking_group_id) REFERENCES ranking_group(ranking_group_id),
             FOREIGN KEY (player_id) REFERENCES player(player_id)
         )
@@ -771,6 +782,7 @@ def create_and_populate_static_tables(cursor):
             long_name TEXT,
             remarks TEXT,
             UNIQUE (club_id_ext),
+            UNIQUE (club_id, name, long_name),
             FOREIGN KEY (club_id) REFERENCES club(club_id)
         )
     ''')
@@ -792,7 +804,6 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_class_entries_class_id ON tournament_class_entries(tournament_class_id)",
         "CREATE INDEX IF NOT EXISTS idx_class_entries_player_id ON tournament_class_entries(player_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_player_id ON player_license(player_id)",
-        "CREATE INDEX IF NOT EXISTS idx_player_ranking_group_id ON player_ranking_group(ranking_group_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_ranking_date ON player_ranking(date)",
         "CREATE INDEX IF NOT EXISTS idx_match_tournament_class_id ON match(tournament_class_id)",
         "CREATE INDEX IF NOT EXISTS idx_match_player1_id ON match(player1_id)",
@@ -804,12 +815,25 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_club_alias_long_name ON club_alias (LOWER(long_name))",
         "CREATE INDEX IF NOT EXISTS idx_player_license_raw_id_ext ON player_license_raw (player_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_player_ranking_raw_id_ext ON player_ranking_raw (player_id_ext)",
-        "CREATE INDEX IF NOT EXISTS idx_player_id_ext ON player (player_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_player_name_year ON player (firstname, lastname, year_born)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_player_season_club ON player_license (player_id, season_id, club_id)",
         "CREATE INDEX IF NOT EXISTS idx_club_alias_name ON club_alias (name)",
         "CREATE INDEX IF NOT EXISTS idx_club_alias_long_name ON club_alias (long_name)",
-        "CREATE INDEX IF NOT EXISTS idx_season_label ON season (season_label)"
+        "CREATE INDEX IF NOT EXISTS idx_season_label ON season (season_label)",
+        "CREATE INDEX IF NOT EXISTS idx_player_alias_id_ext ON player_alias (player_id_ext)",
+        "CREATE INDEX IF NOT EXISTS idx_club_alias_id_ext ON club_alias (club_id_ext)",
+        "CREATE INDEX IF NOT EXISTS idx_season_label ON season (season_label)",
+        "CREATE INDEX IF NOT EXISTS idx_license_type_age ON license (license_type, license_age_group)",
+        "CREATE INDEX IF NOT EXISTS idx_player_license_raw_keys ON player_license_raw (player_id_ext, club_id_ext, season_id_ext, license_info_raw)",
+        "CREATE INDEX IF NOT EXISTS idx_player_license_keys ON player_license (player_id, license_id, season_id, club_id)",
+        "CREATE INDEX IF NOT EXISTS idx_player_transition_raw_unique ON player_transition_raw (firstname, lastname, date_born, transition_date)",
+        "CREATE INDEX IF NOT EXISTS idx_player_alias_name_year ON player_alias (firstname, lastname, year_born)",
+        "CREATE INDEX IF NOT EXISTS idx_player_transition_season ON player_transition (season_id)",
+        "CREATE INDEX IF NOT EXISTS idx_player_id ON player (player_id)",
+        "CREATE INDEX IF NOT EXISTS idx_club_alias_name ON club_alias (name)",
+        "CREATE INDEX IF NOT EXISTS idx_season_dates ON season (season_start_date, season_end_date)",
+        "CREATE INDEX IF NOT EXISTS idx_player_license_player_club_season ON player_license (player_id, club_id, season_id)",
+        "CREATE INDEX IF NOT EXISTS idx_player_transition_unique ON player_transition (player_id, club_id_from, club_id_to, transition_date)"
     ]
 
     for stmt in indexes:

@@ -34,12 +34,14 @@ def main():
             # 'club',
             # 'club_alias',
             # 'player',
+            # 'player_alias'
             # 'license'
             # 'season',
             # 'tournament'
             # 'tournament_class', 
             # 'player_ranking_group', 
             # 'ranking_group'
+            # 'player_ranking_group'
             # 'player_ranking', 
             # 'player_license',
             # 'player_license_raw',
@@ -50,7 +52,7 @@ def main():
 
 
         # # # Create static tables
-        # create_and_populate_static_tables(cursor)
+        create_and_populate_static_tables(cursor)
 
         # Create tables if they don't exist
         create_tables(cursor)  
@@ -77,7 +79,7 @@ def main():
         # upd_player_ranking_groups()
 
         # - Update player license table. Depends on player_license_raw, club, player, season, and license tables.
-        # upd_player_licenses()
+        upd_player_licenses()
 
         # - Scrape and populate player_transition_raw table. No dependency.
         # upd_player_transitions_raw()
