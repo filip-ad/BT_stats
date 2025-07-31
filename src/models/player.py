@@ -185,7 +185,30 @@ class Player:
             return name_year_to_player
         except Exception as e:
             logging.error(f"Error caching player name/year map: {e}")
-            return {}           
+            return {} 
+
+    @staticmethod
+    def cache_id_ext_map(cursor) -> Dict[int, 'Player']:
+        """Cache a mapping of player_id_ext to Player objects."""
+        try:
+            # Reuse cache_all to get all Player objects
+            player_map = Player.cache_all(cursor)
+            
+            # Fetch player_id_ext to player_id mappings from player_alias
+            cursor.execute("SELECT player_id_ext, player_id FROM player_alias")
+            ext_to_player = {}
+            for row in cursor.fetchall():
+                player_id_ext, player_id = row
+                if player_id_ext is not None and player_id in player_map:
+                    ext_to_player[player_id_ext] = player_map[player_id]
+                else:
+                    logging.warning(f"No player found for player_id {player_id} or invalid player_id_ext {player_id_ext}")
+            
+            logging.info(f"Cached {len(ext_to_player)} player id_ext mappings")
+            return ext_to_player
+        except Exception as e:
+            logging.error(f"Error caching player id_ext map: {e}")
+            return {}                
 
     @staticmethod
     def search_by_name_and_year(cursor, firstname: str, lastname: str, year_born: int) -> List['Player']:

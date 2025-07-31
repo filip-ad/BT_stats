@@ -23,7 +23,8 @@ def upd_player_licenses():
         # Cache mappings
         cache_start = time.time()
         club_name_map = Club.cache_name_map(cursor)  # Dict[str, Club]
-        player_name_year_map = Player.cache_name_year_map(cursor)  # Dict[Tuple[str, str, int], Player]
+        # player_name_year_map = Player.cache_name_year_map(cursor)  # Dict[Tuple[str, str, int], Player]
+        player_id_ext_map = Player.cache_id_ext_map(cursor)  # Dict[int, Player]
         season_map = Season.cache_all(cursor) # Dict[int, Season]
         license_map = License.cache_all(cursor) # Dict[Tuple[str, Optional[str]], License]
         logging.info(f"Cached mappings in {time.time() - cache_start:.2f} seconds")
@@ -190,12 +191,28 @@ def upd_player_licenses():
                 })
                 continue
 
-            # Map player using firstname, lastname, year_born
-            player_key = (sanitize_name(firstname), sanitize_name(lastname), year_born)
-            player = player_name_year_map.get(player_key)
+            # # Map player using firstname, lastname, year_born
+            # player_key = (sanitize_name(firstname), sanitize_name(lastname), year_born)
+            # player = player_name_year_map.get(player_key)
+            # if not player:
+            #     # Fallback to player_id_ext lookup
+            #     logging.warning(f"No player found for name/year {player_key} in cache, trying player_id_ext {player_id_ext} for row_id {row_id}")
+            #     player = Player.get_by_id_ext(cursor, player_id_ext)
+            #     if not player:
+            #         logging.warning(f"Foreign key violation: player_id_ext {player_id_ext} does not exist in player_alias table, row_id {row_id}")
+            #         db_results.append({
+            #             "status": "failed",
+            #             "row_id": row_id,
+            #             "reason": "Foreign key violation: player_id_ext does not exist in player_alias table"
+            #         })
+            #         continue
+            # player_id = player.player_id
+
+            # Map player using player_id_ext
+            player = player_id_ext_map.get(player_id_ext)
             if not player:
-                # Fallback to player_id_ext lookup
-                logging.warning(f"No player found for name/year {player_key} in cache, trying player_id_ext {player_id_ext} for row_id {row_id}")
+                # Fallback to direct lookup
+                logging.warning(f"No player found for player_id_ext {player_id_ext} in cache, trying direct lookup for row_id {row_id}")
                 player = Player.get_by_id_ext(cursor, player_id_ext)
                 if not player:
                     logging.warning(f"Foreign key violation: player_id_ext {player_id_ext} does not exist in player_alias table, row_id {row_id}")
@@ -205,7 +222,7 @@ def upd_player_licenses():
                         "reason": "Foreign key violation: player_id_ext does not exist in player_alias table"
                     })
                     continue
-            player_id = player.player_id
+            player_id = player.player_id            
 
             # Map club using club_name
             club = club_name_map.get(club_name)
