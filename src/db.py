@@ -111,7 +111,7 @@ def save_to_db_transitions(cursor, transitions):
                 logging.debug(f"New license will be created for player {firstname} {lastname} "
                          f"with player_id {new_license.get('player_id')} at club {club_to_name} "
                          f"({club_to.get('club_id')}) for season {season_transition.get('season_id')} "
-                         f"with license details: license_type={new_license.get('license_type')}, "
+                         f"with license details: type={new_license.get('type')}, "
                          f"valid_from={new_license.get('valid_from')}, valid_to={new_license.get('valid_to')}, "
                          f"license_id={new_license.get('license_id')}")
             
@@ -136,11 +136,11 @@ def save_to_db_transitions(cursor, transitions):
                              f"license_id={new_license.get('license_id')}")
 
             #     # insert_license(cursor, new_license)
-            #     logging.info(f"✔️ Inserted license for player {firstname} {lastname} with license_type '{record.get('license_type')}'")
+            #     logging.info(f"✔️ Inserted license for player {firstname} {lastname} with type '{record.get('type')}'")
             #     db_results.append({
             #         "status": "success",
             #         "player": f"{firstname} {lastname}, born {year_born} from club {club_from_name} to {club_to_name} on {transition_date}",
-            #         "reason": f"Single license inserted with type {record.get('license_type')}"
+            #         "reason": f"Single license inserted with type {record.get('type')}"
             #     })
             #     continue
 
@@ -157,7 +157,7 @@ def save_to_db_transitions(cursor, transitions):
             #             "player_id": player_id,
             #             "club_id": club_to.get("club_id"),
             #             "season_id": season_transition.get("season_id"),
-            #             "license_type": record.get("license_type"),
+            #             "type": record.get("type"),
             #             "license_id": record.get("license_id"),
             #             "valid_from": transition_date,
             #             "valid_to": season_transition.get("season_end_date"),
@@ -165,13 +165,13 @@ def save_to_db_transitions(cursor, transitions):
 
             #         # insert_license(cursor, new_license)
             #         logging.info(
-            #             f"✔️ Inserted license for player {firstname} {lastname} with license_type '{record.get('license_type')}'"
+            #             f"✔️ Inserted license for player {firstname} {lastname} with type '{record.get('type')}'"
             #         )
 
             #     db_results.append({
             #         "status": "success",
             #         "player": f"{firstname} {lastname}, born {year_born} from club {club_from_name} to {club_to_name} on {transition_date}",
-            #         "reason": f"Multiple licenses inserted with types: {', '.join([r.get('license_type') for r in license_records])}"
+            #         "reason": f"Multiple licenses inserted with types: {', '.join([r.get('type') for r in license_records])}"
             #     })
             #     continue
 
@@ -680,9 +680,9 @@ def create_and_populate_static_tables(cursor):
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS license (
             license_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            license_type TEXT,
-            license_age_group TEXT,
-            UNIQUE (license_type, license_age_group)
+            type TEXT,
+            age_group TEXT,
+            UNIQUE (type, age_group)
         )
     ''')
 
@@ -699,7 +699,7 @@ def create_and_populate_static_tables(cursor):
 
     # Insert licenses 
     cursor.executemany('''
-        INSERT OR IGNORE INTO license (license_type, license_age_group)
+        INSERT OR IGNORE INTO license (type, age_group)
         VALUES (?, ?)
     ''', licenses)  
 
@@ -823,7 +823,7 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_player_alias_id_ext ON player_alias (player_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_club_alias_id_ext ON club_alias (club_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_season_label ON season (season_label)",
-        "CREATE INDEX IF NOT EXISTS idx_license_type_age ON license (license_type, license_age_group)",
+        "CREATE INDEX IF NOT EXISTS idx_type_age ON license (type, age_group)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_raw_keys ON player_license_raw (player_id_ext, club_id_ext, season_id_ext, license_info_raw)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_keys ON player_license (player_id, license_id, season_id, club_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_transition_raw_unique ON player_transition_raw (firstname, lastname, date_born, transition_date)",

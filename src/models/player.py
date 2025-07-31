@@ -1,7 +1,7 @@
 # src/models/player.py
 
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple
 import logging
 from utils import sanitize_name
 
@@ -122,7 +122,71 @@ class Player:
                 "player": f"{self.firstname} {self.lastname}",
                 "reason": f"Insertion error: {e}"
             }
-        
+
+    @staticmethod
+    def cache_all(cursor) -> Dict[int, 'Player']:
+        """Cache all Player objects by player_id, including aliases, using minimal queries."""
+        try:
+            # Fetch all players
+            cursor.execute("""
+                SELECT player_id, firstname, lastname, year_born
+                FROM player
+            """)
+            player_map = {
+                row[0]: Player(
+                    player_id=row[0],
+                    firstname=row[1],
+                    lastname=row[2],
+                    year_born=row[3],
+                    aliases=[]  # Initialize empty aliases list
+                ) for row in cursor.fetchall()
+            }
+
+            # Fetch all aliases in one query
+            cursor.execute("""
+                SELECT player_id, player_id_ext, firstname, lastname, year_born
+                FROM player_alias
+            """)
+            for row in cursor.fetchall():
+                player_id = row[0]
+                if player_id in player_map:
+                    player_map[player_id].aliases.append({
+                        "player_id_ext": row[1],
+                        "firstname": row[2],
+                        "lastname": row[3],
+                        "year_born": row[4]
+                    })
+                else:
+                    logging.warning(f"No player found for player_id {player_id} in player_map")
+
+            logging.info(f"Cached {len(player_map)} players")
+            return player_map
+        except Exception as e:
+            logging.error(f"Error caching players: {e}")
+            return {}
+
+    @staticmethod
+    def cache_name_year_map(cursor) -> Dict[Tuple[str, str, int], 'Player']:
+        """Cache a mapping of (firstname, lastname, year_born) to Player objects."""
+        try:
+            player_map = Player.cache_all(cursor)
+            cursor.execute("SELECT firstname, lastname, year_born, player_id FROM player_alias")
+            name_year_to_player = {}
+            for row in cursor.fetchall():
+                firstname, lastname, year_born, player_id = row
+                key = (sanitize_name(firstname) if firstname else '', 
+                       sanitize_name(lastname) if lastname else '', 
+                       year_born if year_born is not None else 0)
+                if player_id in player_map:
+                    name_year_to_player[key] = player_map[player_id]
+                else:
+                    logging.warning(f"No player found for player_id {player_id} in player_map")
+            logging.info(f"Cached {len(name_year_to_player)} player name/year mappings")
+            return name_year_to_player
+        except Exception as e:
+            logging.error(f"Error caching player name/year map: {e}")
+            return {}           
+
     @staticmethod
     def search_by_name_and_year(cursor, firstname: str, lastname: str, year_born: int) -> List['Player']:
         """Search for Player instances by firstname, lastname, and year_born in player_alias."""

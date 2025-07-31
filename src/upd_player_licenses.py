@@ -9,7 +9,7 @@ from models.season import Season
 from models.club import Club
 from models.player import Player
 from models.license import License
-from utils import parse_date, print_db_insert_results
+from utils import parse_date, print_db_insert_results, sanitize_name
 
 def upd_player_licenses():
     conn, cursor = get_conn()
@@ -22,18 +22,24 @@ def upd_player_licenses():
 
         # Cache mappings
         cache_start = time.time()
-        cursor.execute("SELECT season_id, season_label, season_start_date, season_end_date FROM season")
-        season_map = {row[1]: Season(season_id=row[0], season_start_date=row[2], season_end_date=row[3]) for row in cursor.fetchall()}
-
-        cursor.execute("SELECT player_id_ext, player_id FROM player_alias")
-        player_map = {row[0]: row[1] for row in cursor.fetchall()}
-
-        cursor.execute("SELECT club_id_ext, club_id FROM club_alias")
-        club_map = {row[0]: row[1] for row in cursor.fetchall()}
-
-        cursor.execute("SELECT license_id, license_type, license_age_group FROM license")
-        license_map = {(row[1], row[2] or None): row[0] for row in cursor.fetchall()}
+        club_name_map = Club.cache_name_map(cursor)  # Dict[str, Club]
+        player_name_year_map = Player.cache_name_year_map(cursor)  # Dict[Tuple[str, str, int], Player]
+        season_map = Season.cache_all(cursor) # Dict[int, Season]
+        license_map = License.cache_all(cursor) # Dict[Tuple[str, Optional[str]], License]
         logging.info(f"Cached mappings in {time.time() - cache_start:.2f} seconds")
+
+        # Cache duplicate licenses
+        duplicate_start = time.time()
+        cursor.execute("""
+            SELECT player_id_ext, club_id_ext, season_id_ext, 
+                   LOWER(TRIM(SUBSTR(license_info_raw, 1, INSTR(license_info_raw, '(') - 1))) AS license_key,
+                   MIN(row_id) AS min_row_id
+            FROM player_license_raw
+            GROUP BY player_id_ext, club_id_ext, season_id_ext, license_key
+            HAVING COUNT(*) > 1
+        """)
+        duplicate_map = {(row[0], row[1], row[2], row[3]): row[4] for row in cursor.fetchall()}
+        logging.info(f"Cached {len(duplicate_map)} duplicate licenses in {time.time() - duplicate_start:.2f} seconds")
 
         # Fetch raw data
         fetch_start = time.time()
@@ -97,37 +103,51 @@ def upd_player_licenses():
                 })
                 continue
 
-            license_type = match.group("type").strip().capitalize()
+            type = match.group("type").strip().capitalize()
             license_date = match.group("date")
-            license_age_group = match.group("age").strip().capitalize() if match.group("age") else None
+            age_group = match.group("age").strip().capitalize() if match.group("age") else None
 
-            # Detect duplicates in raw data
-            cursor.execute("""
-                SELECT row_id, SUBSTR(license_info_raw, INSTR(license_info_raw, '(') + 1, 10) AS valid_from_raw
-                FROM player_license_raw
-                WHERE player_id_ext = ? AND club_id_ext = ? AND season_id_ext = ?
-                AND LOWER(TRIM(SUBSTR(license_info_raw, 1, INSTR(license_info_raw, '(') - 1))) = LOWER(?)
-                ORDER BY valid_from_raw
-            """, (
-                player_id_ext,
-                club_id_ext,
-                season_id_ext,
-                f"{license_type} {license_age_group}".strip() if license_age_group else license_type
-            ))
-            duplicate_rows = cursor.fetchall()
-            if len(duplicate_rows) > 1:
-                current_index = next((i for i, r in enumerate(duplicate_rows) if r[0] == row_id), -1)
-                if current_index > 0:  # Not the earliest
-                    logging.warning(f"Duplicate license detected for player_id_ext {player_id_ext}: {license_type} "
-                                  f"(age group: {license_age_group}) for club_id_ext {club_id_ext}, season_id_ext {season_id_ext}, row_id {row_id}")
-                    db_results.append({
-                        "status": "failed",
-                        "row_id": row_id,
-                        "reason": "Player has duplicate license type and age group for the same club and season"
-                    })
-                    continue
+            # # Detect duplicates in raw data
+            # cursor.execute("""
+            #     SELECT row_id, SUBSTR(license_info_raw, INSTR(license_info_raw, '(') + 1, 10) AS valid_from_raw
+            #     FROM player_license_raw
+            #     WHERE player_id_ext = ? AND club_id_ext = ? AND season_id_ext = ?
+            #     AND LOWER(TRIM(SUBSTR(license_info_raw, 1, INSTR(license_info_raw, '(') - 1))) = LOWER(?)
+            #     ORDER BY valid_from_raw
+            # """, (
+            #     player_id_ext,
+            #     club_id_ext,
+            #     season_id_ext,
+            #     f"{type} {age_group}".strip() if age_group else type
+            # ))
+            # duplicate_rows = cursor.fetchall()
+            # if len(duplicate_rows) > 1:
+            #     current_index = next((i for i, r in enumerate(duplicate_rows) if r[0] == row_id), -1)
+            #     if current_index > 0:  # Not the earliest
+            #         logging.warning(f"Duplicate license detected for player_id_ext {player_id_ext}: {type} "
+            #                       f"(age group: {age_group}) for club_id_ext {club_id_ext}, season_id_ext {season_id_ext}, row_id {row_id}")
+            #         db_results.append({
+            #             "status": "failed",
+            #             "row_id": row_id,
+            #             "reason": "Player has duplicate license type and age group for the same club and season"
+            #         })
+            #         continue
+
+            # Check for duplicates using cached map
+            license_key = f"{type} {age_group}".strip().lower() if age_group else type.lower()
+            duplicate_key = (player_id_ext, club_id_ext, season_id_ext, license_key)
+            if duplicate_key in duplicate_map and duplicate_map[duplicate_key] != row_id:
+                logging.warning(f"Duplicate license detected for player_id_ext {player_id_ext}: {type} "
+                              f"(age group: {age_group}) for club_id_ext {club_id_ext}, season_id_ext {season_id_ext}, row_id {row_id}")
+                db_results.append({
+                    "status": "failed",
+                    "row_id": row_id,
+                    "reason": "Player has duplicate license type and age group for the same club and season"
+                })
+                continue            
 
             # Fetch season
+            # season = Season.get_by_label(cursor, season_label)
             season = season_map.get(season_label)
             if not season:
                 logging.warning(f"No matching season found for season_label '{season_label}' for row_id {row_id}")
@@ -162,7 +182,7 @@ def upd_player_licenses():
 
             # Skip if valid_from equals season end date
             if valid_from == season.season_end_date:
-                logging.warning(f"Player_id_ext {player_id_ext} - Skipped because valid_from ({valid_from}) equals season end date, row_id {row_id}")
+                logging.warning(f"Player {firstname} {lastname} (ext_id: {player_id_ext}, id: {player_id}) skipped because valid_from ({valid_from}) equals season end date, row_id {row_id}")
                 db_results.append({
                     "status": "skipped",
                     "row_id": row_id,
@@ -170,38 +190,60 @@ def upd_player_licenses():
                 })
                 continue
 
-            # Map player_id_ext to player_id
-            player_id = player_map.get(player_id_ext)
-            if not player_id:
-                logging.warning(f"Foreign key violation: player_id_ext {player_id_ext} does not exist in player_alias table, row_id {row_id}")
-                db_results.append({
-                    "status": "failed",
-                    "row_id": row_id,
-                    "reason": "Foreign key violation: player_id_ext does not exist in player_alias table"
-                })
-                continue
+            # Map player using firstname, lastname, year_born
+            player_key = (sanitize_name(firstname), sanitize_name(lastname), year_born)
+            player = player_name_year_map.get(player_key)
+            if not player:
+                # Fallback to player_id_ext lookup
+                logging.warning(f"No player found for name/year {player_key} in cache, trying player_id_ext {player_id_ext} for row_id {row_id}")
+                player = Player.get_by_id_ext(cursor, player_id_ext)
+                if not player:
+                    logging.warning(f"Foreign key violation: player_id_ext {player_id_ext} does not exist in player_alias table, row_id {row_id}")
+                    db_results.append({
+                        "status": "failed",
+                        "row_id": row_id,
+                        "reason": "Foreign key violation: player_id_ext does not exist in player_alias table"
+                    })
+                    continue
+            player_id = player.player_id
 
-            # Map club_id_ext to club_id
-            club_id = club_map.get(club_id_ext)
-            if not club_id:
-                logging.warning(f"Foreign key violation: club_id_ext {club_id_ext} does not exist in club_alias table, row_id {row_id}")
-                db_results.append({
-                    "status": "failed",
-                    "row_id": row_id,
-                    "reason": "Foreign key violation: club_id_ext does not exist in club_alias table"
-                })
-                continue
+            # Map club using club_name
+            club = club_name_map.get(club_name)
+            if not club:
+                # Fallback to club_id_ext lookup
+                logging.warning(f"No club found for name {club_name} in cache, trying club_id_ext {club_id_ext} for row_id {row_id}")
+                club = Club.get_by_id_ext(cursor, club_id_ext)
+                if not club:
+                    logging.warning(f"Foreign key violation: club_id_ext {club_id_ext} does not exist in club_alias table, row_id {row_id}")
+                    db_results.append({
+                        "status": "failed",
+                        "row_id": row_id,
+                        "reason": "Foreign key violation: club_id_ext does not exist in club_alias table"
+                    })
+                    continue
+            club_id = club.club_id
 
-            # Map license_type and age_group to license_id
-            license_id = license_map.get((license_type, license_age_group))
-            if not license_id:
-                logging.warning(f"Foreign key violation: license_type {license_type} and age group {license_age_group} not found in license table, row_id {row_id}")
+            # Map type and age_group to license_id
+            # license = License.get_by_type_and_age(cursor, type, age_group)
+            # if not license:
+            #     logging.warning(f"Foreign key violation: type {type} and age group {age_group} not found in license table, row_id {row_id}")
+            #     db_results.append({
+            #         "status": "failed",
+            #         "row_id": row_id,
+            #         "reason": "Foreign key violation: type and age group not found in license table"
+            #     })
+            #     continue
+            # license_id = license.license_id  # Extract integer license_id
+            license = license_map.get((type, age_group))
+            if not license:
+                logging.warning(f"Foreign key violation: type {type} and age group {age_group} not found in license table, row_id {row_id}")
                 db_results.append({
                     "status": "failed",
                     "row_id": row_id,
-                    "reason": "Foreign key violation: license_type and age group not found in license table"
-                })
+                    "reason": "Foreign key violation: type and age group not found in license table"
+                })  
                 continue
+            license_id = license.license_id            
 
             # Create PlayerLicense object
             player_license = PlayerLicense(

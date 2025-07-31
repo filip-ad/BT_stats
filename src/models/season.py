@@ -1,7 +1,7 @@
 # src/models/season.py
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict
 import logging
 
 @dataclass
@@ -113,3 +113,23 @@ class Season:
         if self.season_start_date and self.season_end_date:
             return self.season_start_date <= date <= self.season_end_date
         return False
+    
+    @staticmethod
+    def cache_all(cursor) -> Dict[str, 'Season']:
+        """Cache all seasons by season_label."""
+        try:
+            cursor.execute("""
+                SELECT season_id, season_label, season_start_date, season_end_date
+                FROM season
+            """)
+            return {
+                row[1]: Season(
+                    season_id=row[0],
+                    season_label=row[1],
+                    season_start_date=row[2],
+                    season_end_date=row[3]
+                ) for row in cursor.fetchall() if row[1]
+            }
+        except Exception as e:
+            logging.error(f"Error caching seasons: {e}")
+            return {}
