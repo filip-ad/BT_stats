@@ -1,6 +1,7 @@
 To do
 =======================================================
-
+ - Batch inserts for upd_player_license - and check if relevant 
+   for scraping functions (raw)
     
 
 Improvements long term

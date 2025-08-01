@@ -43,10 +43,10 @@ def main():
             # 'ranking_group'
             # 'player_ranking_group'
             # 'player_ranking', 
-            'player_license'
+            # 'player_license'
             # 'player_license_raw',
             # 'player_transition_raw'
-            # 'player_transition'
+            'player_transition'
             # 'player_ranking_raw'
         ])
 
@@ -79,13 +79,13 @@ def main():
         # upd_player_ranking_groups()
 
         # - Update player license table. Depends on player_license_raw, club, player, season, and license tables.
-        upd_player_licenses()
+        # upd_player_licenses()
 
         # - Scrape and populate player_transition_raw table. No dependency.
         # upd_player_transitions_raw()
 
         # - Update player transitions. Depends on player_transition_raw, club, player, season, and license tables.
-        # upd_player_transitions()
+        upd_player_transitions()
 
         # - Update player rankings raw table. No dependency.
         # upd_player_rankings_raw()
