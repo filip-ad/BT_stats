@@ -6,7 +6,7 @@ from datetime import timedelta
 from utils import setup_driver, parse_date
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from config import CLASSES_MAX_TOURNAMENTS
+from config import SCRAPE_CLASSES_MAX_TOURNAMENTS
 from db import get_conn, get_from_db_tournaments
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -281,8 +281,4 @@ def print_db_insert_results(status_list):
     skipped_count = sum(1 for status in status_list if status["status"] == "skipped")
 
     logging.info(f"Database summary: {success_count} classes inserted, {failed_count} failed, {skipped_count} skipped.")
-    print(f"ℹ️ Database summary: {success_count} classes inserted, {failed_count} failed, {skipped_count} skipped.")
-
-
-if __name__ == "__main__":
-    get_classes()
+    print(f"ℹ️  Database summary: {success_count} classes inserted, {failed_count} failed, {skipped_count} skipped.")

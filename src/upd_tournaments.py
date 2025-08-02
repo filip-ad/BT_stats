@@ -11,9 +11,6 @@ from utils import setup_driver, parse_date
 from db import get_conn, save_to_db_tournaments
 from config import SCRAPE_TOURNAMENTS_ORDER, SCRAPE_TOURNAMENTS_URL, SCRAPE_TOURNAMENTS_START_DATE
 
-
-#  main function to scrape tournaments from site and save them to the database
-#  call: db.getConn(), scrapeTournamentData(), saveTournamentsToDB(), logFetchedTournamentDetails(), logDatabaseInsertStatus() 
 def upd_tournaments():
 
     conn, cursor = get_conn()
