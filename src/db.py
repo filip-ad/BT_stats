@@ -552,35 +552,30 @@ def create_tables(cursor):
 
     # Create match table
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS match (
+        CREATE TABLE match (
             match_id INTEGER PRIMARY KEY AUTOINCREMENT,
             tournament_class_id INTEGER NOT NULL,
-            player1_id INTEGER NOT NULL,
-            player2_id INTEGER NOT NULL,
+            stage_type TEXT,           -- 'group', 'knockout', 'final'
+            round_number INTEGER,       -- optional numeric stage (e.g. 1=R32, 2=R16)
+            match_type TEXT NOT NULL,   -- 'singles', 'doubles', 'team'
             date DATE,
             score_summary TEXT,
-            stage TEXT,
-            winning_player_id INTEGER NOT NULL,
-            losing_player_id INTEGER NOT NULL,
+            winning_team INTEGER,
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (tournament_class_id) REFERENCES tournament_class(tournament_class_id),
-            FOREIGN KEY (player1_id) REFERENCES player(player_id),
-            FOREIGN KEY (player2_id) REFERENCES player(player_id),
-            FOREIGN KEY (winning_player_id) REFERENCES player(player_id),
-            FOREIGN KEY (losing_player_id) REFERENCES player(player_id)
+            FOREIGN KEY(tournament_class_id) REFERENCES tournament_class(tournament_class_id)
         )
     ''')
 
-    # Create game table (child table for matches)
+    # Create game table
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS game (
+        CREATE TABLE game (
             match_id INTEGER NOT NULL,
             game_number INTEGER NOT NULL,
-            player1_score INTEGER NOT NULL,
-            player2_score INTEGER NOT NULL,
+            team1_score INTEGER NOT NULL,
+            team2_score INTEGER NOT NULL,
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (match_id) REFERENCES match(match_id),
-            UNIQUE (match_id, game_number)
+            PRIMARY KEY (match_id, game_number),
+            FOREIGN KEY (match_id) REFERENCES match(match_id)
         )
     ''')
 
@@ -801,8 +796,6 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_tournament_id ON tournament_class(tournament_id)",
         "CREATE INDEX IF NOT EXISTS idx_final_results_class_id ON tournament_class_final_results(tournament_class_id)",
         "CREATE INDEX IF NOT EXISTS idx_final_results_player_id ON tournament_class_final_results(player_id)",
-        "CREATE INDEX IF NOT EXISTS idx_class_entries_class_id ON tournament_class_entries(tournament_class_id)",
-        "CREATE INDEX IF NOT EXISTS idx_class_entries_player_id ON tournament_class_entries(player_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_player_id ON player_license(player_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_ranking_date ON player_ranking(date)",
         "CREATE INDEX IF NOT EXISTS idx_match_tournament_class_id ON match(tournament_class_id)",
