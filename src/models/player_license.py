@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import logging
 from typing import Optional, List, Tuple, Dict, Any
 import difflib
+import sqlite3
 
 @dataclass
 class PlayerLicense:
@@ -195,36 +196,102 @@ class PlayerLicense:
                 "reason": f"Database error: {str(e)}"
             }        
 
+    # @staticmethod
+    # def batch_save_to_db(cursor, validated_licenses: List['PlayerLicense']) -> List[dict]:
+    #     """Batch insert validated PlayerLicense objects, returning results for all licenses."""
+    #     if not validated_licenses:
+    #         return []
+
+    #     results = []
+    #     try:
+    #         batch = [(l.player_id, l.club_id, l.season_id, l.license_id, l.valid_from, l.valid_to, l.row_id) for l in validated_licenses]
+    #         cursor.executemany("""
+    #             INSERT OR IGNORE INTO player_license (player_id, club_id, season_id, license_id, valid_from, valid_to)
+    #             VALUES (?, ?, ?, ?, ?, ?)
+    #         """, [(row[0], row[1], row[2], row[3], row[4], row[5]) for row in batch])
+    #         inserted_count = cursor.rowcount
+    #         logging.info(f"Batch inserted {inserted_count} licenses (skipped {len(validated_licenses) - inserted_count} duplicates)")
+
+    #         # Return results for all licenses
+    #         for i, license in enumerate(validated_licenses):
+    #             status = "success" if i < inserted_count else "skipped"
+    #             reason = "Inserted player license" if i < inserted_count else "Player license already exists in database"
+    #             results.append({
+    #                 "status": status,
+    #                 "row_id": license.row_id,
+    #                 "reason": reason
+    #             })
+
+    #         return results
+    #     except Exception as e:
+    #         logging.error(f"Error batch inserting licenses: {e}")
+    #         return [{"status": "failed", "row_id": l.row_id, "reason": f"Database error: {str(e)}"} for l in validated_licenses]
+
     @staticmethod
-    def batch_save_to_db(cursor, validated_licenses: List['PlayerLicense']) -> List[dict]:
-        """Batch insert validated PlayerLicense objects, returning results for all licenses."""
-        if not validated_licenses:
-            return []
+    def batch_save_to_db(cursor, licenses: List["PlayerLicense"]) -> List[Dict[str, Any]]:
+        """
+        Batch-insert PlayerLicense objects in safe-sized chunks so as not to exceed
+        SQLite's default variable limit (~999). Returns one dict per input license
+        summarizing whether it was skipped, failed or inserted.
+        """
+        # 1) Cache existing keys to avoid duplicates
+        cursor.execute("""
+            SELECT player_id, club_id, season_id, license_id
+              FROM player_license
+        """)
+        existing = {tuple(row) for row in cursor.fetchall()}
 
-        results = []
-        try:
-            batch = [(l.player_id, l.club_id, l.season_id, l.license_id, l.valid_from, l.valid_to, l.row_id) for l in validated_licenses]
-            cursor.executemany("""
-                INSERT OR IGNORE INTO player_license (player_id, club_id, season_id, license_id, valid_from, valid_to)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, [(row[0], row[1], row[2], row[3], row[4], row[5]) for row in batch])
-            inserted_count = cursor.rowcount
-            logging.info(f"Batch inserted {inserted_count} licenses (skipped {len(validated_licenses) - inserted_count} duplicates)")
+        # 2) Build the list of rows to insert, plus a `results` placeholder
+        to_insert = []
+        results   = []
+        for lic in licenses:
+            key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
+            if key in existing:
+                results.append({"status":"skipped","key":str(key),"reason":"Already exists"})
+            else:
+                results.append({"status":"pending","key":str(key),"reason":"Will insert"})
+                to_insert.append((
+                    lic.player_id,
+                    lic.club_id,
+                    lic.season_id,
+                    lic.license_id,
+                    lic.valid_from,
+                    lic.valid_to
+                ))
 
-            # Return results for all licenses
-            for i, license in enumerate(validated_licenses):
-                status = "success" if i < inserted_count else "skipped"
-                reason = "Inserted player license" if i < inserted_count else "Player license already exists in database"
-                results.append({
-                    "status": status,
-                    "row_id": license.row_id,
-                    "reason": reason
-                })
-
+        # Nothing new to do?
+        if not to_insert:
             return results
-        except Exception as e:
-            logging.error(f"Error batch inserting licenses: {e}")
-            return [{"status": "failed", "row_id": l.row_id, "reason": f"Database error: {str(e)}"} for l in validated_licenses]
+
+        # 3) Compute chunk size: 999 vars ÷ 6 columns per row ≃ 166 rows/chunk
+        MAX_VARS     = 999
+        COLS_PER_ROW = 6
+        chunk_size   = MAX_VARS // COLS_PER_ROW  # 166
+
+        insert_sql = """
+            INSERT OR IGNORE INTO player_license
+              (player_id, club_id, season_id, license_id, valid_from, valid_to)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """
+
+        # 4) Loop over slices of `to_insert`
+        for chunk_start in range(0, len(to_insert), chunk_size):
+            chunk = to_insert[chunk_start : chunk_start + chunk_size]
+            try:
+                cursor.executemany(insert_sql, chunk)
+            except sqlite3.Error as e:
+                logging.error(f"Batch insert error on rows {chunk_start}–{chunk_start+len(chunk)-1}: {e}")
+                # Mark only those in this chunk as failed
+                for i in range(chunk_start, chunk_start + len(chunk)):
+                    if results[i]["reason"] == "Will insert":
+                        results[i].update(status="failed", reason=str(e))
+            else:
+                # On success, mark them as inserted
+                for i in range(chunk_start, chunk_start + len(chunk)):
+                    if results[i]["reason"] == "Will insert":
+                        results[i].update(status="success", reason="Inserted")
+
+        return results
         
     @staticmethod
     def validate_batch(cursor, licenses: List['PlayerLicense']) -> List[dict]:
