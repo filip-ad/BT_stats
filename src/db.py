@@ -254,62 +254,62 @@ def save_to_db_transitions(cursor, transitions):
 
     return db_results
 
-def save_to_db_tournaments(cursor, tournaments):
-    db_results = []
-    for tournament in tournaments:
-        if is_duplicate_tournament(cursor, tournament["ondata_id"]):
-            logging.debug(f"Skipping duplicate tournament: {tournament['name']}")
-            db_results.append({"status": "skipped", "tournament": tournament["name"]})
-            continue
-        try:
-            cursor.execute('''
-                INSERT INTO tournament (name, startdate, enddate, city, arena, country_code, ondata_id, url, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (tournament["name"], tournament["start_date"], tournament["end_date"], 
-                  tournament["city"], tournament["arena"], tournament["country_code"], 
-                  tournament["ondata_id"], tournament["url"], tournament["status"]))
-            logging.debug(f"Inserted tournament into DB: {tournament['name']}")
-            db_results.append({"status": "success", "tournament": tournament["name"]})
-        except sqlite3.Error as e:
-            logging.error(f"Error inserting tournament into DB {tournament['name']}: {e}")
-            db_results.append({"status": "failed", "tournament": tournament["name"]})
-    return db_results
+# def save_to_db_tournaments(cursor, tournaments):
+#     db_results = []
+#     for tournament in tournaments:
+#         if is_duplicate_tournament(cursor, tournament["ondata_id"]):
+#             logging.debug(f"Skipping duplicate tournament: {tournament['name']}")
+#             db_results.append({"status": "skipped", "tournament": tournament["name"]})
+#             continue
+#         try:
+#             cursor.execute('''
+#                 INSERT INTO tournament (name, startdate, enddate, city, arena, country_code, ondata_id, url, status)
+#                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+#             ''', (tournament["name"], tournament["start_date"], tournament["end_date"], 
+#                   tournament["city"], tournament["arena"], tournament["country_code"], 
+#                   tournament["ondata_id"], tournament["url"], tournament["status"]))
+#             logging.debug(f"Inserted tournament into DB: {tournament['name']}")
+#             db_results.append({"status": "success", "tournament": tournament["name"]})
+#         except sqlite3.Error as e:
+#             logging.error(f"Error inserting tournament into DB {tournament['name']}: {e}")
+#             db_results.append({"status": "failed", "tournament": tournament["name"]})
+#     return db_results
 
 def is_duplicate_tournament(cursor, ondata_id):
     cursor.execute("SELECT tournament_id FROM tournament WHERE ondata_id = ?", (ondata_id,))
     return cursor.fetchone() is not None
 
-def get_from_db_tournaments(cursor):
-    try:
-        cursor.execute("""
-            SELECT tournament_id, name, startdate, enddate, city, arena, country_code, ondata_id, url, status, row_created
-            FROM tournament
-            WHERE status IN ('ONGOING', 'ENDED')
-        """)
-        rows = cursor.fetchall()       
-        tournaments = []
-        for row in rows:
-            tournament = {
-                "tournament_id": row[0],
-                "name": row[1],
-                "start_date": row[2],  # Already in string format (e.g., 'YYYY-MM-DD')
-                "end_date": row[3],
-                "city": row[4],
-                "arena": row[5],
-                "country_code": row[6],
-                "ondata_id": row[7],
-                "url": row[8],
-                "status": row[9],
-                "row_created": row[10]
-            }
-            tournaments.append(tournament)
-            logging.debug(f"Fetched tournament: {tournament['name']} (ID: {tournament['tournament_id']})")    
-        logging.debug(f"Fetched {len(tournaments)} tournaments from database.")
-        return tournaments
-    except Exception as e:
-        logging.error(f"Error fetching tournaments from database: {e}")
-        print(f"❌ Error fetching tournaments from database: {e}")
-        return []
+# def get_from_db_tournaments(cursor):
+#     try:
+#         cursor.execute("""
+#             SELECT tournament_id, name, startdate, enddate, city, arena, country_code, ondata_id, url, status, row_created
+#             FROM tournament
+#             WHERE status IN ('ONGOING', 'ENDED')
+#         """)
+#         rows = cursor.fetchall()       
+#         tournaments = []
+#         for row in rows:
+#             tournament = {
+#                 "tournament_id": row[0],
+#                 "name": row[1],
+#                 "start_date": row[2],  # Already in string format (e.g., 'YYYY-MM-DD')
+#                 "end_date": row[3],
+#                 "city": row[4],
+#                 "arena": row[5],
+#                 "country_code": row[6],
+#                 "ondata_id": row[7],
+#                 "url": row[8],
+#                 "status": row[9],
+#                 "row_created": row[10]
+#             }
+#             tournaments.append(tournament)
+#             logging.debug(f"Fetched tournament: {tournament['name']} (ID: {tournament['tournament_id']})")    
+#         logging.debug(f"Fetched {len(tournaments)} tournaments from database.")
+#         return tournaments
+#     except Exception as e:
+#         logging.error(f"Error fetching tournaments from database: {e}")
+#         print(f"❌ Error fetching tournaments from database: {e}")
+#         return []
 
 def drop_tables(cursor, tables):
     dropped = []
@@ -355,7 +355,8 @@ def create_tables(cursor):
             ondata_id TEXT,
             url TEXT,
             status TEXT,
-            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (ondata_id)
         )
     ''')
 

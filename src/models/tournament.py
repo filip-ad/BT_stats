@@ -1,16 +1,20 @@
 # src/models/tournament.py
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Optional
 import logging
 import sqlite3
+from utils import parse_date
+from typing import Optional, Any, Dict, List
+
 
 @dataclass
 class Tournament:
     tournament_id: Optional[int] = None     # Canonical ID from tournament table
     name: str = None                        # Tournament name
-    startdate: str = None                   # Start date (string format, e.g., '2023.10.01')
-    enddate: str = None                     # End date (string format)
+    startdate: Optional[date] = None       # Start date as a date object
+    enddate:   Optional[date] = None       # End date as a date object
     city: str = None                        # City name
     arena: str = None                       # Arena name
     country_code: str = None                # Country code (e.g., 'SWE')
@@ -20,12 +24,18 @@ class Tournament:
 
     @staticmethod
     def from_dict(data: dict):
-        """Create a Tournament instance from a dictionary."""
+        """
+        Build a Tournament from a dict.
+        """
+
+        sd = data.get("start_date") or data.get("startdate")
+        ed = data.get("end_date")   or data.get("enddate")
+
         return Tournament(
             tournament_id=data.get("tournament_id"),
             name=data.get("name"),
-            startdate=data.get("start_date"),
-            enddate=data.get("end_date"),
+            startdate=parse_date(sd, context="Tournament.from_dict"),
+            enddate=  parse_date(ed, context="Tournament.from_dict"),
             city=data.get("city"),
             arena=data.get("arena"),
             country_code=data.get("country_code"),
@@ -47,17 +57,16 @@ class Tournament:
             row = cursor.fetchone()
             if row:
                 return Tournament.from_dict({
-                    "tournament_id": row[0],
-                    "name": row[1],
-                    "start_date": row[2],
-                    "end_date": row[3],
-                    "city": row[4],
-                    "arena": row[5],
-                    "country_code": row[6],
-                    "ondata_id": row[7],
-                    "url": row[8],
-                    "status": row[9],
-                    "row_created": row[10]
+                    "tournament_id":    row[0],
+                    "name":             row[1],
+                    "start_date":       row[2],
+                    "end_date":         row[3],
+                    "city":             row[4],
+                    "arena":            row[5],
+                    "country_code":     row[6],
+                    "ondata_id":        row[7],
+                    "url":              row[8],
+                    "status":           row[9],
                 })
             return None
         except Exception as e:
@@ -65,42 +74,46 @@ class Tournament:
             return None
 
     @staticmethod
-    def get_by_ondata_id(cursor, ondata_id: str) -> Optional['Tournament']:
+    def get_by_ondata_id(cursor, ondata_id: str) -> Optional["Tournament"]:
         """Retrieve a Tournament instance by ondata_id, or None if not found."""
         try:
             cursor.execute("""
-                SELECT tournament_id, name, startdate, enddate, city, arena, country_code,
-                       ondata_id, url, status, row_created
-                FROM tournament
-                WHERE ondata_id = ?
+                SELECT tournament_id, name, startdate, enddate,
+                       city, arena, country_code, ondata_id, url, status
+                  FROM tournament
+                 WHERE ondata_id = ?
             """, (ondata_id,))
             row = cursor.fetchone()
-            if row:
-                return Tournament.from_dict({
-                    "tournament_id": row[0],
-                    "name": row[1],
-                    "start_date": row[2],
-                    "end_date": row[3],
-                    "city": row[4],
-                    "arena": row[5],
-                    "country_code": row[6],
-                    "ondata_id": row[7],
-                    "url": row[8],
-                    "status": row[9],
-                    "row_created": row[10]
-                })
-            return None
+            if not row:
+                return None
+
+            # build directly, passing a dict into from_dict
+            data = {
+                "tournament_id": row[0],
+                "name":          row[1],
+                "startdate":     row[2],
+                "enddate":       row[3],
+                "city":          row[4],
+                "arena":         row[5],
+                "country_code":  row[6],
+                "ondata_id":     row[7],
+                "url":           row[8],
+                "status":        row[9],
+            }
+            return Tournament.from_dict(data)
+
         except Exception as e:
             logging.error(f"Error retrieving tournament by ondata_id {ondata_id}: {e}")
             return None
 
+
     def save_to_db(self, cursor):
         """Save the Tournament instance to the database, checking for duplicates."""
-        if not self.name or not self.ondata_id:
+        if not (self.name and self.ondata_id and self.startdate and self.enddate):
             return {
                 "status": "failed",
-                "tournament": self.name or "Unknown",
-                "reason": "Missing required fields (name or ondata_id)"
+                "key": self.name or "Unknown",
+                "reason": "Missing one of required fields (name, ondata_id, dates)"
             }
 
         # Check for duplicate by ondata_id
@@ -108,7 +121,7 @@ class Tournament:
             logging.debug(f"Skipping duplicate tournament: {self.name}")
             return {
                 "status": "skipped",
-                "tournament": self.name,
+                "key": self.name,
                 "reason": "Tournament already exists"
             }
 
@@ -116,20 +129,67 @@ class Tournament:
             cursor.execute("""
                 INSERT INTO tournament (name, startdate, enddate, city, arena, country_code, ondata_id, url, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (self.name, self.startdate, self.enddate, self.city, self.arena,
-                  self.country_code, self.ondata_id, self.url, self.status))
+            """, (
+                self.name, 
+                self.startdate, 
+                self.enddate, 
+                self.city, 
+                self.arena,
+                self.country_code, 
+                self.ondata_id, 
+                self.url, 
+                self.status
+                ))
             self.tournament_id = cursor.lastrowid
             logging.debug(f"Inserted tournament into DB: {self.name}")
             return {
                 "status": "success",
-                "tournament": self.name,
-                "reason": "Tournament inserted successfully",
-                "tournament_id": self.tournament_id
+                "key": self.name,
+                "reason": "Tournament inserted successfully"
             }
         except sqlite3.Error as e:
             logging.error(f"Error inserting tournament {self.name}: {e}")
             return {
                 "status": "failed",
-                "tournament": self.name,
+                "key": self.name,
                 "reason": f"Insertion error: {e}"
             }
+        
+    @staticmethod
+    def get_by_status(cursor, statuses: List[str] = ["ONGOING", "ENDED"]) -> List["Tournament"]:
+        """
+        Load all tournaments whose status is in the given list.
+        Returns a list of Tournament instances.
+        """
+        placeholder = ",".join("?" for _ in statuses)
+        sql = f"""
+            SELECT tournament_id, name, startdate, enddate,
+                   city, arena, country_code,
+                   ondata_id, url, status
+              FROM tournament
+             WHERE status IN ({placeholder})
+        """
+        try:
+            cursor.execute(sql, statuses)
+            rows = cursor.fetchall()
+            result: List[Tournament] = []
+            for (tid, name, sd, ed, city, arena, ccode, oid, url, status) in rows:
+                result.append(
+                    Tournament.from_dict({
+                        "tournament_id": tid,
+                        "name":          name,
+                        "start_date":    sd,
+                        "end_date":      ed,
+                        "city":          city,
+                        "arena":         arena,
+                        "country_code":  ccode,
+                        "ondata_id":     oid,
+                        "url":           url,
+                        "status":        status,
+                    })
+                )
+            return result
+
+        except Exception as e:
+            logging.error(f"Error in Tournament.fetch_by_status({statuses}): {e}")
+            return []

@@ -287,3 +287,138 @@ def upd_player_licenses():
 
 if __name__ == "__main__":
     upd_player_licenses()
+
+
+# src/upd_player_licenses.py
+
+# import logging
+# import time
+# import re
+
+# from db import get_conn
+# from utils import parse_date, print_db_insert_results
+
+# from models.player_license import PlayerLicense
+# from models.season import Season
+# from models.club import Club
+# from models.player import Player
+# from models.license import License
+
+
+# def scrape_and_parse_raw_licenses(cursor) -> list[PlayerLicense]:
+#     """
+#     Read raw license rows, parse and validate them into PlayerLicense objects.
+#     Skips any rows that fail parsing or lookups.
+#     """
+#     # 1) Build caches
+#     season_map       = Season.cache_all(cursor)            # season_label -> Season
+#     club_name_map    = Club.cache_name_map(cursor)         # club_name -> Club
+#     player_id_map    = Player.cache_id_ext_map(cursor)     # player_id_ext -> Player
+#     license_map      = License.cache_all(cursor)           # (type,age_group) -> License
+
+#     # 2) Regex to parse "Type Age (YYYY.MM.DD)"
+#     lic_regex = re.compile(
+#         r"(?P<type>(?:[A-D]-licens|48-timmarslicens|Paralicens))"
+#         r"(?: (?P<age>\w+))? \((?P<date>\d{4}\.\d{2}\.\d{2})\)"
+#     )
+
+#     cursor.execute("""
+#         SELECT row_id, season_label, club_name, player_id_ext, license_info_raw
+#         FROM player_license_raw
+#     """)
+#     rows = cursor.fetchall()
+
+#     parsed: list[PlayerLicense] = []
+#     for row_id, season_lbl, club_name, player_ext, raw_info in rows:
+#         lic_part = (raw_info or "").strip()
+#         m = lic_regex.search(lic_part)
+#         if not m:
+#             logging.warning(f"Invalid license format [{row_id}]: {lic_part}")
+#             continue
+
+#         lic_type   = m.group("type").capitalize()
+#         age_group  = m.group("age").capitalize() if m.group("age") else None
+#         date_str   = m.group("date")
+#         valid_from = parse_date(date_str, context=f"row_id {row_id}")
+#         if not valid_from:
+#             logging.warning(f"Could not parse date [{row_id}]: {date_str}")
+#             continue
+
+#         # Lookup season
+#         season = season_map.get(season_lbl)
+#         if not season:
+#             logging.warning(f"No season '{season_lbl}' for row {row_id}")
+#             continue
+#         season_id  = season.season_id
+#         valid_to   = season.season_end_date
+
+#         # Ensure valid_from in season range
+#         if not (season.season_start_date <= valid_from < valid_to):
+#             logging.warning(f"Date {valid_from} out of season range for '{season_lbl}' ({row_id})")
+#             continue
+
+#         # Lookup player
+#         player = player_id_map.get(player_ext)
+#         if not player:
+#             logging.warning(f"No player_ext {player_ext} for row {row_id}")
+#             continue
+#         player_id = player.player_id
+
+#         # Lookup club
+#         club = club_name_map.get(club_name.strip())
+#         if not club:
+#             logging.warning(f"No club '{club_name}' for row {row_id}")
+#             continue
+#         club_id = club.club_id
+
+#         # Lookup license type
+#         lic_obj = license_map.get((lic_type, age_group))
+#         if not lic_obj:
+#             logging.warning(f"No License({lic_type},{age_group}) for row {row_id}")
+#             continue
+#         license_id = lic_obj.license_id
+
+#         # Create PlayerLicense instance
+#         parsed.append(PlayerLicense(
+#             player_id=player_id,
+#             club_id=club_id,
+#             season_id=season_id,
+#             license_id=license_id,
+#             valid_from=valid_from,
+#             valid_to=valid_to,
+#             row_id=row_id
+#         ))
+
+#     return parsed
+
+
+# def upd_player_licenses():
+#     conn, cursor = get_conn()
+#     try:
+#         logging.info("Updating player licenses…")
+#         print("ℹ️  Updating player licenses…")
+
+#         # 1) Scrape & parse into model objects
+#         all_licenses = scrape_and_parse_raw_licenses(cursor)
+#         logging.info(f"Parsed {len(all_licenses)} candidate licenses")
+
+#         # 2) Bulk‐insert with caching + INSERT OR IGNORE
+#         start = time.time()
+#         results = PlayerLicense.batch_save(cursor, all_licenses)
+#         conn.commit()
+#         logging.info(f"Batch insert completed in {time.time() - start:.2f}s")
+
+#         # 3) Report
+#         print_db_insert_results(results)
+
+#     except Exception as e:
+#         logging.error(f"Error updating player licenses: {e}")
+#         conn.rollback()
+#         print(f"❌ Error updating player licenses: {e}")
+
+#     finally:
+#         conn.close()
+
+
+# if __name__ == "__main__":
+#     upd_player_licenses()

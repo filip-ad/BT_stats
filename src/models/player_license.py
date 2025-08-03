@@ -1,20 +1,20 @@
 # src/models/player_license.py
 
-from datetime import datetime
+from datetime import datetime, date
 from dataclasses import dataclass
 import logging
-from typing import Optional, List
+from typing import Optional, List, Tuple, Dict, Any
 import difflib
 
 @dataclass
 class PlayerLicense:
-    player_id: int
-    club_id: int
-    season_id: int
-    license_id: int
-    valid_from: datetime.date
-    valid_to: datetime.date
-    row_id: Optional[int] = None
+    player_id:    int
+    club_id:      int
+    season_id:    int
+    license_id:   int
+    valid_from:   date
+    valid_to:     date
+    row_id:       Optional[int] = None    
 
     @staticmethod
     def from_dict(data: dict):
@@ -27,6 +27,66 @@ class PlayerLicense:
             valid_to=data["valid_to"],
             row_id=data.get("row_id")
         )
+    
+    # @staticmethod
+    # def cache_existing(cursor) -> set[Tuple[int,int,int,int]]:
+    #     """
+    #     Load the set of (player_id, club_id, season_id, license_id) already in the DB.
+    #     """
+    #     cursor.execute("""
+    #         SELECT player_id, club_id, season_id, license_id
+    #           FROM player_license
+    #     """)
+    #     return set(cursor.fetchall())
+    
+    # @staticmethod
+    # def batch_save(cursor, items: List["PlayerLicense"]) -> List[Dict[str,Any]]:
+    #     """
+    #     Batch‐insert only those licenses not already present.
+    #     Returns a list of result dicts for reporting.
+    #     """
+    #     existing = PlayerLicense.cache_existing(cursor)
+    #     to_insert: List[Tuple[Any,...]] = []
+    #     results: List[Dict[str,Any]] = []
+
+    #     for lic in items:
+    #         key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
+    #         if key in existing:
+    #             results.append({
+    #                 "status": "skipped",
+    #                 "key": f"{key}",
+    #                 "reason": "Already exists"
+    #             })
+    #         else:
+    #             to_insert.append((
+    #                 lic.player_id,
+    #                 lic.club_id,
+    #                 lic.season_id,
+    #                 lic.license_id,
+    #                 lic.valid_from,
+    #                 lic.valid_to
+    #             ))
+    #             results.append({
+    #                 "status": "success",
+    #                 "key": f"{key}",
+    #                 "reason": "Will insert"
+    #             })
+
+    #     if to_insert:
+    #         try:
+    #             cursor.executemany("""
+    #                 INSERT OR IGNORE INTO player_license
+    #                   (player_id, club_id, season_id, license_id, valid_from, valid_to)
+    #                 VALUES (?, ?, ?, ?, ?, ?)
+    #             """, to_insert)
+    #         except sqlite3.Error as e:
+    #             logging.error(f"Batch insert error: {e}")
+    #             # mark failures
+    #             for r in results:
+    #                 if r["reason"] == "Will insert":
+    #                     r.update(status="failed", reason=str(e))
+
+    #     return results
     
     @staticmethod
     def get_by_player_id(cursor, player_id: int, season_id: Optional[int] = None, club_id: Optional[int] = None) -> List['PlayerLicense']:
