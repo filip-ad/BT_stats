@@ -3,7 +3,7 @@
 from datetime import datetime
 from dataclasses import dataclass
 import logging
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 @dataclass
 class PlayerLicense:
@@ -400,3 +400,61 @@ class PlayerLicense:
                 "player_id": self.player_id,
                 "reason": f"Database error: {str(e)}"
             }
+
+    @staticmethod
+    def cache_name_club_map(cursor):
+        """
+        Returns dict keyed by (firstname_lower, lastname_lower, club_id)
+        Value = list of dicts with player_id and license validity periods
+        """
+        cursor.execute("""
+            SELECT p.player_id, LOWER(p.firstname), LOWER(p.lastname),
+                   pl.club_id, pl.valid_from, pl.valid_to
+            FROM player p
+            JOIN player_license pl ON p.player_id = pl.player_id
+        """)
+        cache = {}
+        for player_id, firstname, lastname, club_id, valid_from, valid_to in cursor.fetchall():
+            key = (firstname, lastname, club_id)
+            cache.setdefault(key, []).append({
+                "player_id": player_id,
+                "valid_from": valid_from,
+                "valid_to": valid_to
+            })
+        return cache
+
+    @staticmethod
+    def cache_find_by_name_club_date(licenses_cache, firstname, lastname, club_id, tournament_date, fallback_to_latest=False):
+        """
+        Strict lookup: find player_id with a valid license for tournament_date.
+        Optional fallback: return the most recent license if no valid one is found.
+        """
+        key = (firstname.lower(), lastname.lower(), club_id)
+        if key not in licenses_cache:
+            return None
+
+        # Step 1: Strict match
+        valid_candidates = [
+            license["player_id"]
+            for license in licenses_cache[key]
+            if license["valid_from"] <= tournament_date <= license["valid_to"]
+        ]
+        if len(valid_candidates) == 1:
+            return valid_candidates[0]
+        elif len(valid_candidates) > 1:
+            logging.warning(f"Multiple valid licenses for {firstname} {lastname} at club_id={club_id} on {tournament_date}")
+            return valid_candidates[0]
+
+        # Step 2: Optional fallback to most recent license
+        if fallback_to_latest:
+            most_recent = max(licenses_cache[key], key=lambda x: x["valid_to"], default=None)
+            if most_recent:
+                logging.info(
+                    f"ℹFallback: using most recent license for {firstname} {lastname} at club_id={club_id} "
+                    f"(valid_to={most_recent['valid_to']})"
+                )
+                return most_recent["player_id"]
+
+        return None
+
+

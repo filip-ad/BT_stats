@@ -382,9 +382,9 @@ def create_tables(cursor):
         )
     ''')
 
-    # Create tournament class players table (starting list of players in a class)
+    # Create tournament class participant table (starting list of players in a class)
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tournament_class_players (
+        CREATE TABLE IF NOT EXISTS tournament_class_participant (
             tournament_class_id INTEGER NOT NULL,
             player_id INTEGER NOT NULL,
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -552,7 +552,7 @@ def create_tables(cursor):
 
     # Create match table
     cursor.execute('''
-        CREATE TABLE match (
+        CREATE TABLE IF NOT EXISTS match (
             match_id INTEGER PRIMARY KEY AUTOINCREMENT,
             tournament_class_id INTEGER NOT NULL,
             stage_type TEXT,           -- 'group', 'knockout', 'final'
@@ -568,7 +568,7 @@ def create_tables(cursor):
 
     # Create game table
     cursor.execute('''
-        CREATE TABLE game (
+        CREATE TABLE IF NOT EXISTS game (
             match_id INTEGER NOT NULL,
             game_number INTEGER NOT NULL,
             team1_score INTEGER NOT NULL,

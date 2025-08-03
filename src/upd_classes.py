@@ -11,6 +11,7 @@ from db import get_conn, get_from_db_tournaments
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from utils import print_db_insert_results
 
 def upd_classes():
 
@@ -160,7 +161,22 @@ def save_classes_to_db(cursor, classes):
                 class_data["final_results_url"],
                 class_data["row_created"]
             ))
-            status_list.append({"status": "success", "class": class_data})
+
+            if cursor.rowcount == 0:
+                # Row was ignored => class already exists (unique constraint)
+                status_list.append({
+                    "status": "skipped",
+                    "key": class_data["class_short"],
+                    "reason": "Tournament class already exists",
+                    "class": class_data
+                })
+
+            else:
+                status_list.append({
+                    "status": "success", 
+                    "reason": "Tournament class inserted successfully",
+                    "class": class_data})
+
         except Exception as e:
             logging.error(f"Error inserting class {class_data['class_short']} into the database: {e}")
             status_list.append({"status": "failed", "class": class_data})
@@ -275,10 +291,10 @@ def print_details_class(classes):
         logging.debug(f"Final Results URL: {class_data['final_results_url']}")
 
 
-def print_db_insert_results(status_list):
-    success_count = sum(1 for status in status_list if status["status"] == "success")
-    failed_count = sum(1 for status in status_list if status["status"] == "failed")
-    skipped_count = sum(1 for status in status_list if status["status"] == "skipped")
+# def print_db_insert_results(status_list):
+#     success_count = sum(1 for status in status_list if status["status"] == "success")
+#     failed_count = sum(1 for status in status_list if status["status"] == "failed")
+#     skipped_count = sum(1 for status in status_list if status["status"] == "skipped")
 
-    logging.info(f"Database summary: {success_count} classes inserted, {failed_count} failed, {skipped_count} skipped.")
-    print(f"ℹ️  Database summary: {success_count} classes inserted, {failed_count} failed, {skipped_count} skipped.")
+#     logging.info(f"Database summary: {success_count} classes inserted, {failed_count} failed, {skipped_count} skipped.")
+#     print(f"ℹ️  Database summary: {success_count} classes inserted, {failed_count} failed, {skipped_count} skipped.")
