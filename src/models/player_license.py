@@ -230,26 +230,35 @@ class PlayerLicense:
     @staticmethod
     def batch_save_to_db(cursor, licenses: List["PlayerLicense"]) -> List[Dict[str, Any]]:
         """
-        Batch-insert PlayerLicense objects in safe-sized chunks so as not to exceed
-        SQLite's default variable limit (~999). Returns one dict per input license
-        summarizing whether it was skipped, failed or inserted.
+        Insert new PlayerLicense rows in safe‐sized chunks.
+        Returns one dict per input license summarizing skip/insert/fail.
         """
-        # 1) Cache existing keys to avoid duplicates
+        # 1) grab existing keys
         cursor.execute("""
             SELECT player_id, club_id, season_id, license_id
               FROM player_license
         """)
-        existing = {tuple(row) for row in cursor.fetchall()}
+        existing = {tuple(r) for r in cursor.fetchall()}
 
-        # 2) Build the list of rows to insert, plus a `results` placeholder
-        to_insert = []
-        results   = []
-        for lic in licenses:
+        to_insert: List[tuple] = []
+        insert_positions: List[int] = []
+        results: List[Dict[str, Any]] = []
+
+        # 2) Build both lists in lockstep
+        for idx, lic in enumerate(licenses):
             key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
             if key in existing:
-                results.append({"status":"skipped","key":str(key),"reason":"Already exists"})
+                results.append({
+                    "status": "skipped",
+                    "key": str(key),
+                    "reason": "Already exists"
+                })
             else:
-                results.append({"status":"pending","key":str(key),"reason":"Will insert"})
+                results.append({
+                    "status": "pending",
+                    "key": str(key),
+                    "reason": "Will insert"
+                })
                 to_insert.append((
                     lic.player_id,
                     lic.club_id,
@@ -258,12 +267,13 @@ class PlayerLicense:
                     lic.valid_from,
                     lic.valid_to
                 ))
+                insert_positions.append(idx)
 
-        # Nothing new to do?
+        # 3) Nothing to do?
         if not to_insert:
             return results
 
-        # 3) Compute chunk size: 999 vars ÷ 6 columns per row ≃ 166 rows/chunk
+        # 4) Chunking parameters
         MAX_VARS     = 999
         COLS_PER_ROW = 6
         chunk_size   = MAX_VARS // COLS_PER_ROW  # 166
@@ -274,22 +284,19 @@ class PlayerLicense:
             VALUES (?, ?, ?, ?, ?, ?)
         """
 
-        # 4) Loop over slices of `to_insert`
+        # 5) Execute in chunks, updating exactly the right result slots
         for chunk_start in range(0, len(to_insert), chunk_size):
-            chunk = to_insert[chunk_start : chunk_start + chunk_size]
+            chunk        = to_insert[chunk_start : chunk_start + chunk_size]
+            chunk_pos    = insert_positions[chunk_start : chunk_start + chunk_size]
             try:
                 cursor.executemany(insert_sql, chunk)
             except sqlite3.Error as e:
-                logging.error(f"Batch insert error on rows {chunk_start}–{chunk_start+len(chunk)-1}: {e}")
-                # Mark only those in this chunk as failed
-                for i in range(chunk_start, chunk_start + len(chunk)):
-                    if results[i]["reason"] == "Will insert":
-                        results[i].update(status="failed", reason=str(e))
+                logging.error(f"Batch insert error on chunk {chunk_start}-{chunk_start+len(chunk)-1}: {e}")
+                for pos in chunk_pos:
+                    results[pos].update(status="failed", reason=str(e))
             else:
-                # On success, mark them as inserted
-                for i in range(chunk_start, chunk_start + len(chunk)):
-                    if results[i]["reason"] == "Will insert":
-                        results[i].update(status="success", reason="Inserted")
+                for pos in chunk_pos:
+                    results[pos].update(status="success", reason="Inserted")
 
         return results
         
