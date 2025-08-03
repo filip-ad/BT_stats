@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 import datetime
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Set
 import logging
 import sqlite3
 from utils import parse_date
@@ -161,15 +161,17 @@ class TournamentClass:
         cache = TournamentClass.cache_existing(cursor)
         to_insert: List[Tuple[Any,...]] = []
         results: List[Dict[str,Any]] = []
+        seen: Set[Tuple[int,str]] = set(cache)  # start with existing DB keys
 
         for tc in items:
             key = (tc.tournament_id, tc.class_short)
-            if key in cache:
+            if key in seen:
                 results.append({
                     "status": "skipped",
                     "key": f"{tc.tournament_id}/{tc.class_short}",
                     "reason": "Already exists"
                 })
+                logging.warning(f"Skipping existing class {tc.class_short} for tournament {tc.tournament_id}")
                 continue
 
             # collect values for executemany
@@ -197,7 +199,7 @@ class TournamentClass:
         if to_insert:
             try:
                 cursor.executemany("""
-                    INSERT INTO tournament_class
+                    INSERT OR IGNORE INTO tournament_class
                       (tournament_id, date, class_description, class_short,
                        gender, max_rank, max_age,
                        players_url, groups_url,

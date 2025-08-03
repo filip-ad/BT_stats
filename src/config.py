@@ -20,6 +20,6 @@ SCRAPE_TOURNAMENTS_START_DATE           = "2000-08-01"  # Date format: YYYY-MM-D
 SCRAPE_TOURNAMENTS_ORDER                = "oldest"      # Order of tournaments to scrape, "oldest" or "newest"
 SCRAPE_TOURNAMENTS_URL                  = "https://resultat.ondata.se/?viewAll=1"
 
-SCRAPE_CLASSES_MAX_TOURNAMENTS          = 5  # Maximum number of tournaments to scrape classes from
+SCRAPE_CLASSES_MAX_TOURNAMENTS          = 9999  # Maximum number of tournaments to scrape classes from
 
 SCRAPE_CLASS_PARTICIPANTS_MAX_CLASSES   = 5  # Maximum number of classes to scrape participants from

@@ -14,7 +14,7 @@ from models.tournament_class import TournamentClass
 from models.tournament import Tournament
 
 
-def upd_classes():
+def upd_tournament_classes():
     conn, cursor = get_conn()
     driver = setup_driver()
 
@@ -38,6 +38,16 @@ def upd_classes():
             logging.warning("No classes scraped.")
             print("⚠️ No classes scraped.")
             return
+
+        from collections import Counter
+
+        # detect any duplicates in the raw scrape
+        key_list = [(d["tournament_id"], d["class_short"]) for d in raw]
+        dups = Counter(key_list)
+        for (tid, short), count in dups.items():
+            if count > 1:
+                logging.warning(f"Duplicate class {short} for tournament {tid} found {count} times in raw scrape.")
+                print(f"⚠️ Duplicate class {short} for tournament {tid} found {count} times in raw scrape.")
 
         # convert to models
         classes = [TournamentClass.from_dict(d) for d in raw]

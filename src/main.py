@@ -12,7 +12,7 @@ from upd_player_rankings import upd_player_rankings
 from upd_player_transitions_raw import upd_player_transitions_raw
 from upd_player_transitions import upd_player_transitions
 from upd_tournaments import upd_tournaments
-from upd_classes import upd_classes
+from upd_tournament_classes import upd_tournament_classes
 from upd_tournament_participants import upd_tournament_participants
 from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes
 
@@ -80,7 +80,7 @@ def main():
         # upd_player_ranking_groups()
 
         # - Update player license table. Depends on player_license_raw, club, player, season, and license tables.
-        upd_player_licenses()
+        # upd_player_licenses()
 
         # - Scrape and populate player_transition_raw table. No dependency.
         # upd_player_transitions_raw()
@@ -97,7 +97,7 @@ def main():
         # upd_tournaments()
 
         # # # Scrape classes
-        # upd_classes()
+        upd_tournament_classes()
 
         # # Fetch tournament class entries and process PDFs
         # upd_tournament_participants()

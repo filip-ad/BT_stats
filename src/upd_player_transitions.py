@@ -196,13 +196,25 @@ def upd_player_transitions():
                 VALUES (?, ?, ?, ?, ?)
             """, batch)
             inserted_count = cursor.rowcount
-            logging.info(f"Batch inserted {inserted_count} transitions (skipped duplicates) in {time.time() - batch_start:.2f} seconds")
+            total = len(batch)
+            skipped_count = total - inserted_count
+
+            logging.info(f"Batch inserted {inserted_count} transitions "
+                 f"(skipped {skipped_count} duplicates) "
+                 f"in {time.time() - batch_start:.2f} seconds")
 
             # Add results for inserted rows (simplified, since row_id not in batch)
             db_results.extend([{
                 "status": "success",
                 "reason": "Inserted player transition"
             } for _ in range(inserted_count)])
+
+            # Add skipped results for duplicates
+            db_results.extend([{
+                "status": "skipped",
+                "reason": "Transition record already exists"
+            } for _ in range(skipped_count)])
+
         logging.info(f"Batch insert completed in {time.time() - batch_start:.2f} seconds")
 
         print_db_insert_results(db_results)
