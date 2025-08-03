@@ -3,7 +3,8 @@
 from datetime import datetime
 from dataclasses import dataclass
 import logging
-from typing import Optional, List, Dict
+from typing import Optional, List
+import difflib
 
 @dataclass
 class PlayerLicense:
@@ -404,12 +405,17 @@ class PlayerLicense:
     @staticmethod
     def cache_name_club_map(cursor):
         """
-        Returns dict keyed by (firstname_lower, lastname_lower, club_id)
+        Returns dict keyed by firstname, lastname and club_id
         Value = list of dicts with player_id and license validity periods
         """
         cursor.execute("""
-            SELECT p.player_id, LOWER(p.firstname), LOWER(p.lastname),
-                   pl.club_id, pl.valid_from, pl.valid_to
+            SELECT 
+                    p.player_id,    -- player ID
+                    p.firstname,    -- player's first name
+                    p.lastname,     -- player's last name
+                    pl.club_id,     -- club ID
+                    pl.valid_from,  -- license valid from date
+                    pl.valid_to     -- license valid to date
             FROM player p
             JOIN player_license pl ON p.player_id = pl.player_id
         """)
@@ -429,7 +435,7 @@ class PlayerLicense:
         Strict lookup: find player_id with a valid license for tournament_date.
         Optional fallback: return the most recent license if no valid one is found.
         """
-        key = (firstname.lower(), lastname.lower(), club_id)
+        key = (firstname, lastname, club_id)
         if key not in licenses_cache:
             return None
 
@@ -450,11 +456,83 @@ class PlayerLicense:
             most_recent = max(licenses_cache[key], key=lambda x: x["valid_to"], default=None)
             if most_recent:
                 logging.info(
-                    f"ℹFallback: using most recent license for {firstname} {lastname} at club_id={club_id} "
+                    f"Fallback: using most recent license for {firstname} {lastname} at club_id={club_id} "
                     f"(valid_to={most_recent['valid_to']})"
                 )
                 return most_recent["player_id"]
+            
+        logging.warning(f"No valid license found for {firstname} {lastname} at club_id={club_id} on {tournament_date}")
 
         return None
 
+    @staticmethod
+    def find_player_id(
+        cursor, licenses_cache, raw_name, club_id, tournament_date,
+        fallback_to_latest=True, fuzzy_threshold=0.85
+    ):
+        """
+        1. Try each (lastname, firstname) split—strict cache lookup
+        2. Try each split against player_alias table
+        3. Fuzzy match among licensed players in the club
+        """
+        parts = raw_name.split()
+        candidates = []
 
+        # Build every possible split point (any number of firstnames and lastnames)
+        for i in range(1, len(parts)):
+            lastname  = " ".join(parts[:i])
+            firstname = " ".join(parts[i:])
+            candidates.append((lastname, firstname))
+
+        # 1 Strict date‐valid cache lookup (with fallback)
+        for ln, fn in candidates:
+            pid = PlayerLicense.cache_find_by_name_club_date(
+                licenses_cache, fn, ln, club_id, tournament_date,
+                fallback_to_latest=fallback_to_latest
+            )
+            if pid:
+                logging.info(f"Matched strict/fallback: '{raw_name}' → fn='{fn}', ln='{ln}'")
+                return pid
+
+        # 2 Exact alias lookup
+        for ln, fn in candidates:
+            cursor.execute("""
+                SELECT pa.player_id, p.firstname, p.lastname
+                  FROM player_alias pa
+                  JOIN player       p ON pa.player_id = p.player_id
+                 WHERE pa.firstname = ? AND pa.lastname = ?
+            """, (fn, ln))
+            row = cursor.fetchone()
+            if row:
+                alias_pid, alias_fn, alias_ln = row
+                pid = PlayerLicense.cache_find_by_name_club_date(
+                    licenses_cache, alias_fn, alias_ln, club_id, tournament_date,
+                    fallback_to_latest=fallback_to_latest
+                )
+                if pid:
+                    logging.info(f"Matched alias: '{raw_name}' → '{alias_fn} {alias_ln}'")
+                    return pid
+
+        # 3 Fuzzy fallback among all players licensed at this club
+        cursor.execute("""
+            SELECT DISTINCT p.firstname, p.lastname, p.player_id
+              FROM player p
+              JOIN player_license pl ON p.player_id = pl.player_id
+             WHERE pl.club_id = ?
+        """, (club_id,))
+        rows = cursor.fetchall()
+
+        target = raw_name.lower()
+        best_ratio, best_pid, best_name = 0.0, None, None
+        for db_fn, db_ln, db_pid in rows:
+            db_name = f"{db_fn} {db_ln}".lower()
+            ratio = difflib.SequenceMatcher(None, target, db_name).ratio()
+            if ratio > best_ratio:
+                best_ratio, best_pid, best_name = ratio, db_pid, f"{db_fn} {db_ln}"
+
+        if best_ratio >= fuzzy_threshold:
+            logging.info(f"Fuzzy matched '{raw_name}' → '{best_name}' (score={best_ratio:.2f})")
+            return best_pid
+
+        logging.warning(f"No match for '{raw_name}' at club_id={club_id}")
+        return None

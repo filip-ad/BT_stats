@@ -34,44 +34,24 @@ def download_pdf(url, retries=3, timeout=30):
             break
     return None
 
-
 def parse_players_pdf(pdf_bytes):
-    """
-    Extract participants from PDF:
-    [{'firstname', 'lastname', 'club_name'}]
-    """
     participants = []
     with pdfplumber.open(pdf_bytes) as pdf:
         for page in pdf.pages:
-            text = page.extract_text()
-            if not text:
-                continue
-    for line in text.splitlines():
-        raw_line = line.strip().replace("\u00A0", " ")
-        if not raw_line or raw_line.startswith("Deltagarlista") or raw_line.startswith("HS-"):
-            continue
-
-        m = re.match(
-            r'^\s*(\d+)\s+([A-Za-zÅÄÖåäö\- ]+),\s+([A-Za-zÅÄÖåäö0-9\- ]+)$',
-            raw_line
-        )
-        if m:
-            _, fullname, club = m.groups()
-            name_parts = fullname.strip().split()
-            if len(name_parts) < 2:
-                continue
-
-            # FIX: PDF shows Lastname Firstname
-            lastname = name_parts[0]
-            firstname = " ".join(name_parts[1:])
-
-            participants.append({
-                "firstname": sanitize_name(firstname),
-                "lastname": sanitize_name(lastname),
-                "club_name": club.strip()
-            })
+            text = page.extract_text() or ""
+            for line in text.splitlines():
+                raw = line.strip().replace("\u00A0", " ")
+                if not raw or raw.startswith("Deltagarlista"):
+                    continue
+                m = re.match(r'^\s*\d+\s+([A-Za-zÅÄÖåäö\- ]+),\s+(.+)$', raw)
+                if not m:
+                    continue
+                fullname, club = m.groups()
+                participants.append({
+                    "raw_name": sanitize_name(fullname.strip()),
+                    "club_name": club.strip()
+                })
     return participants
-
 
 def upd_tournament_participants():
     conn, cursor = get_conn()
@@ -81,7 +61,7 @@ def upd_tournament_participants():
     start_time = time.time()
 
     # Cache for fast lookups
-    club_name_map = Club.cache_name_map(cursor)  # Dict[str_lower, club_id]
+    club_name_map = Club.cache_name_map(cursor)
     licenses_cache = PlayerLicense.cache_name_club_map(cursor)
 
     cursor.execute("""
@@ -108,11 +88,13 @@ def upd_tournament_participants():
     insert_results = []
 
     for class_id, class_name, players_url, class_date, tournament_name in classes:
+        
         tournament_class_date = class_date
-        if isinstance(tournament_class_date, str):
-            tournament_class_date = datetime.fromisoformat(tournament_class_date).date()
+        if isinstance(class_date, str):
+            class_date = datetime.fromisoformat(class_date).date()
 
         # print(f"Processing class {class_id} with URL: {players_url}")
+
         pdf_bytes = download_pdf(players_url)
         if not pdf_bytes:
             logging.error(f"❌ Failed to download PDF for class {class_name} of tournament {tournament_name}: {players_url}")
@@ -121,32 +103,32 @@ def upd_tournament_participants():
         participants = parse_players_pdf(BytesIO(pdf_bytes))
         print(f"✅ Parsed {len(participants)} participants for class {class_name} of tournament {tournament_name} (URL: {players_url})")
 
-        for p in participants:
-            # club_norm = p["club_name"].lower().strip().replace("-", " ").replace("  ", " ")
-            club_name = p["club_name"].strip()
-            club_obj = club_name_map.get(club_name)
+        for participant in participants:
+            # club_name = participant["club_name"].strip()
+            club_obj = club_name_map.get(participant["club_name"].strip())
             if not club_obj:
-                logging.warning(f"❗ Unknown club: {p['club_name']} for class {class_name} of tournament {tournament_name}")
+                logging.warning(f"❗ Unknown club: {participant['club_name']} for class {class_name} of tournament {tournament_name}")
                 insert_results.append({
                     "status": "failed",
-                    "key": f"{class_id}_{p['firstname']}_{p['lastname']}",
+                    "key": f"{class_id}_{participant['firstname']}_{participant['lastname']}",
                     "reason": f"Could not resolve club"
                 })
                 continue
-
             club_id = club_obj.club_id
 
-            player_id = PlayerLicense.cache_find_by_name_club_date(
+            player_id = PlayerLicense.find_player_id(
+                cursor,
                 licenses_cache,
-                p["firstname"], p["lastname"],
+                participant["raw_name"],
                 club_id,
                 tournament_class_date,
-                fallback_to_latest=True  # enable fallback
+                fallback_to_latest=True,
+                fuzzy_threshold=0.85
             )
 
             if not player_id:
                 logging.warning(
-                    f"Player not found or no valid license: {p['firstname']} {p['lastname']} / {p['club_name']} in class {class_name} of tournament {tournament_name}"
+                    f"Player not found or no valid license: {participant['firstname']} {participant['lastname']} / {participant['club_name']} in class {class_name} of tournament {tournament_name}"
                 )
                 insert_results.append({
                     "status": "failed",
@@ -159,6 +141,15 @@ def upd_tournament_participants():
                 INSERT OR IGNORE INTO tournament_class_participant (tournament_class_id, player_id)
                 VALUES (?, ?)
             """, (class_id, player_id))
+
+            if cursor.rowcount == 0:
+                logging.info(f"Participant {participant['raw_name']} already exists in class {class_name} of tournament {tournament_name}")
+                insert_results.append({
+                    "status": "skipped",
+                    "key": f"{class_id}_{player_id}",
+                    "reason": "Participant already exists"
+                })
+                continue
 
             insert_results.append({
             "status": "success",
