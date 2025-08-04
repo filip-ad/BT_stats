@@ -23,9 +23,10 @@ def upd_player_transitions():
 
         # Cache mappings
         cache_start = time.time()
-        club_name_map = Club.cache_name_map(cursor)  # Dict[str, Club]
-        season_map = Season.cache_all(cursor)  # Dict[str, Season]
-        player_name_year_map = Player.cache_name_year_map(cursor)  # Dict[Tuple[str, str, int], Player]
+        club_name_map           = Club.cache_name_map(cursor)
+        seasons_cache           = Season.cache_by_ext(cursor)
+        player_map              = Player.cache_all(cursor)
+        player_name_year_map    = Player.cache_name_year_map(cursor)
         
         # Cache player licenses for validation
         cursor.execute("""
@@ -34,7 +35,7 @@ def upd_player_transitions():
         """)
         license_map = {(row[0], row[1], row[2]) for row in cursor.fetchall()}  # Set of (player_id, club_id, season_id)
 
-        logging.info(f"Cached {len(club_name_map)} club names, {len(season_map)} seasons, "
+        logging.info(f"Cached {len(club_name_map)} club names, {len(seasons_cache)} seasons, "
                      f"{len(player_name_year_map)} players, {len(license_map)} licenses "
                      f"in {time.time() - cache_start:.2f} seconds")
         logging.info(f"Cached mappings in {time.time() - cache_start:.2f} seconds")
@@ -42,7 +43,17 @@ def upd_player_transitions():
         # Fetch raw data
         fetch_start = time.time()
         cursor.execute('''
-            SELECT row_id, season_id_ext, season_label, firstname, lastname, date_born, year_born, club_from, club_to, transition_date
+            SELECT 
+                row_id, 
+                season_id_ext, 
+                season_label, 
+                firstname, 
+                lastname, 
+                date_born, 
+                year_born, 
+                club_from, 
+                club_to, 
+                transition_date
             FROM player_transition_raw
         ''')
         rows = cursor.fetchall()
@@ -54,9 +65,6 @@ def upd_player_transitions():
             print("⚠️ No player transition data found in player_transition_raw.")
             logging.warning("No player transition data found in player_transition_raw.")
             return db_results
-
-        # Get earliest season_id
-        earliest_season_id = min(season.season_id for season in season_map.values() if season.season_id is not None)
 
         player_cache_misses = 0
         transitions_to_insert = []
@@ -89,25 +97,35 @@ def upd_player_transitions():
                 continue
 
             # Normalize and look up club names
-            norm_from       = Club._normalize(club_from)
-            norm_to         = Club._normalize(club_to)
-            club_from_obj   = club_name_map.get(norm_from)
-            club_to_obj     = club_name_map.get(norm_to)
+            club_from_obj   = club_name_map.get(Club._normalize(club_from))
+            club_to_obj     = club_name_map.get(Club._normalize(club_to))
 
             if not club_from_obj or not club_to_obj:
                 logging.warning(f"Could not resolve club_from '{club_from}' or club_to '{club_to}' for row_id {row_id}. Player name {firstname} {lastname}, year_born {year_born}")
                 db_results.append({
                     "status": "skipped",
-                    "row_id": row_id,
+                    "key":    f"{club_from}, {club_to}",
                     "reason": "Could not resolve club_from or club_to"
                 })
                 continue
             club_id_from    = club_from_obj.club_id
             club_id_to      = club_to_obj.club_id
 
+            
+            # Get earliest season_id
+            earliest_season_id = min(season.season_id for season in seasons_cache.values() if season.season_id is not None)
+
             # Get season for transition date
-            season = None
-            for s in season_map.values():
+            season = seasons_cache.get(season_id_ext)
+            if not season:
+                logging.warning(f"Unknown season_id_ext={season_id_ext} for transition row {row_id}")
+                db_results.append({
+                    "status":   "failed", 
+                    "key":      season_id_ext, 
+                    "reason":   "Unknown season"
+                })
+                continue
+            for s in seasons_cache.values():
                 if s.contains_date(transition_date):
                     season = s
                     break
@@ -127,7 +145,6 @@ def upd_player_transitions():
             # Find matching players by name and year_born
             player_key = (firstname, lastname, year_born if year_born else 0)
             player = player_name_year_map.get(player_key)
-            # potential_players = [player] if player else Player.search_by_name_and_year(cursor, firstname, lastname, year_born)
             potential_players = Player.search_by_name_and_year(cursor, firstname, lastname, year_born)
             if not potential_players:
                 player_cache_misses += 1

@@ -246,8 +246,8 @@ class Club:
     @classmethod
     def get_by_name(cls, cursor, raw_name: str) -> Optional["Club"]:
         """
-        A drop-in replacement for your SQL lookup:
-        normalize the input and hit our in-memory map.
+        Normalize the input and create a cache of club names.
+        Then look up the normalized name in the cache.
         """
-        nm = cls._normalize(raw_name)
-        return cls.cache_name_map(cursor).get(nm)
+        normalized_name = cls._normalize(raw_name)
+        return cls.cache_name_map(cursor).get(normalized_name)

@@ -1,9 +1,10 @@
 # src/models/season.py
 
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 from datetime import date
 import logging
+import sqlite3
 
 @dataclass
 class Season:
@@ -28,6 +29,40 @@ class Season:
             description=data.get("description"),
             label=data.get("label"),
         )
+    
+    @staticmethod
+    def from_row(row: sqlite3.Row) -> "Season":
+        # row: (season_id, season_id_ext, start_date, end_date,
+        #       start_year, end_year, description, label)
+        return Season(
+            season_id    = row[0],
+            season_id_ext= row[1],
+            start_date   = row[2],
+            end_date     = row[3],
+            start_year   = row[4],
+            end_year     = row[5],
+            description  = row[6],
+            label        = row[7],
+        )    
+    
+    @classmethod
+    def cache_by_ext(cls, cursor) -> Dict[int, "Season"]:
+        """
+        Load all seasons into a dict: season_id_ext → Season
+        """
+        cursor.execute("""
+            SELECT season_id, season_id_ext,
+                   start_date, end_date,
+                   start_year, end_year,
+                   description, label
+              FROM season
+        """)
+        cache: Dict[int, Season] = {}
+        for row in cursor.fetchall():
+            s = cls.from_row(row)
+            cache[s.season_id_ext] = s
+        logging.info(f"Cached {len(cache)} seasons by external ID")
+        return cache
 
     @staticmethod
     def get_by_id(cursor, season_id: int) -> Optional['Season']:
