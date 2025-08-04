@@ -122,7 +122,7 @@ def parse_date(date_str, context=None):
 
 def print_db_insert_results(db_results):
     # Initialize with all expected statuses
-    all_statuses = ["success", "failed", "skipped"]
+    all_statuses = ["success", "failed", "skipped", "warning"]
     summary = {status: defaultdict(int) for status in all_statuses}
 
     # Build reason-level summary
@@ -148,6 +148,8 @@ def print_db_insert_results(db_results):
         elif status == "failed":
             prefix = "❌"
         elif status == "skipped":
+            prefix = "⏭️ " 
+        elif status == "warning":
             prefix = "⚠️ "
         else:
             prefix = "-"

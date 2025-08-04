@@ -71,7 +71,7 @@ def upd_player_licenses():
         
         for row in rows:
             row_start = time.time()
-            (row_id, season_id_ext, season_label, club_name, club_id_ext,
+            (row_id, season_id_ext, label, club_name, club_id_ext,
              player_id_ext, firstname, lastname, year_born, license_info_raw) = row
 
             # Process license_info_raw
@@ -124,17 +124,17 @@ def upd_player_licenses():
                 continue
 
             # Fetch season
-            season = season_map.get(season_label)
+            season = season_map.get(label)
             if not season:
-                logging.debug(f"No season in cache for season_label {season_label}, row_id {row_id}")
+                logging.debug(f"No season in cache for label {label}, row_id {row_id}")
                 season_id = None  # Will be validated in batch
             else:
                 season_id = season.season_id
-                valid_to = season.season_end_date
+                valid_to = season.end_date
 
             # Check valid_from date against season dates
             if not season.contains_date(valid_from):
-                logging.warning(f"Player_id_ext {player_id_ext} - Valid from date {valid_from} for season {season_label} is outside the season range {season.season_start_date} - {season.season_end_date}, row_id {row_id}")
+                logging.warning(f"Player_id_ext {player_id_ext} - Valid from date {valid_from} for season {label} is outside the season range {season.start_date} - {season.end_date}, row_id {row_id}")
                 db_results.append({
                     "status": "failed",
                     "row_id": row_id,
@@ -143,7 +143,7 @@ def upd_player_licenses():
                 continue
 
             # Skip if valid_from equals season end date
-            if valid_from == season.season_end_date:
+            if valid_from == season.end_date:
                 logging.warning(f"Player {firstname} {lastname} (ext_id: {player_id_ext}, id: {player_id}) skipped because valid_from ({valid_from}) equals season end date, row_id {row_id}")
                 db_results.append({
                     "status": "skipped",

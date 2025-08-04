@@ -37,8 +37,8 @@ def main():
             # 'player',
             # 'player_alias'
             # 'license',
-            # 'season',
-            # 'tournament',
+            # 'season'
+            # 'tournament'
             # 'tournament_class'
             # 'player_ranking_group', 
             # 'ranking_group'
@@ -86,7 +86,7 @@ def main():
         # upd_player_transitions_raw()
 
         # - Update player transitions. Depends on player_transition_raw, club, player, season, and license tables.
-        # upd_player_transitions()
+        upd_player_transitions()
 
         # - Update player rankings raw table. No dependency.
         # upd_player_rankings_raw()
@@ -97,7 +97,7 @@ def main():
         # upd_tournaments()
 
         # # # Scrape classes
-        upd_tournament_classes()
+        # upd_tournament_classes()
 
         # # Fetch tournament class entries and process PDFs
         # upd_tournament_participants()

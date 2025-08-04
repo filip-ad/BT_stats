@@ -9,8 +9,8 @@ from utils import print_db_insert_results
 
 def upd_player_ranking_groups():
     conn, cursor = get_conn()
-    logging.info("Updating player_ranking_group table...")
-    print("ℹ️  Updating player_ranking_group table...")
+    logging.info("Updating player ranking groups...")
+    print("ℹ️  Updating player ranking groups...")
     start_time = time.time()
 
     try:

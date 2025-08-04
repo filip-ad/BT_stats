@@ -1,38 +1,35 @@
 # src/tournament.py
 
 import logging
-from datetime import datetime
+from datetime import date
 import re
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+import requests
+from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from utils import setup_driver, parse_date, print_db_insert_results
+from utils import parse_date, print_db_insert_results
 from db import get_conn
-from config import SCRAPE_TOURNAMENTS_ORDER, SCRAPE_TOURNAMENTS_URL, SCRAPE_TOURNAMENTS_START_DATE
+from config import SCRAPE_TOURNAMENTS_ORDER, SCRAPE_TOURNAMENTS_CUTOFF_DATE, SCRAPE_TOURNAMENTS_URL_ONDATA
 from models.tournament import Tournament
 
 def upd_tournaments():
 
     conn, cursor = get_conn()
-    driver = setup_driver()
     
     try:
 
-        logging.info("Starting tournament scraping process...")
-        print("ℹ️  Starting tournament scraping process...")
+        logging.info(f"Starting tournament scraping process from ondata, with cutoff date {SCRAPE_TOURNAMENTS_CUTOFF_DATE}...")
+        print(f"ℹ️  Starting tournament scraping process from ondata, with cutoff date {SCRAPE_TOURNAMENTS_CUTOFF_DATE}...")
 
-        tournaments = scrape_tournaments(driver)
+        db_results = []     
+        tournaments, db_results = scrape_tournaments_ondata()
         
         if not tournaments:
             logging.warning("No tournaments scraped.")
             print("⚠️  No tournaments scraped.")
             return
 
-        logging.info(f"Successfully scraped {len(tournaments)} tournaments.")
-        print(f"✅ Successfully scraped {len(tournaments)} tournaments.")
-
-        db_results = []
+        logging.info(f"Successfully scraped {len(tournaments)} tournaments from ondata.")
+        print(f"✅ Successfully scraped {len(tournaments)} tournaments from ondata.")
 
         # No need for batch insert here, save each tournament individually
         for t in tournaments:
@@ -46,55 +43,58 @@ def upd_tournaments():
         print(f"❌ Exception during tournament scraping: {e}")
 
     finally:
-        driver.quit()
         conn.commit()
         conn.close()
 
-def scrape_tournaments(driver):
+def scrape_tournaments_ondata():
     """
     Returns a list of Tournament instances for all
-    rows on the SCRAPE_TOURNAMENTS_URL page that
-    meet the date/status criteria.
+    rows on the ?viewAll=1 page that meet the 
+    date/status criteria (start >= cutoff, etc).
     """
+    db_results = []
+
+    _ONDATA_URL_RE = re.compile(r"https://resultat\.ondata\.se/(\w+)/?$")
+    _ONCLICK_URL_RE = re.compile(r"document\.location=(?:'|\")?([^'\"]+)(?:'|\")?")
+    
     tournaments = []
+    today = date.today()
+    cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
 
-    try:
-        driver.get(SCRAPE_TOURNAMENTS_URL)
+    resp = requests.get(SCRAPE_TOURNAMENTS_URL_ONDATA)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
 
-        WebDriverWait(driver, 3).until(EC.presence_of_element_located((By.ID, "listtable")))  # Wait until the table is present
+    # Find the Upcoming and Archive tables
+    tables = soup.find_all("table", id="listtable")
+    if not tables:
+        logging.error("Could not find any #listtable on page")
+        return tournaments
 
-        rows = driver.find_elements(By.CSS_SELECTOR, "#listtable tr")
-        today = datetime.now().date()  # Dynamically set to run date
-        cutoff_date = parse_date(SCRAPE_TOURNAMENTS_START_DATE)  # Define the cutoff date
-
-        logging.info(f"Scraping tournaments starting from {cutoff_date} to {today} in {SCRAPE_TOURNAMENTS_ORDER.lower()} order...")
-        print(f"ℹ️  Scraping tournaments starting from {cutoff_date} to {today} in {SCRAPE_TOURNAMENTS_ORDER.lower()} order...")
-
-        for i, row in enumerate(rows[1:], 1):
-            cols = row.find_elements(By.TAG_NAME, "td")
+    # loop both Upcoming and Archive tables
+    for table in tables:
+        for idx, row in enumerate(table.find_all("tr")[1:], start=1):    
+            cols = row.find_all("td")
             if len(cols) < 6:
-                logging.debug(f"Skipping row {i} due to insufficient columns (likely a header row like the Archive header)")
+                logging.debug(f"Skipping row {idx}: only {len(cols)} < 6 columns")
                 continue
 
-            # Extract tournament details from the row
-            name = cols[0].text.strip()
-            start_str = cols[1].text.strip()
-            end_str = cols[2].text.strip()
-            city = cols[3].text.strip()
-            arena = cols[4].text.strip()
-            country_code = cols[5].text.strip()
+            # basic cols
+            name         = cols[0].get_text(strip=True)
+            start_str    = cols[1].get_text(strip=True)
+            end_str      = cols[2].get_text(strip=True)
+            city         = cols[3].get_text(strip=True)
+            arena        = cols[4].get_text(strip=True)
+            country_code = cols[5].get_text(strip=True)
 
-            # Parse dates for comparison
+            # parse dates
             start_date = parse_date(start_str)
-            end_date = parse_date(end_str)
+            end_date   = parse_date(end_str)
             if not start_date or not end_date:
-                logging.warning(f"Skipping tournament {name} due to invalid start or end date")
-                print(f"⚠️ Skipping tournament {name} due to invalid start or end date")
+                logging.warning(f"Skipping {name}: invalid dates “{start_str}”–“{end_str}”")
                 continue
-
-            # Skip tournaments that start before the cutoff date
             if start_date < cutoff_date:
-                logging.debug(f"Skipping tournament {name} because it starts before the cutoff date ({cutoff_date})")
+                logging.debug(f"Skipping {name}: starts before cutoff ({start_date} < {cutoff_date})")
                 continue
 
             # status
@@ -105,61 +105,45 @@ def scrape_tournaments(driver):
             else:
                 status = "UPCOMING"
 
-            # Extract tournament URL from onclick
-            onclick = row.get_attribute("onclick") or ""
-            full_url = _extract_tournament_url(onclick)
-            if not full_url:
-                logging.warning(f"Skipping tournament {name} (Status: {status}) due to invalid URL format")
-                print(f"⚠️  Skipping tournament {name} (Status: {status}) due to invalid URL format")
-                continue
+            # extract URL from onclick attribute
+            onclick = row.get("onclick", "") or ""
+            m = _ONCLICK_URL_RE.search(onclick)
+            if m:
+                full_url = urljoin(SCRAPE_TOURNAMENTS_URL_ONDATA, m.group(1))
+            else:
+                logging.warning(f"{name}: no valid onclick URL")
+                db_results.append({
+                    "status":   "warning",
+                    "key":      name,
+                    "reason":   "No valid onclick URL"
+                })
+                full_url = None
 
-            # Extract ondata_id from URL
-            ondata_id = _extract_ondata_id(full_url)
-            if not ondata_id:
-                logging.warning(f"Skipping tournament {name} (Status: {status}) due to missing ondata_id")
-                continue
+            # extract ondata_id ONLY if full_url is non-None
+            m2 = _ONDATA_URL_RE.search(full_url) if full_url else None
+            if m2:
+                ondata_id = m2.group(1)
+            else:
+                logging.debug(f"{name}: invalid ondata_id in URL {full_url}")
+                ondata_id = None                
 
-            tournament = Tournament.from_dict({
-                "tournament_id": None,
-                "name": name,
-                "startdate": start_date,
-                "enddate": end_date,
-                "city": city,
-                "arena": arena,
-                "country_code": country_code,
-                "ondata_id": ondata_id,
-                "url": full_url,
-                "status": status
+            # build Tournament
+            tour = Tournament.from_dict({
+                "tournament_id":     None,
+                "tournament_id_ext": ondata_id,
+                "name":              name,
+                "startdate":         start_date,
+                "enddate":           end_date,
+                "city":              city,
+                "arena":             arena,
+                "country_code":      country_code,
+                "ondata_id":         ondata_id,
+                "url":               full_url,
+                "status":            status,
+                "data_source":       "ondata",
             })
+            tournaments.append(tour)
 
-            tournaments.append(tournament)
-
-        # Sort tournaments by start_date based on SCRAPE_TOURNAMENTS_ORDER
-        reverse = SCRAPE_TOURNAMENTS_ORDER.lower() != "oldest"
-        tournaments.sort(
-        key=lambda t: t.startdate,  # <-- use the attribute, not a dict lookup
-        reverse=reverse
-        )
-
-        return tournaments
-
-    except Exception as e:
-        logging.error(f"Exception during scraping: {e}")
-        print(f"❌ Exception during scraping: {e}")
-        return []
-
-def _extract_ondata_id(url):
-    match = re.search(r"https://resultat\.ondata\.se/(\w+)/?$", url)
-    if match:
-        return match.group(1)
-    else:
-        logging.error("Failed to extract ondata_id from URL: %s", url)
-        return None
-
-def _extract_tournament_url(onclick):
-    if not onclick or "document.location=" not in onclick:
-        return None
-    match = re.search(r"document\.location=(?:'|\"|)([^'\"]+)(?:'|\"|)", onclick)
-    if match:
-        return urljoin("https://resultat.ondata.se", match.group(1))
-    return None
+    # sort by start date (earliest first) before inserting into DB
+    tournaments.sort(key=lambda t: t.startdate)
+    return tournaments, db_results

@@ -58,7 +58,11 @@ def scrape_player_licenses(driver, cursor):
     updated_ranking_groups = 0
     unchanged_ranking_groups = 0
 
+    current_season_count = 0
+
     for season_value in seasons_to_process:
+
+        current_season_count += 1
 
         # Select the season (this reloads the DOM)
         Select(driver.find_element(By.NAME, "periode")).select_by_value(season_value)
@@ -75,12 +79,16 @@ def scrape_player_licenses(driver, cursor):
         season_inserted = 0
         season_skipped = 0
 
+        current_club_count = 0
+
         for club in clubs:
             club_name = club["club_name"]
             club_id_ext = club["club_id_ext"]
 
             club_season_inserted = 0
             club_season_skipped = 0
+
+            current_club_count += 1
 
             Select(driver.find_element(By.NAME, "klubbid")).select_by_visible_text(club_name)
 
@@ -201,8 +209,8 @@ def scrape_player_licenses(driver, cursor):
                     logging.error(f"Failed to insert row for {firstname} {lastname}: {e}")
                     print(f"❌ Failed to insert row for {firstname} {lastname}: {e}")
 
-            logging.info(f"Finished club {club_name} in season {season_label}, added {club_season_inserted} rows, skipped {club_season_skipped} rows")
-            print(f"✅ Finished club {club_name} in season {season_label}, added {club_season_inserted} rows, skipped {club_season_skipped} rows")
+            logging.info(f"Finished club {club_name} in season {season_label}, added {club_season_inserted} rows, skipped {club_season_skipped} rows ({len(clubs) - current_club_count} clubs and {len(seasons_to_process) - current_season_count} seasons remaining)")
+            print(f"✅ Finished club {club_name} in season {season_label}, added {club_season_inserted} rows, skipped {club_season_skipped} rows ({len(clubs) - current_club_count} clubs and {len(seasons_to_process) - current_season_count} seasons remaining)")
 
         # Commit after each season
         cursor.connection.commit()

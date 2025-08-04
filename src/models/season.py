@@ -2,30 +2,31 @@
 
 from dataclasses import dataclass
 from typing import Optional, Dict
+from datetime import date
 import logging
 
 @dataclass
 class Season:
-    season_id: Optional[int] = None
-    season_id_ext: Optional[int] = None
-    season_start_date: Optional[str] = None  # 'YYYY-MM-DD'
-    season_end_date: Optional[str] = None    # 'YYYY-MM-DD'
-    season_start_year: Optional[int] = None
-    season_end_year: Optional[int] = None
-    season_description: Optional[str] = None
-    season_label: Optional[str] = None
+    season_id:      Optional[int] = None
+    season_id_ext:  Optional[int] = None
+    start_date:     Optional[date] = None
+    end_date:       Optional[date] = None
+    start_year:     Optional[int] = None
+    end_year:       Optional[int] = None
+    description:    Optional[str] = None
+    label:          Optional[str] = None
 
     @staticmethod
     def from_dict(data: dict):
         return Season(
             season_id=data.get("season_id"),
             season_id_ext=data.get("season_id_ext"),
-            season_start_date=data.get("season_start_date"),
-            season_end_date=data.get("season_end_date"),
-            season_start_year=data.get("season_start_year"),
-            season_end_year=data.get("season_end_year"),
-            season_description=data.get("season_description"),
-            season_label=data.get("season_label"),
+            start_date=data.get("start_date"),
+            end_date=data.get("end_date"),
+            start_year=data.get("start_year"),
+            end_year=data.get("end_year"),
+            description=data.get("description"),
+            label=data.get("label"),
         )
 
     @staticmethod
@@ -33,15 +34,15 @@ class Season:
         """Retrieve a Season instance by internal season_id, or None if not found."""
         try:
             cursor.execute('''
-                SELECT season_id, season_id_ext, season_start_date, season_end_date,
-                       season_start_year, season_end_year, season_description, season_label
+                SELECT season_id, season_id_ext, start_date, end_date,
+                       start_year, end_year, description, label
                 FROM season
                 WHERE season_id = ?
             ''', (season_id,))
             row = cursor.fetchone()
             if row:
-                keys = ['season_id', 'season_id_ext', 'season_start_date', 'season_end_date',
-                        'season_start_year', 'season_end_year', 'season_description', 'season_label']
+                keys = ['season_id', 'season_id_ext', 'start_date', 'end_date',
+                        'start_year', 'end_year', 'description', 'label']
                 return Season.from_dict(dict(zip(keys, row)))
             return None
         except Exception as e:
@@ -53,15 +54,15 @@ class Season:
         """Retrieve a Season instance by season_id_ext, or None if not found."""
         try:
             cursor.execute('''
-                SELECT season_id, season_id_ext, season_start_date, season_end_date,
-                       season_start_year, season_end_year, season_description, season_label
+                SELECT season_id, season_id_ext, start_date, end_date,
+                       start_year, end_year, description, label
                 FROM season
                 WHERE season_id_ext = ?
             ''', (season_id_ext,))
             row = cursor.fetchone()
             if row:
-                keys = ['season_id', 'season_id_ext', 'season_start_date', 'season_end_date',
-                        'season_start_year', 'season_end_year', 'season_description', 'season_label']
+                keys = ['season_id', 'season_id_ext', 'start_date', 'end_date',
+                        'start_year', 'end_year', 'description', 'label']
                 return Season.from_dict(dict(zip(keys, row)))
             return None
         except Exception as e:
@@ -69,23 +70,23 @@ class Season:
             return None
 
     @staticmethod
-    def get_by_label(cursor, season_label: str) -> Optional['Season']:
-        """Retrieve a Season instance by season_label, or None if not found."""
+    def get_by_label(cursor, label: str) -> Optional['Season']:
+        """Retrieve a Season instance by label, or None if not found."""
         try:
             cursor.execute('''
-                SELECT season_id, season_id_ext, season_start_date, season_end_date,
-                       season_start_year, season_end_year, season_description, season_label
+                SELECT season_id, season_id_ext, start_date, end_date,
+                       start_year, end_year, description, label
                 FROM season
-                WHERE season_label = ?
-            ''', (season_label,))
+                WHERE label = ?
+            ''', (label,))
             row = cursor.fetchone()
             if row:
-                keys = ['season_id', 'season_id_ext', 'season_start_date', 'season_end_date',
-                        'season_start_year', 'season_end_year', 'season_description', 'season_label']
+                keys = ['season_id', 'season_id_ext', 'start_date', 'end_date',
+                        'start_year', 'end_year', 'description', 'label']
                 return Season.from_dict(dict(zip(keys, row)))
             return None
         except Exception as e:
-            logging.error(f"Error retrieving season by season_label {season_label}: {e}")
+            logging.error(f"Error retrieving season by label {label}: {e}")
             return None
 
     @staticmethod
@@ -93,15 +94,15 @@ class Season:
         """Retrieve a Season instance that contains the given date, or None if not found."""
         try:
             cursor.execute('''
-                SELECT season_id, season_id_ext, season_start_date, season_end_date,
-                       season_start_year, season_end_year, season_description, season_label
+                SELECT season_id, season_id_ext, start_date, end_date,
+                       start_year, end_year, description, label
                 FROM season
-                WHERE season_start_date <= ? AND season_end_date >= ?
+                WHERE start_date <= ? AND end_date >= ?
             ''', (date_object, date_object))
             row = cursor.fetchone()
             if row:
-                keys = ['season_id', 'season_id_ext', 'season_start_date', 'season_end_date',
-                        'season_start_year', 'season_end_year', 'season_description', 'season_label']
+                keys = ['season_id', 'season_id_ext', 'start_date', 'end_date',
+                        'start_year', 'end_year', 'description', 'label']
                 return Season.from_dict(dict(zip(keys, row)))
             return None
         except Exception as e:
@@ -110,24 +111,24 @@ class Season:
 
     def contains_date(self, date: str) -> bool:
         """Check if the given date falls within this season's range."""
-        if self.season_start_date and self.season_end_date:
-            return self.season_start_date <= date <= self.season_end_date
+        if self.start_date and self.end_date:
+            return self.start_date <= date <= self.end_date
         return False
     
     @staticmethod
     def cache_all(cursor) -> Dict[str, 'Season']:
-        """Cache all seasons by season_label."""
+        """Cache all seasons by label."""
         try:
             cursor.execute("""
-                SELECT season_id, season_label, season_start_date, season_end_date
+                SELECT season_id, label, start_date, end_date
                 FROM season
             """)
             return {
                 row[1]: Season(
                     season_id=row[0],
-                    season_label=row[1],
-                    season_start_date=row[2],
-                    season_end_date=row[3]
+                    label=row[1],
+                    start_date=row[2],
+                    end_date=row[3]
                 ) for row in cursor.fetchall() if row[1]
             }
         except Exception as e:

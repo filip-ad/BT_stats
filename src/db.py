@@ -254,62 +254,9 @@ def save_to_db_transitions(cursor, transitions):
 
     return db_results
 
-# def save_to_db_tournaments(cursor, tournaments):
-#     db_results = []
-#     for tournament in tournaments:
-#         if is_duplicate_tournament(cursor, tournament["ondata_id"]):
-#             logging.debug(f"Skipping duplicate tournament: {tournament['name']}")
-#             db_results.append({"status": "skipped", "tournament": tournament["name"]})
-#             continue
-#         try:
-#             cursor.execute('''
-#                 INSERT INTO tournament (name, startdate, enddate, city, arena, country_code, ondata_id, url, status)
-#                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-#             ''', (tournament["name"], tournament["start_date"], tournament["end_date"], 
-#                   tournament["city"], tournament["arena"], tournament["country_code"], 
-#                   tournament["ondata_id"], tournament["url"], tournament["status"]))
-#             logging.debug(f"Inserted tournament into DB: {tournament['name']}")
-#             db_results.append({"status": "success", "tournament": tournament["name"]})
-#         except sqlite3.Error as e:
-#             logging.error(f"Error inserting tournament into DB {tournament['name']}: {e}")
-#             db_results.append({"status": "failed", "tournament": tournament["name"]})
-#     return db_results
-
 def is_duplicate_tournament(cursor, ondata_id):
     cursor.execute("SELECT tournament_id FROM tournament WHERE ondata_id = ?", (ondata_id,))
     return cursor.fetchone() is not None
-
-# def get_from_db_tournaments(cursor):
-#     try:
-#         cursor.execute("""
-#             SELECT tournament_id, name, startdate, enddate, city, arena, country_code, ondata_id, url, status, row_created
-#             FROM tournament
-#             WHERE status IN ('ONGOING', 'ENDED')
-#         """)
-#         rows = cursor.fetchall()       
-#         tournaments = []
-#         for row in rows:
-#             tournament = {
-#                 "tournament_id": row[0],
-#                 "name": row[1],
-#                 "start_date": row[2],  # Already in string format (e.g., 'YYYY-MM-DD')
-#                 "end_date": row[3],
-#                 "city": row[4],
-#                 "arena": row[5],
-#                 "country_code": row[6],
-#                 "ondata_id": row[7],
-#                 "url": row[8],
-#                 "status": row[9],
-#                 "row_created": row[10]
-#             }
-#             tournaments.append(tournament)
-#             logging.debug(f"Fetched tournament: {tournament['name']} (ID: {tournament['tournament_id']})")    
-#         logging.debug(f"Fetched {len(tournaments)} tournaments from database.")
-#         return tournaments
-#     except Exception as e:
-#         logging.error(f"Error fetching tournaments from database: {e}")
-#         print(f"❌ Error fetching tournaments from database: {e}")
-#         return []
 
 def drop_tables(cursor, tables):
     dropped = []
@@ -346,17 +293,19 @@ def create_tables(cursor):
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tournament (
             tournament_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_id_ext TEXT,
             name TEXT NOT NULL,
             startdate DATE,
             enddate DATE,
             city TEXT,
             arena TEXT,
             country_code TEXT,
-            ondata_id TEXT,
             url TEXT,
             status TEXT,
+            data_source TEXT DEFAULT 'ondata',
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (ondata_id)
+            UNIQUE (tournament_id_ext),
+            UNIQUE (name, startdate)
         )
     ''')
 
@@ -364,22 +313,24 @@ def create_tables(cursor):
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tournament_class (
             tournament_class_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_class_id_ext INTEGER,
             tournament_id INTEGER NOT NULL,
+            type TEXT DEFAULT 'singles',
             date DATE,
-            class_description TEXT,
-            class_short TEXT,
+            longname TEXT,
+            shortname TEXT,
             gender TEXT,
             max_rank INTEGER,
             max_age INTEGER,
-            players_url TEXT,
-            groups_url TEXT,
-            group_games_url TEXT,
-            group_results_url TEXT,
-            knockout_url TEXT,
-            final_results_url TEXT,
+            --players_url TEXT,
+            --groups_url TEXT,
+            --group_games_url TEXT,
+            --group_results_url TEXT,
+            --knockout_url TEXT,
+            --final_results_url TEXT,
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (tournament_id) REFERENCES tournament(tournament_id),
-            UNIQUE (tournament_id, class_short)
+            UNIQUE (tournament_class_id_ext)
         )
     ''')
 
@@ -636,12 +587,12 @@ def create_and_populate_static_tables(cursor):
         CREATE TABLE IF NOT EXISTS season (
             season_id INTEGER PRIMARY KEY AUTOINCREMENT,
             season_id_ext INTEGER,
-            season_start_date DATE,
-            season_end_date DATE,
-            season_start_year INTEGER,
-            season_end_year INTEGER,
-            season_description TEXT,
-            season_label TEXT,
+            start_date DATE,
+            end_date DATE,
+            start_year INTEGER,
+            end_year INTEGER,
+            description TEXT,
+            label TEXT,
             UNIQUE (season_id_ext)
         )
     ''')
@@ -668,7 +619,7 @@ def create_and_populate_static_tables(cursor):
     # Insert seasons
     cursor.executemany('''
         INSERT OR IGNORE INTO season
-        (season_id_ext, season_start_date, season_end_date, season_start_year, season_end_year, season_description, season_label)
+        (season_id_ext, start_date, end_date, start_year, end_year, description, label)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ''', seasons)
 
@@ -813,10 +764,8 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_player_license_player_season_club ON player_license (player_id, season_id, club_id)",
         "CREATE INDEX IF NOT EXISTS idx_club_alias_name ON club_alias (name)",
         "CREATE INDEX IF NOT EXISTS idx_club_alias_long_name ON club_alias (long_name)",
-        "CREATE INDEX IF NOT EXISTS idx_season_label ON season (season_label)",
         "CREATE INDEX IF NOT EXISTS idx_player_alias_id_ext ON player_alias (player_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_club_alias_id_ext ON club_alias (club_id_ext)",
-        "CREATE INDEX IF NOT EXISTS idx_season_label ON season (season_label)",
         "CREATE INDEX IF NOT EXISTS idx_type_age ON license (type, age_group)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_raw_keys ON player_license_raw (player_id_ext, club_id_ext, season_id_ext, license_info_raw)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_keys ON player_license (player_id, license_id, season_id, club_id)",
@@ -825,7 +774,6 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_player_transition_season ON player_transition (season_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_id ON player (player_id)",
         "CREATE INDEX IF NOT EXISTS idx_club_alias_name ON club_alias (name)",
-        "CREATE INDEX IF NOT EXISTS idx_season_dates ON season (season_start_date, season_end_date)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_player_club_season ON player_license (player_id, club_id, season_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_transition_unique ON player_transition (player_id, club_id_from, club_id_to, transition_date)"
     ]

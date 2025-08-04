@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, List
 import logging
+import re
 
 @dataclass
 class Club:
@@ -18,6 +19,14 @@ class Club:
         # Initialize aliases as empty list if None
         if self.aliases is None:
             self.aliases = []
+
+    @staticmethod
+    def _normalize(name: str) -> str:
+        """
+        Lower-case, strip, collapse spaces and hyphens so that
+        e.g. “Runhällens  BOIS” → “runhällens bois”
+        """
+        return re.sub(r'[\s\-]+', ' ', name.strip().lower())            
 
     @staticmethod
     def from_dict(data: dict):
@@ -110,33 +119,33 @@ class Club:
             logging.error(f"Error retrieving club by club_id {club_id}: {e}")
             return None
 
-    @staticmethod
-    def get_by_name(cursor, name: str, exact: bool = True) -> Optional['Club']:
-        """Retrieve a Club instance by name or long_name (exact or partial match) from club or club_alias."""
-        try:
-            # Build conditions for exact or partial match
-            condition = "name = ?" if exact else "LOWER(name) LIKE LOWER(?)"
-            condition_long = "long_name = ?" if exact else "LOWER(long_name) LIKE LOWER(?)"
-            # Add % for partial matches
-            search_name = name if exact else f"%{name}%"
+    # @staticmethod
+    # def get_by_name(cursor, name: str, exact: bool = True) -> Optional['Club']:
+    #     """Retrieve a Club instance by name or long_name (exact or partial match) from club or club_alias."""
+    #     try:
+    #         # Build conditions for exact or partial match
+    #         condition = "name = ?" if exact else "LOWER(name) LIKE LOWER(?)"
+    #         condition_long = "long_name = ?" if exact else "LOWER(long_name) LIKE LOWER(?)"
+    #         # Add % for partial matches
+    #         search_name = name if exact else f"%{name}%"
 
-            # Search both club and club_alias tables
-            query = f"""
-                SELECT club_id FROM club
-                WHERE {condition} OR {condition_long}
-                UNION
-                SELECT club_id FROM club_alias
-                WHERE {condition} OR {condition_long}
-            """
-            cursor.execute(query, (search_name, search_name, search_name, search_name))
-            row = cursor.fetchone()
-            if not row:
-                return None
-            canonical_club_id = row[0]
-            return Club.get_by_id(cursor, canonical_club_id)
-        except Exception as e:
-            logging.error(f"Error retrieving club by name {name}: {e}")
-            return None            
+    #         # Search both club and club_alias tables
+    #         query = f"""
+    #             SELECT club_id FROM club
+    #             WHERE {condition} OR {condition_long}
+    #             UNION
+    #             SELECT club_id FROM club_alias
+    #             WHERE {condition} OR {condition_long}
+    #         """
+    #         cursor.execute(query, (search_name, search_name, search_name, search_name))
+    #         row = cursor.fetchone()
+    #         if not row:
+    #             return None
+    #         canonical_club_id = row[0]
+    #         return Club.get_by_id(cursor, canonical_club_id)
+    #     except Exception as e:
+    #         logging.error(f"Error retrieving club by name {name}: {e}")
+    #         return None            
 
     @staticmethod
     def cache_all(cursor) -> Dict[int, 'Club']:
@@ -182,21 +191,63 @@ class Club:
             logging.error(f"Error caching clubs: {e}")
             return {}
 
-    @staticmethod
-    def cache_name_map(cursor) -> Dict[str, 'Club']:
-        """Cache a mapping of club names (name or long_name) to Club objects."""
-        try:
-            club_map = Club.cache_all(cursor)
-            cursor.execute("SELECT name, long_name, club_id FROM club_alias")
-            name_to_club = {}
-            for row in cursor.fetchall():
-                name, long_name, club_id = row
-                if name and club_id in club_map:
-                    name_to_club[name] = club_map[club_id]
-                if long_name and club_id in club_map and long_name != name:
-                    name_to_club[long_name] = club_map[club_id]
-            logging.info(f"Cached {len(name_to_club)} club name mappings")
-            return name_to_club
-        except Exception as e:
-            logging.error(f"Error caching club name map: {e}")
-            return {}      
+    @classmethod
+    def cache_name_map(cls, cursor) -> Dict[str, "Club"]:
+        """
+        Build a single dict from normalized club-name → Club instance.
+        Includes both club.name/long_name and all aliases.
+        """
+        # 1) load every Club
+        cursor.execute("""
+            SELECT club_id, name, long_name, city, country_code, district_id
+            FROM club
+        """)
+        clubs = {
+            row[0]: cls(
+                club_id=row[0],
+                name=row[1],
+                long_name=row[2],
+                city=row[3],
+                country_code=row[4],
+                district_id=row[5],
+                aliases=[]
+            )
+            for row in cursor.fetchall()
+        }
+
+        # 2) load aliases
+        cursor.execute("""
+            SELECT club_id, name, long_name, remarks
+            FROM club_alias
+        """)
+        for club_id, alias_name, alias_long, remarks in cursor.fetchall():
+            if club_id not in clubs:
+                continue
+            clubs[club_id].aliases.append({
+                "name": alias_name,
+                "long_name": alias_long,
+                "remarks": remarks
+            })
+
+        # 3) build normalized lookup
+        lookup: Dict[str, Club] = {}
+        for c in clubs.values():
+            for raw in (c.name, c.long_name):
+                if raw:
+                    lookup[cls._normalize(raw)] = c
+            for al in c.aliases:
+                for raw in (al["name"], al["long_name"]):
+                    if raw:
+                        lookup[cls._normalize(raw)] = c
+
+        logging.info(f"Cached {len(lookup)} club‐name mappings")
+        return lookup
+    
+    @classmethod
+    def get_by_name(cls, cursor, raw_name: str) -> Optional["Club"]:
+        """
+        A drop-in replacement for your SQL lookup:
+        normalize the input and hit our in-memory map.
+        """
+        nm = cls._normalize(raw_name)
+        return cls.cache_name_map(cursor).get(nm)

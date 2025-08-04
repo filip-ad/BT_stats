@@ -352,7 +352,7 @@ class PlayerLicense:
             for chunk in chunked(season_ids):
                 placeholders = ",".join("?" * len(chunk))
                 cursor.execute(
-                    f"SELECT season_id, season_start_date, season_end_date \
+                    f"SELECT season_id, start_date, end_date \
                     FROM season WHERE season_id IN ({placeholders})",
                     chunk
                 )
@@ -505,7 +505,7 @@ class PlayerLicense:
 
     #         season_ids = set(l.season_id for l in licenses if l.season_id)
     #         if season_ids:
-    #             cursor.execute(f"SELECT season_id, season_start_date, season_end_date FROM season WHERE season_id IN ({','.join(['?']*len(season_ids))})", list(season_ids))
+    #             cursor.execute(f"SELECT season_id, start_date, end_date FROM season WHERE season_id IN ({','.join(['?']*len(season_ids))})", list(season_ids))
     #             season_dates = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
     #             valid_seasons = set(season_dates.keys())
     #         else:
