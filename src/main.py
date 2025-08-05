@@ -3,6 +3,7 @@
 
 import logging
 from utils import setup_logging
+from upd_clubs import upd_clubs
 from upd_players import upd_players
 from upd_player_licenses_raw import upd_player_licenses_raw
 from upd_player_licenses import upd_player_licenses
@@ -30,27 +31,27 @@ def main():
         # Get the connection and cursor
         conn, cursor = get_conn()
 
-        # Drop existing tables to ensure a clean slate
-        drop_tables(cursor, [
-            # 'club',
-            # 'club_alias',
-            # 'player',
-            # 'player_alias',
-            # 'license',
-            # 'season'
-            # 'tournament',
-            # 'tournament_class'
-            'tournament_class_participant'
-            # 'player_ranking_group', 
-            # 'ranking_group'
-            # 'player_ranking_group'
-            # 'player_ranking', 
-            # 'player_license'
-            # 'player_license_raw',
-            # 'player_transition_raw'
-            # 'player_transition'
-            # 'player_ranking_raw'
-        ])
+        # # Drop existing tables to ensure a clean slate
+        # drop_tables(cursor, [
+        #     'club',
+        #     'club_alias'
+        #     # 'player',
+        #     # 'player_alias',
+        #     # 'license',
+        #     # 'season'
+        #     # 'tournament',
+        #     # 'tournament_class'
+        #     # 'tournament_class_participant'
+        #     # 'player_ranking_group', 
+        #     # 'ranking_group'
+        #     # 'player_ranking_group'
+        #     # 'player_ranking', 
+        #     # 'player_license'
+        #     # 'player_license_raw',
+        #     # 'player_transition_raw'
+        #     # 'player_transition'
+        #     # 'player_ranking_raw'
+        # ])
 
 
         # # # Create static tables
@@ -71,6 +72,8 @@ def main():
         # Describe all functions, what they do, what tables are updated, variables etc etc
         #
 
+        # upd_clubs()
+
         # - Scrape and populate player_license_raw table. No dependency.
         # upd_player_licenses_raw()
 
@@ -81,7 +84,7 @@ def main():
         # upd_player_ranking_groups()
 
         # - Update player license table. Depends on player_license_raw, club, player, season, and license tables.
-        # upd_player_licenses()
+        upd_player_licenses()
 
         # - Scrape and populate player_transition_raw table. No dependency.
         # upd_player_transitions_raw()
@@ -101,7 +104,7 @@ def main():
         # upd_tournament_classes()
 
         # # Fetch tournament class entries and process PDFs
-        upd_tournament_class_participants()
+        # upd_tournament_class_participants()
 
     except Exception as e:
         logging.error(f"Error: {e}")

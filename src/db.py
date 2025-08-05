@@ -702,44 +702,41 @@ def create_and_populate_static_tables(cursor):
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS club (
             club_id INTEGER PRIMARY KEY,
-            name TEXT,
-            long_name TEXT,
+            shortname TEXT,
+            longname TEXT,
+            club_type TEXT DEFAULT 'club', -- Might add national team later
             city TEXT,
             country_code TEXT,
             remarks TEXT,
             homepage TEXT,
             active INTEGER DEFAULT 1 CHECK (active IN (0, 1)),
             district_id INTEGER,
-            UNIQUE (name),
+            UNIQUE (shortname),
+            UNIQUE (longname),
             FOREIGN KEY (district_id) REFERENCES district(district_id)
         )
     ''')
 
-    # Insert clubs
-    cursor.executemany('''
-        INSERT OR IGNORE INTO club (club_id, name, long_name, city, country_code, remarks, homepage, active, district_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', CLUBS)
-
-    # Create club aliases table
+    # Create club ext id mappings table
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS club_alias (
-            club_id INTEGER,
-            club_id_ext INTEGER,
-            name TEXT,
-            long_name TEXT,
-            remarks TEXT,
+        CREATE TABLE IF NOT EXISTS club_ext_id (
+            club_id INTEGER PRIMARY KEY,
+            club_id_ext INTEGER NOT NULL,
             UNIQUE (club_id_ext),
-            UNIQUE (club_id, name, long_name),
             FOREIGN KEY (club_id) REFERENCES club(club_id)
         )
     ''')
-
-    # Insert club aliases
-    cursor.executemany('''
-        INSERT OR IGNORE INTO club_alias (club_id, club_id_ext, name, long_name, remarks)
-        VALUES (?, ?, ?, ?, ?)
-    ''', CLUB_ALIASES)
+    
+    # Create club name alias table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS club_name_alias (
+            club_id     INTEGER     NOT NULL,
+            alias       TEXT        NOT NULL,
+            alias_type  TEXT        NOT NULL CHECK(alias_type IN ('short','long')),
+            UNIQUE (club_id, alias, alias_type),
+            FOREIGN KEY (club_id) REFERENCES club(club_id)
+        )
+    ''')
 
 def create_indexes(cursor):
 
@@ -757,16 +754,11 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_match_winner_id ON match(winning_player_id)",
         "CREATE INDEX IF NOT EXISTS idx_match_loser_id ON match(losing_player_id)",
         "CREATE INDEX IF NOT EXISTS idx_game_match_id ON game(match_id)",
-        "CREATE INDEX IF NOT EXISTS idx_club_alias_name ON club_alias (LOWER(name))",
-        "CREATE INDEX IF NOT EXISTS idx_club_alias_long_name ON club_alias (LOWER(long_name))",
         "CREATE INDEX IF NOT EXISTS idx_player_license_raw_id_ext ON player_license_raw (player_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_player_ranking_raw_id_ext ON player_ranking_raw (player_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_player_name_year ON player (firstname, lastname, year_born)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_player_season_club ON player_license (player_id, season_id, club_id)",
-        "CREATE INDEX IF NOT EXISTS idx_club_alias_name ON club_alias (name)",
-        "CREATE INDEX IF NOT EXISTS idx_club_alias_long_name ON club_alias (long_name)",
         "CREATE INDEX IF NOT EXISTS idx_player_alias_id_ext ON player_alias (player_id_ext)",
-        "CREATE INDEX IF NOT EXISTS idx_club_alias_id_ext ON club_alias (club_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_type_age ON license (type, age_group)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_raw_keys ON player_license_raw (player_id_ext, club_id_ext, season_id_ext, license_info_raw)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_keys ON player_license (player_id, license_id, season_id, club_id)",
@@ -774,7 +766,6 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_player_alias_name_year ON player_alias (firstname, lastname, year_born)",
         "CREATE INDEX IF NOT EXISTS idx_player_transition_season ON player_transition (season_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_id ON player (player_id)",
-        "CREATE INDEX IF NOT EXISTS idx_club_alias_name ON club_alias (name)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_player_club_season ON player_license (player_id, club_id, season_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_transition_unique ON player_transition (player_id, club_id_from, club_id_to, transition_date)"
     ]

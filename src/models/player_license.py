@@ -619,26 +619,26 @@ class PlayerLicense:
                     logging.info(f"Matched alias: '{raw_name}' → '{alias_fn} {alias_ln}'")
                     return pid
 
-        # 3 Fuzzy fallback among all players licensed at this club
-        cursor.execute("""
-            SELECT DISTINCT p.firstname, p.lastname, p.player_id
-              FROM player p
-              JOIN player_license pl ON p.player_id = pl.player_id
-             WHERE pl.club_id = ?
-        """, (club_id,))
-        rows = cursor.fetchall()
+        # # 3 Fuzzy fallback among all players licensed at this club
+        # cursor.execute("""
+        #     SELECT DISTINCT p.firstname, p.lastname, p.player_id
+        #       FROM player p
+        #       JOIN player_license pl ON p.player_id = pl.player_id
+        #      WHERE pl.club_id = ?
+        # """, (club_id,))
+        # rows = cursor.fetchall()
 
-        target = raw_name.lower()
-        best_ratio, best_pid, best_name = 0.0, None, None
-        for db_fn, db_ln, db_pid in rows:
-            db_name = f"{db_fn} {db_ln}".lower()
-            ratio = difflib.SequenceMatcher(None, target, db_name).ratio()
-            if ratio > best_ratio:
-                best_ratio, best_pid, best_name = ratio, db_pid, f"{db_fn} {db_ln}"
+        # target = raw_name.lower()
+        # best_ratio, best_pid, best_name = 0.0, None, None
+        # for db_fn, db_ln, db_pid in rows:
+        #     db_name = f"{db_fn} {db_ln}".lower()
+        #     ratio = difflib.SequenceMatcher(None, target, db_name).ratio()
+        #     if ratio > best_ratio:
+        #         best_ratio, best_pid, best_name = ratio, db_pid, f"{db_fn} {db_ln}"
 
-        if best_ratio >= fuzzy_threshold:
-            logging.info(f"Fuzzy matched '{raw_name}' → '{best_name}' (score={best_ratio:.2f})")
-            return best_pid
+        # if best_ratio >= fuzzy_threshold:
+        #     logging.info(f"Fuzzy matched '{raw_name}' → '{best_name}' (score={best_ratio:.2f})")
+        #     return best_pid
 
         logging.warning(f"No match for '{raw_name}' at club_id={club_id}")
         return None

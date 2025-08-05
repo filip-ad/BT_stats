@@ -4,10 +4,12 @@ import logging
 import requests
 import pdfplumber
 import re
+import unicodedata
 from io import BytesIO
 from datetime import datetime, date
 import time
 from urllib.parse import urljoin
+from typing import List, Dict
 from db import get_conn
 from utils import print_db_insert_results, sanitize_name
 from models.player_license import PlayerLicense
@@ -66,7 +68,29 @@ def upd_tournament_class_participants():
             continue
 
         participants = parse_players_pdf(pdf_bytes)
+
+        # ←—— NEW: log every candidate at INFO level
+        logging.info(f"Class {tc.shortname} ({tc.tournament_class_id_ext}): {len(participants)} raw candidates:")
+        for idx, part in enumerate(participants, start=1):
+            logging.info(f"    [{idx:02d}] {part['raw_name']}  /  {part['club_name']}")
+
+
         print(f"✅ Parsed {len(participants)} participants for class {tc.shortname} (class_ext={tc.tournament_class_id_ext} in tournament id {tc.tournament_id})")
+
+        #     # ── INSERT YOUR DEBUG SNIPPET HERE ──
+        # expected_count = 81  # or however many you know this class should have
+        # if len(participants) != expected_count:
+        #     print(f"⚠️  Expected {expected_count} but found {len(participants)}—dumping unmatched lines for inspection:")
+        #     from io import BytesIO
+        #     import pdfplumber
+
+        #     # Re-open pages and reconstruct lines
+        #     for page in pdfplumber.open(BytesIO(pdf_bytes)).pages:
+        #         for line in extract_lines(page):
+        #             if not ENTRY_RE.search(line):
+        #                 print("UNMATCHED LINE:", line)
+        #     raise RuntimeError(f"Parsed count mismatch: expected {expected_count}, got {len(participants)}")
+        # # ────────────────────────────────────
 
         for part in participants:
 
@@ -102,7 +126,7 @@ def upd_tournament_class_participants():
                 results.append({
                     "status": "failed",
                     "key":    f"{tc.tournament_class_id}_{raw_name}",
-                    "reason": "License not found"
+                    "reason": "No license found for player"
                 })
                 continue
 
@@ -141,65 +165,67 @@ def download_pdf(url: str, retries: int = 3, timeout: int = 30) -> bytes | None:
             break
     return None
 
-
-# def parse_players_pdf(pdf_bytes: bytes) -> list[dict]:
-#     """
-#     Extract (raw_name, club_name) tuples from a participants PDF.
-#     """
-#     participants = []
-#     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-#         for page in pdf.pages:
-#             text = page.extract_text() or ""
-#             for line in text.splitlines():
-#                 raw = line.strip().replace("\u00A0", " ")
-#                 if not raw or raw.startswith("Deltagarlista"):
-#                     continue
-#                 m = re.match(r'^\s*\d+\s+([A-Za-zÅÄÖåäö\- ]+),\s+(.+)$', raw)
-#                 if not m:
-#                     continue
-#                 fullname, club = m.groups()
-#                 participants.append({
-#                     "raw_name":  sanitize_name(fullname.strip()),
-#                     "club_name": club.strip()
-#                 })
-#     return participants
-
-# Country codes to ignore as “clubs”
+# if you still want to skip pure national–only entries, keep this set
 COUNTRY_CODES = {
     "SWE","DEN","NOR","FIN","GER","FRA","BEL","IRL","THA","PUR","NED",
     "USA","ENG","WAL","SMR","SIN","ROU","SUI"
 }
 
-# Compile once at module‐scope:
+# match a line that begins with a number, then “anything (except comma)” for the name,
+# then a comma, then the rest up to end-of-line as the club
 PART_RE = re.compile(
-    r'\b\d+\s+'                   # rank
-    r'([\wÅÄÖåäö\-\s]+?)'         # name
-    r'\s*,\s*'                    # comma
-    r'([^\n\r]+?)'                # everything up to line break = club
-    r'(?:\r?\n|$)'
+    r'^\s*\d+\s+([^,]+?)\s*,\s*([^\r\n]+)',
+    re.MULTILINE
 )
 
 def extract_columns(page):
-    bbox = page.crop((0, 0, page.width/2, page.height))   # left half
-    left_text  = bbox.extract_text()
-    bbox       = page.crop((page.width/2, 0, page.width, page.height))  # right half
-    right_text = bbox.extract_text()
-    return (left_text or "", right_text or "")
+    """
+    Split a page into left/right halves so we can catch two-column layouts.
+    """
+    w, h = page.width, page.height
+    left   = page.crop((0,    0,   w/2, h)).extract_text() or ""
+    right  = page.crop((w/2,  0,   w,   h)).extract_text() or ""
+    return left, right
 
-def parse_players_pdf(pdf_bytes):
+def parse_players_pdf(pdf_bytes: bytes) -> list[dict]:
+    """
+    Extract participant entries from PDF.  Returns list of
+    {"raw_name": ..., "club_name": ...}.
+    """
     participants = []
+    full_text = []
+
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
             left, right = extract_columns(page)
-            for text in (left, right):
-                # drop section headers
-                text = re.sub(r'Directly qualified.*?$', '', text, flags=re.M)
-                text = re.sub(r'Group stage.*?$', '', text, flags=re.M)
-                for m in PART_RE.finditer(text):
-                    fullname, club = m.groups()
-                    name = sanitize_name(fullname)
-                    club = club.strip()
-                    if club.upper() in COUNTRY_CODES:
-                        continue
-                    participants.append({"raw_name": name, "club_name": club})
+            # drop those section headers entirely:
+            for block in (left, right):
+                block = re.sub(r'Directly qualified.*$', "", block, flags=re.M)
+                block = re.sub(r'Group stage.*$',        "", block, flags=re.M)
+                full_text.append(block)
+
+    text = "\n".join(full_text)
+
+    # find every “rank name, club” line
+    for m in PART_RE.finditer(text):
+        name_part = m.group(1).strip()
+        club_part = m.group(2).strip()
+
+        # if the “club” is *exactly* one of the country codes, we skip it
+        # if club_part.upper() in COUNTRY_CODES:
+        #     logging.info(f"parse_players_pdf: ❌ Skipping national entry “{name_part}, {club_part}”")
+        #     continue
+
+        # OK, keep it
+        raw = sanitize_name(name_part)
+        participants.append({
+            "raw_name":   raw,
+            "club_name":  club_part
+        })
+
+    # log every candidate we actually found
+    # logging.info(f"parse_players_pdf: ✅ Keeping {len(participants)} entries:")
+    # for i, p in enumerate(participants, 1):
+    #     logging.info(f"   [{i:02d}] {p['raw_name']}  /  {p['club_name']}")
+
     return participants
