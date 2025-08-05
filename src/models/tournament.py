@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from datetime import date
+import datetime
 from typing import Optional
 import logging
 import sqlite3
@@ -34,18 +35,18 @@ class Tournament:
         ed = data.get("end_date")   or data.get("enddate")
 
         return Tournament(
-            tournament_id=data.get("tournament_id"),
-            tournament_id_ext=data.get("tournament_id_ext"),
-            longname=data.get("longname"),
-            shortname=data.get("shortname"),
-            startdate=parse_date(sd, context="Tournament.from_dict"),
-            enddate=  parse_date(ed, context="Tournament.from_dict"),
-            city=data.get("city"),
-            arena=data.get("arena"),
-            country_code=data.get("country_code"),
-            url=data.get("url"),
-            status=data.get("status"),
-            data_source=data.get("data_source", "ondata")
+            tournament_id       = data.get("tournament_id"),
+            tournament_id_ext   = data.get("tournament_id_ext"),
+            longname            = data.get("longname"),
+            shortname           = data.get("shortname"),
+            startdate           = parse_date(sd, context="Tournament.from_dict"),
+            enddate             = parse_date(ed, context="Tournament.from_dict"),
+            city                = data.get("city"),
+            arena               = data.get("arena"),
+            country_code        = data.get("country_code"),
+            url                 = data.get("url"),
+            status              = data.get("status"),
+            data_source         = data.get("data_source", "ondata")
         )
 
     @staticmethod
@@ -225,3 +226,42 @@ class Tournament:
         except Exception as e:
             logging.error(f"Error in Tournament.get_by_status({statuses}): {e}")
             return []
+        
+    @staticmethod
+    def cache_all(cursor):
+        """
+        Returns all Tournament rows as model instances.
+        """
+        cursor.execute("""
+            SELECT tournament_id, tournament_id_ext, longname, shortname,
+                startdate, enddate, city, arena, country_code, url, status, data_source
+            FROM tournament
+        """)
+        rows = cursor.fetchall()
+        tournaments = []
+        for tid, ext, ln, sn, sd, ed, city, arena, cc, url, status, ds in rows:
+            start = sd if isinstance(sd, date) else datetime.fromisoformat(sd).date()
+            end = ed if isinstance(ed, date) else datetime.fromisoformat(ed).date()
+            tournaments.append(Tournament(
+                tournament_id=tid,
+                tournament_id_ext=ext,
+                longname=ln,
+                shortname=sn,
+                startdate=start,
+                enddate=end,
+                city=city,
+                arena=arena,
+                country_code=cc,
+                url=url,
+                status=status,
+                data_source=ds
+            ))
+        return tournaments
+    
+    @staticmethod
+    def cache_by_id(cursor):
+        """
+        Returns a dict mapping tournament_id to Tournament instances.
+        """
+        items = Tournament.cache_all(cursor)
+        return {t.tournament_id: t for t in items}    

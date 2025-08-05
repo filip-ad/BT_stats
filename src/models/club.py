@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional, List
 import logging
 import re
+import unicodedata
 
 @dataclass
 class Club:
@@ -23,10 +24,21 @@ class Club:
     @staticmethod
     def _normalize(name: str) -> str:
         """
-        Lower-case, strip, collapse spaces and hyphens so that
-        e.g. “Runhällens  BOIS” → “runhällens bois”
+        1) Trim + lower
+        2) Unicode‐normalize (e.g. Å → A)
+        3) Drop anything non‐alphanumeric or space
+        4) Collapse whitespace
         """
-        return re.sub(r'[\s\-]+', ' ', name.strip().lower())            
+        s = name.strip().lower()
+        # decompose accents
+        s = unicodedata.normalize("NFKD", s)
+        # drop diacritics
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        # keep letters, digits, spaces
+        s = re.sub(r"[^a-z0-9\s]", " ", s)
+        # collapse runs of whitespace
+        s = re.sub(r"\s+", " ", s)
+        return s.strip()   
 
     @staticmethod
     def from_dict(data: dict):
@@ -194,53 +206,50 @@ class Club:
     @classmethod
     def cache_name_map(cls, cursor) -> Dict[str, "Club"]:
         """
-        Build a single dict from normalized club-name → Club instance.
-        Includes both club.name/long_name and all aliases.
+        Returns a dict mapping every normalized club‐name variant
+        (canonical name, long name, *and* every alias) → Club instance.
         """
         # 1) load every Club
         cursor.execute("""
             SELECT club_id, name, long_name, city, country_code, district_id
             FROM club
         """)
-        clubs = {
-            row[0]: cls(
-                club_id=row[0],
-                name=row[1],
-                long_name=row[2],
-                city=row[3],
-                country_code=row[4],
-                district_id=row[5],
+        clubs: Dict[int, Club] = {}
+        for club_id, name, long_name, city, country_code, district_id in cursor:
+            clubs[club_id] = cls(
+                club_id=club_id,
+                name=name or "",
+                long_name=long_name or "",
+                city=city,
+                country_code=country_code,
+                district_id=district_id,
                 aliases=[]
             )
-            for row in cursor.fetchall()
-        }
 
-        # 2) load aliases
+        # 2) load *all* aliases (your actual column names here!)
         cursor.execute("""
-            SELECT club_id, name, long_name, remarks
+            SELECT club_id, name, long_name
             FROM club_alias
         """)
-        for club_id, alias_name, alias_long, remarks in cursor.fetchall():
+        for club_id, alias_name, alias_long in cursor:
             if club_id not in clubs:
                 continue
-            clubs[club_id].aliases.append({
-                "name": alias_name,
-                "long_name": alias_long,
-                "remarks": remarks
-            })
+            clubs[club_id].aliases.append(alias_name or "")
+            clubs[club_id].aliases.append(alias_long or "")
 
-        # 3) build normalized lookup
+        # 3) build the lookup with *every* variant
         lookup: Dict[str, Club] = {}
         for c in clubs.values():
-            for raw in (c.name, c.long_name):
-                if raw:
-                    lookup[cls._normalize(raw)] = c
-            for al in c.aliases:
-                for raw in (al["name"], al["long_name"]):
-                    if raw:
-                        lookup[cls._normalize(raw)] = c
+            # canonical name + long name
+            for variant in (c.name, c.long_name):
+                if variant:
+                    lookup[cls._normalize(variant)] = c
+            # all the aliases we just loaded
+            for variant in c.aliases:
+                if variant:
+                    lookup[cls._normalize(variant)] = c
 
-        logging.info(f"Cached {len(lookup)} club‐name mappings")
+        logging.info(f"Cached {len(lookup)} club‐name mappings (names + aliases)")
         return lookup
     
     @classmethod

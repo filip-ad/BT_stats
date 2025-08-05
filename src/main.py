@@ -13,7 +13,7 @@ from upd_player_transitions_raw import upd_player_transitions_raw
 from upd_player_transitions import upd_player_transitions
 from upd_tournaments import upd_tournaments
 from upd_tournament_classes import upd_tournament_classes
-from upd_tournament_participants import upd_tournament_participants
+from upd_tournament_class_participants import upd_tournament_class_participants
 from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes
 
 
@@ -38,8 +38,9 @@ def main():
             # 'player_alias',
             # 'license',
             # 'season'
-            'tournament',
-            'tournament_class'
+            # 'tournament',
+            # 'tournament_class'
+            'tournament_class_participant'
             # 'player_ranking_group', 
             # 'ranking_group'
             # 'player_ranking_group'
@@ -94,13 +95,13 @@ def main():
         ################################################################################################
 
         # # Get tournaments
-        upd_tournaments()
+        # upd_tournaments()
 
         # # # Scrape classes
         # upd_tournament_classes()
 
         # # Fetch tournament class entries and process PDFs
-        # upd_tournament_participants()
+        upd_tournament_class_participants()
 
     except Exception as e:
         logging.error(f"Error: {e}")

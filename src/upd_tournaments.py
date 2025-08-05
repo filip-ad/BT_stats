@@ -125,14 +125,26 @@ def scrape_tournaments_ondata():
                 ondata_id = m2.group(1)
             else:
                 logging.debug(f"{shortname}: invalid ondata_id in URL {full_url}")
-                ondata_id = None                
+                ondata_id = None         
+
+            # get the tournament longname
+            longname = None
+            if ondata_id:
+                longname = _fetch_tournament_longname(ondata_id)
+                if not longname:
+                    logging.warning(f"{shortname}: could not fetch tournament longname")
+                    db_results.append({
+                        "status":   "warning",
+                        "key":      shortname,
+                        "reason":   "Could not fetch tournament longname"
+                    })
 
             # build Tournament
             tour = Tournament.from_dict({
                 "tournament_id":     None,
                 "tournament_id_ext": ondata_id,
+                "longname":          longname,
                 "shortname":         shortname,
-                "longname":          shortname,  # use shortname as longname if not available
                 "startdate":         start_date,
                 "enddate":           end_date,
                 "city":              city,
@@ -148,3 +160,32 @@ def scrape_tournaments_ondata():
     # sort by start date (earliest first) before inserting into DB
     tournaments.sort(key=lambda t: t.startdate)
     return tournaments, db_results
+
+def _fetch_tournament_longname(ondata_id: str) -> str | None:
+    """
+    Given the OnData tournament ID (e.g. "001262"), fetches
+    the tournament’s long name (the <title> inside the Resultat frame).
+    """
+
+    base_url = f"https://resultat.ondata.se/{ondata_id}/"
+    # 1) grab the frameset page
+    r1 = requests.get(base_url)
+    r1.raise_for_status()
+    soup1 = BeautifulSoup(r1.content, "html.parser")
+
+    # 2) find the <frame name="Resultat"> and build its URL
+    result_frame = soup1.find("frame", {"name": "Resultat"})
+    if not result_frame or not result_frame.get("src"):
+        return None
+    result_src = result_frame["src"]
+    result_url = urljoin(base_url, result_src)
+
+    # 3) fetch the actual content page (note: it's iso-8859-1)
+    r2 = requests.get(result_url)
+    r2.raise_for_status()
+    r2.encoding = "iso-8859-1"
+    soup2 = BeautifulSoup(r2.text, "html.parser")
+
+    # 4) pull <title>…</title> and strip it
+    title_tag = soup2.find("title")
+    return title_tag.text.strip() if title_tag else None
