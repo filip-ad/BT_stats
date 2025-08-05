@@ -34,8 +34,8 @@ def main():
         drop_tables(cursor, [
             # 'club',
             # 'club_alias',
-            # 'player',
-            # 'player_alias'
+            'player',
+            'player_alias',
             # 'license',
             # 'season'
             # 'tournament'
@@ -74,7 +74,7 @@ def main():
         # upd_player_licenses_raw()
 
         # - Update player table. Depends on player_license_raw.
-        # upd_players()
+        upd_players()
 
         # - Update player_ranking_group table. Depends on player_license_raw.
         # upd_player_ranking_groups()
@@ -86,7 +86,7 @@ def main():
         # upd_player_transitions_raw()
 
         # - Update player transitions. Depends on player_transition_raw, club, player, season, and license tables.
-        upd_player_transitions()
+        # upd_player_transitions()
 
         # - Update player rankings raw table. No dependency.
         # upd_player_rankings_raw()
