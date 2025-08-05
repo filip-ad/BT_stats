@@ -14,11 +14,12 @@ def find_cross_season_duplicates(limit=None):
 
     # ── 0) Build caches ─────────────────────────────────────────────
     seasons_cache = Season.cache_by_ext(cursor)  
-    cursor.execute("SELECT ca.club_id_ext, c.name "
-                   "FROM club_alias ca JOIN club c ON ca.club_id = c.club_id")
+    cursor.execute(
+        "SELECT ca.club_id_ext, c.name "
+        "FROM club_alias ca JOIN club c ON ca.club_id = c.club_id"
+    )
     club_cache = {row[0]: row[1] for row in cursor.fetchall()}
 
-    # Map external → internal player_id
     cursor.execute("SELECT player_id_ext, player_id FROM player_alias")
     alias_int_map = {row[0]: row[1] for row in cursor.fetchall()}
 
@@ -47,47 +48,61 @@ def find_cross_season_duplicates(limit=None):
         if len(ext_ids) < 2:
             continue
 
-        # # If *all* these externals already map to the *same* internal ID, skip:
-        # internal_ids = {alias_int_map.get(e) for e in ext_ids if e in alias_int_map}
-        # if len(internal_ids) == 1 and len(internal_ids) == len(ext_ids):
-        #     # every ext_id in this group is known and points to the same player_id
-        #     continue
-
-        # How many externals do we actually have a mapping for?
+        # skip if >1 externals already map to the same internal ID
         mapped_exts = [e for e in ext_ids if e in alias_int_map]
         internal_ids = {alias_int_map[e] for e in mapped_exts}
-
-        # If more than one external, and they all point to the same internal, skip:
         if len(mapped_exts) > 1 and len(internal_ids) == 1:
-            continue        
+            continue
 
-        # compute the combined similarity score
         best_score = 0.0
         for a, b in combinations(ext_ids, 2):
             recs_a, recs_b = ext_map[a], ext_map[b]
 
-            # 3.1) Jaccard over (season,club)
+            # 1) Gather seasons & count shared-season club differences
+            seasons_a = {s for s,_ in recs_a}
+            seasons_b = {s for s,_ in recs_b}
+            common_seasons = seasons_a & seasons_b
+
+            diff_count = 0
+            for s in common_seasons:
+                club_a = next(c for ss,c in recs_a if ss == s)
+                club_b = next(c for ss,c in recs_b if ss == s)
+                if club_a != club_b:
+                    diff_count += 1
+
+            # Skip pairs with >1 same-season different-club appearances
+            if diff_count > 1:
+                continue
+
+            # 2) Jaccard on exact (season,club)
             inter = len(recs_a & recs_b)
             union = len(recs_a | recs_b)
-            jp = inter/union if union else 0.0
+            jp = inter / union if union else 0.0
 
-            # 3.2) Club‐only Jaccard
-            ca = {club for _, club in recs_a}
-            cb = {club for _, club in recs_b}
-            inter_c = len(ca & cb)
-            union_c = len(ca | cb)
-            cj = inter_c/union_c if union_c else 0.0
+            # 3) Club-only Jaccard
+            clubs_a = {c for _,c in recs_a}
+            clubs_b = {c for _,c in recs_b}
+            inter_c = len(clubs_a & clubs_b)
+            union_c = len(clubs_a | clubs_b)
+            cj = inter_c / union_c if union_c else 0.0
 
-            # 3.3) Season adjacency
-            sa = {s for s,_ in recs_a}
-            sb = {s for s,_ in recs_b}
-            gap = min(abs(x-y) for x in sa for y in sb)
-            adj = 1.0 if gap == 1 else max(0.0, 1 - gap/10)
+            # 4) Season adjacency & transfer scoring
+            # Compute minimum gap between any seasons
+            gap = min(abs(x - y) for x in seasons_a for y in seasons_b)
 
-            combined = max(jp, cj, adj)
+            if diff_count == 0:
+                # either shared season(s) at same club, or back-to-back with same club
+                adjacency = 1.0 if gap <= 1 else max(0.0, 1 - gap/10)
+            else:
+                # exactly one shared season but in different clubs → likely transfer
+                adjacency = 0.5
+
+            # 5) Combined score
+            combined = max(jp, cj, adjacency)
             best_score = max(best_score, combined)
 
-        seasons_spanned = sorted({s for ext in ext_ids for s,_ in ext_map[ext]})
+
+        seasons_spanned = sorted({s for ext in ext_ids for s, _ in ext_map[ext]})
         suspects.append({
             "name":           f"{fn} {ln}",
             "year_born":      yb,
@@ -137,4 +152,4 @@ def find_cross_season_duplicates(limit=None):
         logging.info("")  # blank line
 
 if __name__ == "__main__":
-    find_cross_season_duplicates(limit=500)
+    find_cross_season_duplicates(limit=20)
