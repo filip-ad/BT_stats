@@ -155,6 +155,25 @@ class Club:
 
         logging.info(f"Cached {len(clubs)} clubs (with ext_id + aliases)")
         return clubs
+    
+    @staticmethod
+    def cache_id_ext_map(cursor) -> Dict[int, 'Club']:
+        """
+        Build a mapping from external club IDs (club_id_ext) to Club instances.
+        """
+        # first load all canonical clubs
+        clubs_by_id = Club.cache_all(cursor)    # Dict[int, Club]
+
+        # then walk the alias table
+        cursor.execute("SELECT club_id, club_id_ext FROM club_ext_id")
+        id_ext_map: Dict[int, Club] = {}
+        for cid, ext in cursor.fetchall():
+            club = clubs_by_id.get(cid)
+            if club:
+                id_ext_map[ext] = club
+            else:
+                logging.warning(f"Alias for unknown club_id {cid}: ext={ext}")
+        return id_ext_map    
 
     @classmethod
     def cache_name_map(cls, cursor) -> Dict[str, "Club"]:

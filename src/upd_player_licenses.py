@@ -22,10 +22,11 @@ def upd_player_licenses():
 
         # Cache mappings   
         cache_start = time.time()
-        season_map = Season.cache_all(cursor) # Dict[int, Season]
-        club_name_map = Club.cache_name_map(cursor)  # Dict[str, Club]
-        player_id_ext_map = Player.cache_id_ext_map(cursor)  # Dict[int, Player]
-        license_map = License.cache_all(cursor) # Dict[Tuple[str, Optional[str]], License]
+        season_map = Season.cache_all(cursor) 
+        club_name_map = Club.cache_name_map(cursor)
+        club_id_ext_map  = Club.cache_id_ext_map(cursor)
+        player_id_ext_map = Player.cache_id_ext_map(cursor)
+        license_map = License.cache_all(cursor)
         logging.info(f"Cached mappings in {time.time() - cache_start:.2f} seconds")
 
         # Cache duplicate licenses
@@ -162,11 +163,15 @@ def upd_player_licenses():
                 player_id = player.player_id
 
             # Map club using club_name
-            club = club_name_map.get(club_name)
+            # club = club_name_map.get(club_name)
+            club = club_id_ext_map.get(club_id_ext)
+            if not club:
+                # Fallback to club_name if club_id_ext is not found
+                club = club_name_map.get(club_name.strip().lower())
             if not club:
                 club_cache_misses += 1
-                logging.debug(f"No club in cache for name {club_name}, row_id {row_id}")
-                club_id = None  # Will be validated in batch
+                club_id = None
+                logging.warning(f"No club in cache for club_id_ext {club_id_ext} or name '{club_name}', row_id {row_id}")
             else:
                 club_id = club.club_id
 

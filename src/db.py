@@ -720,8 +720,8 @@ def create_and_populate_static_tables(cursor):
     # Create club ext id mappings table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS club_ext_id (
-            club_id INTEGER PRIMARY KEY,
-            club_id_ext INTEGER NOT NULL,
+            club_id     INTEGER,
+            club_id_ext INTEGER     NOT NULL    PRIMARY KEY,
             UNIQUE (club_id_ext),
             FOREIGN KEY (club_id) REFERENCES club(club_id)
         )

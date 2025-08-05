@@ -13,8 +13,8 @@ def upd_clubs():
     3) Insert external-ID mappings into `club_ext_id`.
     """
     conn, cursor = get_conn()
-    logging.info("Starting club update…")
-    print("ℹ️  Updating clubs…")
+    logging.info("Updating clubs...")
+    print("ℹ️  Updating clubs...")
 
     try: 
 
@@ -68,6 +68,7 @@ def upd_clubs():
             ) VALUES (?, ?, ?)
         """, (club_id, alias_text, alias_type))
     logging.info(f"Inserted/ignored {len(CLUB_ALIASES)} name-aliases")
+    print(f"ℹ️  Inserted/ignored {len(CLUB_ALIASES)} name-aliases")
 
     # 3) external IDs
     for club_id, club_id_ext in CLUB_EXT_IDS:
@@ -78,6 +79,7 @@ def upd_clubs():
             ) VALUES (?, ?)
         """, (club_id, club_id_ext))
     logging.info(f"Inserted/ignored {len(CLUB_EXT_IDS)} external IDs")
+    print(f"ℹ️  Inserted/ignored {len(CLUB_EXT_IDS)} external IDs")
 
     conn.commit()
     conn.close()

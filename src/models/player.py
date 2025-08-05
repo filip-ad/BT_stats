@@ -104,6 +104,26 @@ class Player:
         return name_year_map
     
     @staticmethod
+    def cache_id_ext_map(cursor) -> Dict[int, "Player"]:
+        """
+        Build a mapping from external player IDs (player_id_ext) to Player objects.
+        Uses cache_all() to load players with their aliases, then iterates
+        over each player’s aliases and inserts an entry for each player_id_ext.
+        """
+        try:
+            players = Player.cache_all(cursor)
+            id_ext_map: Dict[int, Player] = {}
+            for player in players.values():
+                for alias in player.aliases:
+                    pid_ext = alias.get('player_id_ext')
+                    if pid_ext is not None:
+                        id_ext_map[pid_ext] = player
+            return id_ext_map
+        except Exception as e:
+            logging.error(f"Error building cache_id_ext_map: {e}")
+            return {}    
+    
+    @staticmethod
     def search_by_name_and_year(cursor, firstname: str, lastname: str, year_born: int) -> List['Player']:
         """Fallback DB search on player & player_alias."""
         try:
