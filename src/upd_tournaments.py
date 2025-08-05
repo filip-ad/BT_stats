@@ -80,7 +80,7 @@ def scrape_tournaments_ondata():
                 continue
 
             # basic cols
-            name         = cols[0].get_text(strip=True)
+            shortname    = cols[0].get_text(strip=True)
             start_str    = cols[1].get_text(strip=True)
             end_str      = cols[2].get_text(strip=True)
             city         = cols[3].get_text(strip=True)
@@ -91,10 +91,10 @@ def scrape_tournaments_ondata():
             start_date = parse_date(start_str)
             end_date   = parse_date(end_str)
             if not start_date or not end_date:
-                logging.warning(f"Skipping {name}: invalid dates “{start_str}”–“{end_str}”")
+                logging.warning(f"Skipping {shortname}: invalid dates “{start_str}”–“{end_str}”")
                 continue
             if start_date < cutoff_date:
-                logging.debug(f"Skipping {name}: starts before cutoff ({start_date} < {cutoff_date})")
+                logging.debug(f"Skipping {shortname}: starts before cutoff ({start_date} < {cutoff_date})")
                 continue
 
             # status
@@ -111,10 +111,10 @@ def scrape_tournaments_ondata():
             if m:
                 full_url = urljoin(SCRAPE_TOURNAMENTS_URL_ONDATA, m.group(1))
             else:
-                logging.warning(f"{name}: no valid onclick URL")
+                logging.warning(f"{shortname}: no valid onclick URL")
                 db_results.append({
                     "status":   "warning",
-                    "key":      name,
+                    "key":      shortname,
                     "reason":   "No valid onclick URL"
                 })
                 full_url = None
@@ -124,14 +124,15 @@ def scrape_tournaments_ondata():
             if m2:
                 ondata_id = m2.group(1)
             else:
-                logging.debug(f"{name}: invalid ondata_id in URL {full_url}")
+                logging.debug(f"{shortname}: invalid ondata_id in URL {full_url}")
                 ondata_id = None                
 
             # build Tournament
             tour = Tournament.from_dict({
                 "tournament_id":     None,
                 "tournament_id_ext": ondata_id,
-                "name":              name,
+                "shortname":         shortname,
+                "longname":          shortname,  # use shortname as longname if not available
                 "startdate":         start_date,
                 "enddate":           end_date,
                 "city":              city,

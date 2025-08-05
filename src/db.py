@@ -294,7 +294,8 @@ def create_tables(cursor):
         CREATE TABLE IF NOT EXISTS tournament (
             tournament_id INTEGER PRIMARY KEY AUTOINCREMENT,
             tournament_id_ext TEXT,
-            name TEXT NOT NULL,
+            longname TEXT,
+            shortname TEXT,
             startdate DATE,
             enddate DATE,
             city TEXT,
@@ -305,7 +306,7 @@ def create_tables(cursor):
             data_source TEXT DEFAULT 'ondata',
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (tournament_id_ext),
-            UNIQUE (name, startdate)
+            UNIQUE (shortname, startdate)
         )
     ''')
 

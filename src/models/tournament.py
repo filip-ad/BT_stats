@@ -13,7 +13,8 @@ from typing import Optional, Any, Dict, List
 class Tournament:
     tournament_id: Optional[int] = None     # Canonical ID from tournament table
     tournament_id_ext: Optional[str] = None # External ID from ondata.se
-    name: str = None                        # Tournament name
+    longname: str = None                    # Tournament name
+    shortname: str = None                   # Short name or abbreviation
     startdate: Optional[date] = None        # Start date as a date object
     enddate:   Optional[date] = None        # End date as a date object
     city: str = None                        # City name
@@ -35,7 +36,8 @@ class Tournament:
         return Tournament(
             tournament_id=data.get("tournament_id"),
             tournament_id_ext=data.get("tournament_id_ext"),
-            name=data.get("name"),
+            longname=data.get("longname"),
+            shortname=data.get("shortname"),
             startdate=parse_date(sd, context="Tournament.from_dict"),
             enddate=  parse_date(ed, context="Tournament.from_dict"),
             city=data.get("city"),
@@ -51,8 +53,7 @@ class Tournament:
         """Retrieve a Tournament instance by tournament_id, or None if not found."""
         try:
             cursor.execute("""
-                SELECT tournament_id, name, startdate, enddate, city, arena, country_code,
-                       ondata_id, url, status, row_created
+                SELECT tournament_id, tournament_id_ext, longname, shortname, startdate, enddate, city, arena, country_code, url, status, data_source
                 FROM tournament
                 WHERE tournament_id = ?
             """, (tournament_id,))
@@ -61,15 +62,16 @@ class Tournament:
                 return Tournament.from_dict({
                     "tournament_id":        row[0],
                     "tournament_id_ext":    row[1],
-                    "name":                 row[2],
-                    "start_date":           row[3],
-                    "end_date":             row[4],
-                    "city":                 row[5],
-                    "arena":                row[6],
-                    "country_code":         row[7],
-                    "url":                  row[8],
-                    "status":               row[9],
-                    "data_source":          row[10],
+                    "longname":             row[2],
+                    "shortname":            row[3],
+                    "start_date":           row[4],
+                    "end_date":             row[5],
+                    "city":                 row[6],
+                    "arena":                row[7],
+                    "country_code":         row[8],
+                    "url":                  row[9],
+                    "status":               row[10],
+                    "data_source":          row[11],
                 })
             return None
         except Exception as e:
@@ -81,8 +83,7 @@ class Tournament:
         """Retrieve a Tournament instance by tournament_id_ext, or None if not found."""
         try:
             cursor.execute("""
-                SELECT tournament_id, tournament_id_ext, name, startdate, enddate,
-                       city, arena, country_code, url, status, data_source
+                SELECT tournament_id, tournament_id_ext, longname, shortname, startdate, enddate, city, arena, country_code, url, status, data_source
                   FROM tournament
                  WHERE tournament_id_ext = ?
             """, (tournament_id_ext,))
@@ -94,15 +95,16 @@ class Tournament:
             data = {
                 "tournament_id":        row[0],
                 "tournament_id_ext":    row[1],
-                "name":                 row[2],
-                "startdate":            row[3],
-                "enddate":              row[4],
-                "city":                 row[5],
-                "arena":                row[6],
-                "country_code":         row[7],
-                "url":                  row[8],
-                "status":               row[9],
-                "data_source":          row[10],
+                "longname":             row[2],
+                "shortname":            row[3],
+                "startdate":            row[4],
+                "enddate":              row[5],
+                "city":                 row[6],
+                "arena":                row[7],
+                "country_code":         row[8],
+                "url":                  row[9],
+                "status":               row[10],
+                "data_source":          row[11],
             }
             return Tournament.from_dict(data)
 
@@ -113,16 +115,16 @@ class Tournament:
 
     def save_to_db(self, cursor):
         """Save the Tournament instance to the database, checking for duplicates."""
-        if not (self.name and self.startdate and self.enddate):
+        if not (self.shortname and self.startdate and self.enddate):
             return {
                 "status":   "failed",
-                "key":      self.name or "Unknown",
-                "reason":   "Missing one of required fields (name, startdate, enddate)"
+                "key":      self.shortname or "Unknown",
+                "reason":   "Missing one of required fields (shortname, startdate, enddate)"
             }
 
         # Check for duplicate by tournament_id_ext
         if Tournament.get_by_id_ext(cursor, self.tournament_id_ext):
-            logging.warning(f"Skipping duplicate tournament: {self.name} ({self.tournament_id_ext})")
+            logging.warning(f"Skipping duplicate tournament: {self.shortname} ({self.tournament_id_ext})")
             return {
                 "status":   "skipped",
                 "key":      self.tournament_id_ext,
@@ -131,9 +133,10 @@ class Tournament:
 
         try:
             cursor.execute("""
-                INSERT INTO tournament (
+                INSERT INTO tournament ( 
                     tournament_id_ext, 
-                    name, 
+                    shortname, 
+                    longname, 
                     startdate, 
                     enddate, 
                     city, 
@@ -142,10 +145,11 @@ class Tournament:
                     url, 
                     status, 
                     data_source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 self.tournament_id_ext,
-                self.name,
+                self.shortname,
+                self.longname,
                 self.startdate,
                 self.enddate,
                 self.city, 
@@ -156,18 +160,18 @@ class Tournament:
                 self.data_source
             ))
             self.tournament_id = cursor.lastrowid
-            logging.debug(f"Inserted tournament into DB: {self.name}")
+            logging.debug(f"Inserted tournament into DB: {self.shortname}")
             return {
                 "status":   "success",
-                "key":      f"{self.name} ({self.tournament_id})",
+                "key":      f"{self.shortname} ({self.tournament_id})",
                 "reason":   "Tournament inserted successfully"
             }
         
         except sqlite3.Error as e:
-            logging.error(f"Error inserting tournament {self.name}: {e}")
+            logging.error(f"Error inserting tournament {self.shortname}: {e}")
             return {
                 "status":   "failed",
-                "key":      self.name,
+                "key":      self.shortname,
                 "reason":   f"Insertion error: {e}"
             }
         
@@ -182,7 +186,8 @@ class Tournament:
             SELECT 
                 tournament_id, 
                 tournament_id_ext, 
-                name, 
+                shortname,
+                longname, 
                 startdate, 
                 enddate,
                 city, 
@@ -198,14 +203,15 @@ class Tournament:
             cursor.execute(sql, statuses)
             rows = cursor.fetchall()
             result: List[Tournament] = []
-            for (tid, tid_ext, name, sd, ed, city, arena, ccode, url, status, src) in rows:
+            for (tid, tid_ext, sn, ln, sd, ed, city, arena, ccode, url, status, src) in rows:
                 result.append(
                     Tournament.from_dict({
                         "tournament_id":        tid,
                         "tournament_id_ext":    tid_ext,
-                        "name":                 name,
-                        "start_date":           sd,
-                        "end_date":             ed,
+                        "shortname":            sn,
+                        "longname":             ln,
+                        "startdate":            sd,
+                        "enddate":              ed,
                         "city":                 city,
                         "arena":                arena,
                         "country_code":         ccode,

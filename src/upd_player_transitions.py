@@ -135,18 +135,6 @@ def upd_player_transitions():
 
                 season_id = season.season_id            
 
-            # # find season by date or fallback
-            # season = seasons_cache.get(season_id_ext) or Season.get_by_date(cursor, transition_date)
-            # if not season or not season.contains_date(transition_date):
-            #     logging.warning(f"Unable to resolve valid season for transition date {transition_date} in row_id {row_id}")
-            #     db_results.append({
-            #         "status":   "failed", 
-            #         "key":      transition_date, 
-            #         "reason":   "Unable to resolve valid season for transition date"
-            #     })
-            #     continue
-            # season_id = season.season_id
-
             # lookup players by name/year
             player_key = (firstname, lastname, year_born)
             candidates = player_name_year_cache.get(player_key)
@@ -162,20 +150,6 @@ def upd_player_transitions():
                     "reason":   "No player found with matching name and year born"
                 })
                 continue
-
-            # # filter by license validity
-            # seasons_range = range(earliest_season_id, season_id+1)
-            # valid = [p for p in candidates if PlayerLicense.has_license(player_license_cache, p.player_id, club_id_from, seasons_range)]
-            # if len(valid) != 1:
-            #     reason = "multiple or no valid players" if len(valid) > 1 else "no valid license"
-            #     logging.warning(f"Multiple valid players with licenses for '{firstname} {lastname}' (year_born {year_born}) in row_id {row_id}. Player IDs: {[p.player_id for p in candidates]}")
-            #     db_results.append({
-            #         "status":   "skipped",
-            #         "row_id":   row_id,
-            #         "reason":   reason
-            #     })
-            #     continue
-            # player_id = valid[0].player_id
 
             # filter by license validity
             seasons_range = range(earliest_season_id, season_id + 1)

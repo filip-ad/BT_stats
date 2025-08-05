@@ -152,4 +152,4 @@ def find_cross_season_duplicates(limit=None):
         logging.info("")  # blank line
 
 if __name__ == "__main__":
-    find_cross_season_duplicates(limit=20)
+    find_cross_season_duplicates(limit=0)

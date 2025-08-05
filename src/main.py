@@ -34,12 +34,12 @@ def main():
         drop_tables(cursor, [
             # 'club',
             # 'club_alias',
-            'player',
-            'player_alias',
+            # 'player',
+            # 'player_alias',
             # 'license',
             # 'season'
-            # 'tournament'
-            # 'tournament_class'
+            'tournament',
+            'tournament_class'
             # 'player_ranking_group', 
             # 'ranking_group'
             # 'player_ranking_group'
@@ -74,7 +74,7 @@ def main():
         # upd_player_licenses_raw()
 
         # - Update player table. Depends on player_license_raw.
-        upd_players()
+        # upd_players()
 
         # - Update player_ranking_group table. Depends on player_license_raw.
         # upd_player_ranking_groups()
@@ -94,7 +94,7 @@ def main():
         ################################################################################################
 
         # # Get tournaments
-        # upd_tournaments()
+        upd_tournaments()
 
         # # # Scrape classes
         # upd_tournament_classes()

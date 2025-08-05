@@ -9,20 +9,16 @@ from utils import parse_date
 
 @dataclass
 class TournamentClass:
-    tournament_class_id: Optional[int]  = None
-    tournament_id:       int            = 0
-    date:                Optional[datetime.date] = None
-    class_description:   str            = ""
-    class_short:         str            = ""
-    gender:              Optional[str]  = None
-    max_rank:            Optional[int]  = None
-    max_age:             Optional[int]  = None
-    players_url:         Optional[str]  = None
-    groups_url:          Optional[str]  = None
-    group_games_url:     Optional[str]  = None
-    group_results_url:   Optional[str]  = None
-    knockout_url:        Optional[str]  = None
-    final_results_url:   Optional[str]  = None
+    tournament_class_id:        Optional[int]  = None           # Canonical ID for class
+    tournament_class_id_ext:    Optional[int]  = None           # External ID from ondata.se or other source
+    tournament_id:              int = None                      # Foreign key to parent tournament
+    type:                       str = None                      # Type of class (e.g., "singles", "doubles")
+    date:                       Optional[datetime.date] = None  # Date of the class
+    longname:                   str = None                      # Full description of the class
+    shortname:                  str = None                      # Short description of the class
+    gender:                     Optional[str]  = None           # Gender category (e.g., "male", "female")
+    max_rank:                   Optional[int]  = None           # Maximum rank allowed in the class
+    max_age:                    Optional[int]  = None           # Maximum age allowed in the class
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "TournamentClass":
