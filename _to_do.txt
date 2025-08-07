@@ -1,5 +1,7 @@
 To do
 =======================================================
+ - player_participant.save_to_db():
+    - reconstruct player tables, make room for player_raw_id somehow.
 
  - Split validation and insert function with only "clean" records. Implement batch insert.
    This way db_results will always be OK, but create new validation_results to print.
