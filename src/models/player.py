@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Tuple
 import logging
 from collections import defaultdict
-from utils import sanitize_name
+from utils import sanitize_name, normalize_key
 
 def sanitize_name(name: str) -> str:
     """Normalize names: strip, lower-case first letter, title."""
@@ -104,6 +104,34 @@ class Player:
         return name_year_map
     
     @staticmethod
+    def cache_name_map(cursor) -> Dict[str, List[int]]:
+        """
+        Build a map from normalized "firstname lastname" → list of player_ids.
+        Includes both canonical names and aliases.
+
+        normalize_key("Hamrén Öberg") -> "hamren oberg"
+        """
+        name_map: Dict[str, List[int]] = defaultdict(list)
+
+        # 1) Base names from player table
+        cursor.execute("SELECT player_id, firstname, lastname FROM player")
+        for pid, fn, ln in cursor.fetchall():
+            full = f"{fn or ''} {ln or ''}".strip()
+            key = normalize_key(full)
+            name_map[key].append(pid)
+
+        # 2) Add aliases
+        cursor.execute("SELECT DISTINCT player_id, firstname, lastname FROM player_alias")
+        for pid, fn, ln in cursor.fetchall():
+            full = f"{fn or ''} {ln or ''}".strip()
+            key = normalize_key(full)
+            if pid not in name_map[key]:
+                name_map[key].append(pid)
+
+        logging.info(f"Cached {len(name_map)} unique name keys (players+aliases)")
+        return name_map    
+    
+    @staticmethod
     def cache_id_ext_map(cursor) -> Dict[int, "Player"]:
         """
         Build a mapping from external player IDs (player_id_ext) to Player objects.
@@ -200,6 +228,7 @@ class Player:
         except Exception as e:
             logging.error(f"Error retrieving player by ID {player_id}: {e}")
             return None
+
         
     def save_to_db(self, cursor, player_id_ext: int):
         self.sanitize()

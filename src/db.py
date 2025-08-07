@@ -13,6 +13,9 @@ def get_conn():
     try:
         conn = sqlite3.connect(DB_NAME, detect_types=sqlite3.PARSE_DECLTYPES)
         logging.debug(f"Connected to database: {DB_NAME}")
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = NORMAL;")
+        conn.execute("PRAGMA temp_store = MEMORY;")
         return conn, conn.cursor()
     except sqlite3.Error as e:
         print(f"❌ Database connection failed: {e}")
@@ -335,14 +338,20 @@ def create_tables(cursor):
         )
     ''')
 
-    # Create tournament class participant table (starting list of players in a class)
+    # Create player participant table (starting list of players in a class)
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tournament_class_participant (
+        CREATE TABLE IF NOT EXISTS player_participant (
             tournament_class_id INTEGER NOT NULL,
-            player_id INTEGER NOT NULL,
+            player_id INTEGER,
+            club_id INTEGER,
+            fullname_raw TEXT NOT NULL,
+            club_name_raw TEXT NOT NULL,
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (tournament_class_id) REFERENCES tournament_class(tournament_class_id),
-            UNIQUE (tournament_class_id, player_id)
+            FOREIGN KEY (player_id) REFERENCES player(player_id),
+            FOREIGN KEY (club_id) REFERENCES club(club_id),
+            UNIQUE (tournament_class_id, player_id),
+            UNIQUE (tournament_class_id, fullname_raw, club_name_raw)
         )
     ''')
 
@@ -381,6 +390,18 @@ def create_tables(cursor):
             UNIQUE (player_id_ext),
             FOREIGN KEY (player_id) REFERENCES player(player_id)
         ) 
+    ''')
+
+    # Create a player "raw" table for players not yet in the player table (no external ID)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS player_raw (
+            row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fullname_raw TEXT NOT NULL,
+            year_born INTEGER DEFAULT 0,
+            club_name_raw TEXT NOT NULL,
+            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(fullname_raw, club_name_raw)
+        )
     ''')
 
     # Create raw data table for player_licenses_raw

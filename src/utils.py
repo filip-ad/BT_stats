@@ -12,48 +12,29 @@ from datetime import datetime
 from collections import defaultdict
 import logging
 import os
+import re
+import unicodedata
 from datetime import datetime, date
 from config import LOG_FILE, LOG_LEVEL
 
 
 def setup_logging():
 
-# DEBUG: Detailed logs for development and debugging.
-# INFO: High-level events (like app startup, task completion).
-# WARNING: Non-critical issues that should be looked at.
-# ERROR: Serious issues that affect functionality but the app can continue.
-# CRITICAL: Fatal errors, the app cannot continue.
+    # DEBUG: Detailed logs for development and debugging.
+    # INFO: High-level events (like app startup, task completion).
+    # WARNING: Non-critical issues that should be looked at.
+    # ERROR: Serious issues that affect functionality but the app can continue.
+    # CRITICAL: Fatal errors, the app cannot continue.
 
-# %(asctime)s: Timestamp when the log message was created.
-# %(levelname)s: The log level (e.g., DEBUG, INFO, WARNING, etc.).
-# %(message)s: The log message itself.
-# %(filename)s: The name of the file where the log call was made (not including the path).
-# %(module)s: The name of the module (same as the filename, but without the .py extension).
-# %(funcName)s: The name of the function where the log call was made.
-# %(lineno)d: The line number where the log call was made.
-# %(process)d: Process ID (useful for multi-process logging).
-# %(thread)d: Thread ID (useful for multi-threaded logging).
-
-    # # Ensure log directory exists
-    # log_dir = os.path.dirname(LOG_FILE)
-    # if log_dir and not os.path.exists(log_dir):
-    #     os.makedirs(log_dir)
-    #     logging.info(f"utils: Created log directory: {log_dir}")
-    
-    # # Configure logging
-    # logging.basicConfig(
-    #     filename=LOG_FILE,
-    #     level=getattr(logging, LOG_LEVEL),
-    #     # format='[%(asctime)s] [%(levelname)s] [%(filename)s/%(funcName)s/%(lineno)d] - %(message)s',
-    #     format='[%(asctime)s] %(levelname)-8s %(filename)-20.20s%(lineno)-5d%(funcName)-35.35s: %(message)-100s',
-    #     datefmt='%b %d %a] [%H:%M:%S'
-    # )
-    # print(f"ℹ️  Logging configured to {LOG_FILE} at level {LOG_LEVEL}")
-    # logging.info("")
-    # logging.info("")
-    # logging.info("")
-    # logging.info(f"Logging configured to {LOG_FILE} at level {LOG_LEVEL}")
-    # logging.info("-------------------------------------------------------------------")
+    # %(asctime)s: Timestamp when the log message was created.
+    # %(levelname)s: The log level (e.g., DEBUG, INFO, WARNING, etc.).
+    # %(message)s: The log message itself.
+    # %(filename)s: The name of the file where the log call was made (not including the path).
+    # %(module)s: The name of the module (same as the filename, but without the .py extension).
+    # %(funcName)s: The name of the function where the log call was made.
+    # %(lineno)d: The line number where the log call was made.
+    # %(process)d: Process ID (useful for multi-process logging).
+    # %(thread)d: Thread ID (useful for multi-threaded logging).
 
     # Create log directory if not exists (derive from LOG_FILE)
     log_dir = os.path.dirname(os.path.abspath(LOG_FILE))
@@ -162,5 +143,22 @@ def print_db_insert_results(db_results):
 
 
 def sanitize_name(name: str) -> str:
-    """Sanitize a name by stripping, splitting, and title-casing each word."""
+    """ 
+    Sanitize a name by stripping, splitting, and title-casing each word.
+    Example: 'harry hamrén' -> 'Harry Hamrén' 
+    """
     return ' '.join(word.strip().title() for word in name.split())
+
+def normalize_key(name: str) -> str:
+    """
+    Produce a matching key by:
+        1) stripping and collapsing whitespace
+        2) decomposing Unicode and removing diacritics
+        3) lowercasing
+    Example: 'Harry Hamrén' -> 'harry hamren'
+    """
+    s = name.strip()
+    s = re.sub(r"\s+", " ", s)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return s.lower()

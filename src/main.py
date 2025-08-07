@@ -14,7 +14,7 @@ from upd_player_transitions_raw import upd_player_transitions_raw
 from upd_player_transitions import upd_player_transitions
 from upd_tournaments import upd_tournaments
 from upd_tournament_classes import upd_tournament_classes
-from upd_tournament_class_participants import upd_tournament_class_participants
+from upd_player_participants import upd_player_participants
 from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes
 
 
@@ -38,6 +38,8 @@ def main():
             # 'club_ext_id'
             # 'player',
             # 'player_alias',
+            # 'player_raw',
+            # 'player_participant'
             # 'license',
             # 'season'
             # 'tournament',
@@ -91,7 +93,7 @@ def main():
         # upd_player_transitions_raw()
 
         # - Update player transitions. Depends on player_transition_raw, club, player, season, and license tables.
-        upd_player_transitions()
+        # upd_player_transitions()
 
         # - Update player rankings raw table. No dependency.
         # upd_player_rankings_raw()
@@ -105,7 +107,7 @@ def main():
         # upd_tournament_classes()
 
         # # Fetch tournament class entries and process PDFs
-        # upd_tournament_class_participants()
+        upd_player_participants()
 
     except Exception as e:
         logging.error(f"Error: {e}")

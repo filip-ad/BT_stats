@@ -131,3 +131,34 @@ class TournamentClass:
         """
         items = TournamentClass.cache_all(cursor)
         return {tc.tournament_class_id: tc for tc in items}
+
+    @classmethod
+    def get_by_id(cls, cursor, class_id: int) -> Optional["TournamentClass"]:
+        """
+        Fetch a single TournamentClass by its internal ID.
+        Returns a TournamentClass or None if not found.
+        """
+        cursor.execute("""
+            SELECT tournament_class_id, tournament_class_id_ext, tournament_id,
+                   type, date, longname, shortname, gender, max_rank, max_age
+            FROM tournament_class
+            WHERE tournament_class_id = ?
+        """, (class_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        cid, ext, tid, typ, dt, ln, sn, gender, mr, ma = row
+        # normalize date field to a datetime.date
+        date_obj = dt if isinstance(dt, datetime.date) else datetime.datetime.fromisoformat(dt).date()
+        return cls(
+            tournament_class_id     = cid,
+            tournament_class_id_ext = ext,
+            tournament_id           = tid,
+            type                    = typ,
+            date                    = date_obj,
+            longname                = ln,
+            shortname               = sn,
+            gender                  = gender,
+            max_rank                = mr,
+            max_age                 = ma
+        )
