@@ -395,7 +395,7 @@ def create_tables(cursor):
     # Create a player "raw" table for players not yet in the player table (no external ID)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player_raw (
-            row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id_raw INTEGER PRIMARY KEY AUTOINCREMENT,
             fullname_raw TEXT NOT NULL,
             year_born INTEGER DEFAULT 0,
             club_name_raw TEXT NOT NULL,

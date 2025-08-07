@@ -38,7 +38,7 @@ def main():
             # 'club_ext_id'
             # 'player',
             # 'player_alias',
-            # 'player_raw',
+            'player_raw',
             # 'player_participant'
             # 'license',
             # 'season'

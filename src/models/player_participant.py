@@ -106,7 +106,7 @@ class PlayerParticipant:
                 AND date(valid_to)   >= date(?)
             """, (pid, club_id, class_date.isoformat(), class_date.isoformat()))
             has_license = bool(cursor.fetchone())
-            logging.debug(
+            logging.info(
                 f"QA: unique-name match for '{self.fullname_raw}' → pid={pid}, "
                 f"{'HAS' if has_license else 'NO'} license at club_id={club_id} on {class_date}"
             )
