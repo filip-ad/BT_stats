@@ -101,46 +101,156 @@ def parse_date(date_str, context=None):
     logging.warning(f"Invalid date format: {date_str} (context: {context or 'unknown calling function'})")
     return None
 
+# def print_db_insert_results(db_results):
+    # # Initialize with all expected statuses
+    # all_statuses = ["success", "failed", "skipped", "warning"]
+    # summary = {status: defaultdict(int) for status in all_statuses}
+
+    # # Build reason-level summary
+    # for result in db_results:
+    #     status = result.get("status", "unknown")
+    #     reason = result.get("reason", "No reason provided")
+    #     if status not in summary:
+    #         summary[status] = defaultdict(int)
+    #     summary[status][reason] += 1
+
+    # # Log/print overall summary and breakdown
+    # logging.info("Database Summary:")
+    # print("📊 Database Summary:")
+
+    # for status in all_statuses:
+    #     total = sum(summary[status].values())
+    #     capitalized_status = status.capitalize()
+    #     logging.info(f"   - {capitalized_status}: {total}")
+
+    #     # Determine prefix for print based on status
+    #     if status == "success":
+    #         prefix = "✅"
+    #     elif status == "failed":
+    #         prefix = "❌"
+    #     elif status == "skipped":
+    #         prefix = "⏭️ " 
+    #     elif status == "warning":
+    #         prefix = "⚠️ "
+    #     else:
+    #         prefix = "-"
+
+    #     print(f"   {prefix} {capitalized_status}: {total}")
+
+    #     for reason, count in summary[status].items():
+    #         logging.info(f"      • {reason}: {count}")
+    #         print(f"      • {reason}: {count}")
+
+from collections import defaultdict
+import logging
+
+# def print_db_insert_results(db_results):
+#     # Only the “real” statuses here
+#     all_statuses = ["success", "failed", "skipped"]
+#     summary = {status: defaultdict(int) for status in all_statuses}
+
+#     # Build reason‐level summary
+#     for result in db_results:
+#         status = result.get("status", "unknown")
+#         reason = result.get("reason", "No reason provided")
+#         if status not in summary:
+#             summary[status] = defaultdict(int)
+#         summary[status][reason] += 1
+
+#     # Log/print overall summary and breakdown
+#     logging.info("Database Summary:")
+#     print("📊 Database Summary:")
+
+#     for status in all_statuses:
+#         total = sum(summary[status].values())
+#         cap   = status.capitalize()
+#         prefix = {
+#             "success": "✅",
+#             "failed":  "❌",
+#             "skipped": "⏭️ "
+#         }[status]
+
+#         print(f"   {prefix} {cap}: {total}")
+#         logging.info(f"   - {cap}: {total}")
+
+#         for reason, count in summary[status].items():
+#             print(f"      • {reason}: {count}")
+#             logging.info(f"      • {reason}: {count}")
+
+#     # — Always print warning count —
+#     warning_msgs = [r["warning"] for r in db_results if "warning" in r]
+#     total_warns = len(warning_msgs)
+
+#     print(f"   ⚠️  Warning: {total_warns}")
+#     logging.info(f"   - Warning: {total_warns}")
+
+#     if total_warns > 0:
+#         warn_counts = defaultdict(int)
+#         for msg in warning_msgs:
+#             warn_counts[msg] += 1
+
+#         for reason, cnt in warn_counts.items():
+#             print(f"      • {reason}: {cnt}")
+#             logging.info(f"      • {reason}: {cnt}")
+
+from collections import defaultdict
+import logging
+
 def print_db_insert_results(db_results):
-    # Initialize with all expected statuses
-    all_statuses = ["success", "failed", "skipped", "warning"]
-    summary = {status: defaultdict(int) for status in all_statuses}
+    """
+    Print a summary of database insertion results.
 
-    # Build reason-level summary
-    for result in db_results:
-        status = result.get("status", "unknown")
-        reason = result.get("reason", "No reason provided")
-        if status not in summary:
-            summary[status] = defaultdict(int)
-        summary[status][reason] += 1
+    This function takes a list of result dicts—each with keys:
+      - "status": one of "success", "failed", or "skipped"
+      - "reason": a string describing why that status was assigned
+      - "warning": an optional warning message (empty string if none)
 
-    # Log/print overall summary and breakdown
-    logging.info("Database Summary:")
+    It performs three steps:
+    1. **Aggregate** counts of each status/reason combination.
+    2. **Print** the overall totals for Success (✅), Failed (❌), and Skipped (⏭️),
+       along with a breakdown by reason.
+    3. **Print** a Warning (⚠️) section enumerating any non-empty warnings,
+       grouped by warning message, always showing “⚠️ Warning: 0” if there are none.
+    """
+    # existing statuses
+    all_statuses = ["success", "failed", "skipped"]
+    summary = {st: defaultdict(int) for st in all_statuses}
+
+    # tally status/reasons
+    for r in db_results:
+        st, rs = r["status"], r["reason"]
+        summary.setdefault(st, defaultdict(int))[rs] += 1
+
+    # print main blocks
     print("📊 Database Summary:")
+    logging.info("Database Summary:")
+    for st, emoji in [("success","✅"),("failed","❌"),("skipped","⏭️ ")]:
+        total = sum(summary.get(st,{}).values())
+        print(f"   {emoji} {st.capitalize()}: {total}")
+        logging.info(f"   - {st.capitalize()}: {total}")
+        for reason, cnt in summary[st].items():
+            print(f"      • {reason}: {cnt}")
+            logging.info(f"      • {reason}: {cnt}")
 
-    for status in all_statuses:
-        total = sum(summary[status].values())
-        capitalized_status = status.capitalize()
-        logging.info(f"   - {capitalized_status}: {total}")
+    warning_list = []
+    for r in db_results:
+        # if they used "warnings":[...]
+        if isinstance(r.get("warnings"), list):
+            warning_list.extend(r["warnings"])
+        # fall back to the old single‐string "warning"
+        elif isinstance(r.get("warning"), str) and r["warning"]:
+            warning_list.append(r["warning"])
 
-        # Determine prefix for print based on status
-        if status == "success":
-            prefix = "✅"
-        elif status == "failed":
-            prefix = "❌"
-        elif status == "skipped":
-            prefix = "⏭️ " 
-        elif status == "warning":
-            prefix = "⚠️ "
-        else:
-            prefix = "-"
-
-        print(f"   {prefix} {capitalized_status}: {total}")
-
-        for reason, count in summary[status].items():
-            logging.info(f"      • {reason}: {count}")
-            print(f"      • {reason}: {count}")
-
+    total_warns = len(warning_list)
+    print(f"   ⚠️  Warning: {total_warns}")
+    logging.info(f"   - Warning: {total_warns}")
+    if total_warns:
+        warn_counts = defaultdict(int)
+        for msg in warning_list:
+            warn_counts[msg] += 1
+        for reason, cnt in warn_counts.items():
+            print(f"      • {reason}: {cnt}")
+            logging.info(f"      • {reason}: {cnt}")
 
 def sanitize_name(name: str) -> str:
     """ 

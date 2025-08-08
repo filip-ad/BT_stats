@@ -70,6 +70,8 @@ def upd_player_participants():
     player_name_map = Player.cache_name_map(cursor)
 
     results = []
+    total_parsed   = 0
+    total_expected = 0
 
     for tc in classes:
         if not tc.tournament_class_id_ext:
@@ -78,8 +80,17 @@ def upd_player_participants():
 
         # — Download phase —
         t1 = time.perf_counter()
-        pdf_url    = f"{PDF_BASE}?classID={tc.tournament_class_id_ext}&stage=1"
-        pdf_bytes  = download_pdf(pdf_url)
+        try: 
+            pdf_url    = f"{PDF_BASE}?classID={tc.tournament_class_id_ext}&stage=1"
+            pdf_bytes  = download_pdf(pdf_url)
+        except Exception as e:
+            logging.error(f"❌ PDF download failed for class_ext={tc.tournament_class_id_ext}: {e}")
+            results.append({
+                "status": "failed",
+                "key":    tc.tournament_class_id_ext,
+                "reason": f"PDF download failed: {e}"
+            })
+            continue
         t2 = time.perf_counter()
 
         if not pdf_bytes:
@@ -93,8 +104,46 @@ def upd_player_participants():
 
         # — Parse phase —
         t3 = time.perf_counter()
-        participants, expected_count = parse_players_pdf(pdf_bytes)
+        try: 
+            participants, expected_count = parse_players_pdf(pdf_bytes)
+            total_parsed += len(participants)
+            if expected_count is not None:
+                total_expected += expected_count
+        except Exception as e:
+            logging.error(f"❌ PDF parsing failed for class_ext={tc.tournament_class_id_ext}: {e}")
+            results.append({
+                "status": "failed",
+                "key":    tc.tournament_class_id_ext,
+                "reason": f"PDF parsing failed: {e}"
+            })
+            continue
         t4 = time.perf_counter()
+
+        # Wipe out any old participants for this class:
+        deleted = PlayerParticipant.remove_for_class(cursor, tc.tournament_class_id)
+        logging.info(f"Deleted {deleted} old participants for class {tc.tournament_class_id_ext} ({tc.tournament_class_id})")
+        print(f"ℹ️  Deleted {deleted} old participants for class {tc.tournament_class_id_ext} ({tc.tournament_class_id})")
+
+        # If we didn’t get exactly the expected number, save for later review
+        if expected_count is not None and len(participants) != expected_count:
+            missing = expected_count - len(participants)
+            cursor.execute("""
+                INSERT OR IGNORE INTO player_participant_missing
+                  (tournament_class_id,
+                   tournament_class_id_ext,
+                   participant_url,
+                   nbr_of_missing_players)
+                VALUES (?, ?, ?, ?)
+            """, (
+                tc.tournament_class_id,
+                tc.tournament_class_id_ext,
+                pdf_url,
+                missing
+            ))
+            logging.warning(
+                f"{tc.shortname}: parsed {len(participants)}/{expected_count}, "
+                "recording in player_participant_missing"
+            )
 
         # parsed vs expected output
         symbol    = "✅" if expected_count is None or len(participants) == expected_count else "❌"
@@ -106,7 +155,7 @@ def upd_player_participants():
         )
         logging.info(
             f"Parsed {count_str} participants for class {tc.shortname} "
-            f"(class_ext={tc.tournament_class_id_ext} in tournament id {tc.tournament_id})"
+            f"(class_ext={tc.tournament_class_id_ext}, class_id={tc.tournament_class_id}, date={tc.date}) in tournament id {tc.tournament_id})"
         )
 
         # normalize class_date
@@ -147,12 +196,16 @@ def upd_player_participants():
             class_results,
             key=lambda x: (status_order.get(x["status"], 99), x["reason"], x["idx"])
         ):
+            # only log failed
+            if r["status"] != "failed":
+                continue
+
             prefix  = f"[{r['idx']:02d}] {r['raw_name']}  /  {r['club_name']}"
             padded  = f"{prefix:<50}"
             status  = r["status"].capitalize()
             reason  = r["reason"]
-            # logging.info(f"{padded} : {status} - {reason}")
             suffix = f" - Player matched via {r['match_type']}" if r.get("match_type") and r["status"] == "success" else ""
+            # logging.info(f"{padded} : {status} - {reason}")
             logging.info(f"{padded} : {status} - {reason}{suffix} ")
 
         # — Per‐class timing summary —
@@ -179,6 +232,11 @@ def upd_player_participants():
     total = time.perf_counter() - overall_start
     print(f"ℹ️  Participant update complete in {total:.2f}s")
     logging.info(f"Total update took {total:.2f}s")
+    # overall parsed vs expected
+    if total_expected > 0:
+        print(f"ℹ️  Total participants parsed: {total_parsed}/{total_expected}")
+    else:
+        print(f"ℹ️  Total participants parsed: {total_parsed}")
     print_db_insert_results(results)
     conn.close()
 
@@ -200,16 +258,21 @@ def download_pdf(url: str, retries: int = 3, timeout: int = 30) -> bytes | None:
             break
     return None
 
-# if you still want to skip pure national–only entries, keep this set
-COUNTRY_CODES = {
-    "SWE","DEN","NOR","FIN","GER","FRA","BEL","IRL","THA","PUR","NED",
-    "USA","ENG","WAL","SMR","SIN","ROU","SUI"
-}
+# # if you still want to skip pure national–only entries, keep this set
+# COUNTRY_CODES = {
+#     "SWE","DEN","NOR","FIN","GER","FRA","BEL","IRL","THA","PUR","NED",
+#     "USA","ENG","WAL","SMR","SIN","ROU","SUI"
+# }
 
 # match a line that begins with a number, then “anything (except comma)” for the name,
 # then a comma, then the rest up to end-of-line as the club
+# PART_RE = re.compile(
+#     r'^\s*\d+\s+([^,]+?)\s*,\s*([^\r\n]+)',
+#     re.MULTILINE
+# )
+
 PART_RE = re.compile(
-    r'^\s*\d+\s+([^,]+?)\s*,\s*([^\r\n]+)',
+    r'^\s*(?:\d+\s+)?([^,]+?)\s*,\s*(\S.*)$',
     re.MULTILINE
 )
 
@@ -252,21 +315,31 @@ def parse_players_pdf(pdf_bytes: bytes) -> tuple[list[dict], int | None]:
         expected_count = int(m.group(1))
         logging.info(f"Expected participants: {expected_count}")    
 
-    # find every “rank name, club” line
-    for m in PART_RE.finditer(text):
-        name_part = m.group(1).strip()
-        club_part = m.group(2).strip()
+    # # find every “rank name, club” line
+    # for m in PART_RE.finditer(text):
+    #     name_part = m.group(1).strip()
+    #     club_part = m.group(2).strip()
 
-        # if the “club” is *exactly* one of the country codes, we skip it
-        # if club_part.upper() in COUNTRY_CODES:
-        #     logging.info(f"parse_players_pdf: ❌ Skipping national entry “{name_part}, {club_part}”")
-        #     continue
+    #     # if the “club” is *exactly* one of the country codes, we skip it
+    #     # if club_part.upper() in COUNTRY_CODES:
+    #     #     logging.info(f"parse_players_pdf: ❌ Skipping national entry “{name_part}, {club_part}”")
+    #     #     continue
 
-        # OK, keep it
-        raw = sanitize_name(name_part)
+    #     # OK, keep it
+    #     raw = sanitize_name(name_part)
+    #     participants.append({
+    #         "raw_name":   raw,
+    #         "club_name":  club_part
+    #     })
+
+        # ── replace the regex loop with this ──
+    for line in text.splitlines():
+        if ',' not in line:
+            continue
+        name_part, club_part = line.split(',', 1)
         participants.append({
-            "raw_name":   raw,
-            "club_name":  club_part
+            "raw_name":  sanitize_name(name_part),
+            "club_name": club_part.strip()
         })
 
     # log every candidate we actually found

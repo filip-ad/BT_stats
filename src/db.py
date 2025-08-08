@@ -338,23 +338,6 @@ def create_tables(cursor):
         )
     ''')
 
-    # Create player participant table (starting list of players in a class)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS player_participant (
-            tournament_class_id INTEGER NOT NULL,
-            player_id INTEGER,
-            club_id INTEGER,
-            fullname_raw TEXT NOT NULL,
-            club_name_raw TEXT NOT NULL,
-            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (tournament_class_id) REFERENCES tournament_class(tournament_class_id),
-            FOREIGN KEY (player_id) REFERENCES player(player_id),
-            FOREIGN KEY (club_id) REFERENCES club(club_id),
-            UNIQUE (tournament_class_id, player_id),
-            UNIQUE (tournament_class_id, fullname_raw, club_name_raw)
-        )
-    ''')
-
     # Create tournament class final results table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tournament_class_final_results (
@@ -392,15 +375,37 @@ def create_tables(cursor):
         ) 
     ''')
 
+    # Create player participant table (starting list of players in a class)
+    cursor.execute('''
+            CREATE TABLE IF NOT EXISTS player_participant (
+                tournament_class_id   INTEGER     NOT NULL,
+                player_id             INTEGER,
+                player_id_raw         INTEGER,
+                club_id               INTEGER,
+                row_created           TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+
+                -- exactly one of the two IDs must be non-NULL:
+                CHECK (
+                    (player_id     IS NOT NULL AND player_id_raw IS NULL)
+                OR (player_id     IS NULL     AND player_id_raw IS NOT NULL)
+                ),
+
+                FOREIGN KEY (tournament_class_id)   REFERENCES tournament_class(tournament_class_id),
+                FOREIGN KEY (player_id)             REFERENCES player(player_id),
+                FOREIGN KEY (club_id)               REFERENCES club(club_id),
+
+                UNIQUE (tournament_class_id, player_id),
+                UNIQUE (tournament_class_id, player_id_raw)
+            )
+    ''')
+
     # Create a player "raw" table for players not yet in the player table (no external ID)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player_raw (
             player_id_raw INTEGER PRIMARY KEY AUTOINCREMENT,
             fullname_raw TEXT NOT NULL,
-            year_born INTEGER DEFAULT 0,
-            club_name_raw TEXT NOT NULL,
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(fullname_raw, club_name_raw)
+            UNIQUE(fullname_raw)
         )
     ''')
 
@@ -722,16 +727,17 @@ def create_and_populate_static_tables(cursor):
     # Create clubs table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS club (
-            club_id INTEGER PRIMARY KEY,
-            shortname TEXT,
-            longname TEXT,
-            club_type TEXT DEFAULT 'club', -- Might add national team later
-            city TEXT,
-            country_code TEXT,
-            remarks TEXT,
-            homepage TEXT,
-            active INTEGER DEFAULT 1 CHECK (active IN (0, 1)),
-            district_id INTEGER,
+            club_id         INTEGER     PRIMARY KEY,
+            shortname       TEXT,
+            longname        TEXT,
+            club_type       TEXT        DEFAULT 'club', -- Might add national team later
+            city            TEXT,
+            country_code    TEXT,
+            remarks         TEXT,
+            homepage        TEXT,
+            active          INTEGER     DEFAULT 1 CHECK (active IN (0, 1)),
+            district_id     INTEGER,
+            row_created     TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (shortname),
             UNIQUE (longname),
             FOREIGN KEY (district_id) REFERENCES district(district_id)
@@ -741,8 +747,9 @@ def create_and_populate_static_tables(cursor):
     # Create club ext id mappings table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS club_ext_id (
-            club_id     INTEGER,
-            club_id_ext INTEGER     NOT NULL    PRIMARY KEY,
+            club_id         INTEGER,
+            club_id_ext     INTEGER     NOT NULL    PRIMARY KEY,
+            row_created     TIMESTAMP   DEFAULT     CURRENT_TIMESTAMP,
             UNIQUE (club_id_ext),
             FOREIGN KEY (club_id) REFERENCES club(club_id)
         )
@@ -751,11 +758,44 @@ def create_and_populate_static_tables(cursor):
     # Create club name alias table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS club_name_alias (
-            club_id     INTEGER     NOT NULL,
-            alias       TEXT        NOT NULL,
-            alias_type  TEXT        NOT NULL CHECK(alias_type IN ('short','long')),
+            club_id         INTEGER     NOT NULL,
+            alias           TEXT        NOT NULL,
+            alias_type      TEXT        NOT NULL       CHECK(alias_type IN ('short','long')),
+            row_created     TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (club_id, alias, alias_type),
             FOREIGN KEY (club_id) REFERENCES club(club_id)
+        )
+    ''')
+
+    # Create missing clubs table to be mapped later
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS club_missing (
+            club_name_raw   TEXT        PRIMARY KEY,
+            club_name_norm  TEXT        NOT NULL,
+            row_created     TIMESTAMP   DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Create missing participants table to be fixed in parsing later
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS player_participant_missing (
+            tournament_class_id         INTEGER     NOT NULL,
+            tournament_class_id_ext     INTEGER     NOT NULL,
+            participant_url             TEXT        NOT NULL,
+            nbr_of_missing_players      INTEGER     NOT NULL,
+            row_created                 TIMESTAMP   DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Create table for documenting club names with prefixes
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS club_name_prefix_match (
+            tournament_class_id INTEGER NOT NULL,
+            club_raw_name TEXT NOT NULL,
+            matched_club_id INTEGER NOT NULL,
+            matched_club_aliases TEXT NOT NULL,
+            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(club_raw_name)
         )
     ''')
 

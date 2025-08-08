@@ -34,11 +34,16 @@ def main():
         # Drop existing tables to ensure a clean slate
         drop_tables(cursor, [
             # 'club',
-            # 'club_alias'
-            # 'club_ext_id'
+            # 'club_name_alias',
+            # 'club_ext_id',
+            # 'club_missing'
+            # 'player_participant_missing',
+            # 'club_missing',
+            # 'club_name_prefix_match'
+            # 'club_name_prefix_match'
             # 'player',
             # 'player_alias',
-            'player_raw',
+            # 'player_raw',
             # 'player_participant'
             # 'license',
             # 'season'
@@ -75,7 +80,7 @@ def main():
         # Describe all functions, what they do, what tables are updated, variables etc etc
         #
 
-        # upd_clubs()
+        upd_clubs()
 
         # - Scrape and populate player_license_raw table. No dependency.
         # upd_player_licenses_raw()

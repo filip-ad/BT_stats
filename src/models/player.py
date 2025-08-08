@@ -12,11 +12,14 @@ def sanitize_name(name: str) -> str:
 
 @dataclass
 class Player:
-    player_id:   Optional[int] = None
-    firstname:   Optional[str] = None
-    lastname:    Optional[str] = None
-    year_born:   Optional[int] = None
-    aliases:     List[dict] = None  # [{player_id_ext, firstname, lastname, year_born}]
+    player_id:      Optional[int]   = None
+    firstname:      Optional[str]   = None
+    lastname:       Optional[str]   = None
+    year_born:      Optional[int]   = None
+    aliases:        List[dict]      = None  # [{player_id_ext, firstname, lastname, year_born}]
+
+    # raw‐only field
+    player_id_raw:  Optional[int]   = None
 
     def __post_init__(self):
         if self.aliases is None:
@@ -326,3 +329,64 @@ class Player:
                 "player_id_ext": player_id_ext,
                 "reason":        f"Error inserting alias: {e}"
             }
+        
+    @classmethod
+    def save_to_db_raw(cls, cursor, fullname_raw: str) -> int:
+        """
+        Ensure a raw‐player exists with this fullname.
+        Returns its player_id_raw.
+
+        Applies minimal whitespace normalization to match
+        what search_by_name_raw is expecting.
+        """
+        # 1) Strip leading/trailing whitespace
+        clean = fullname_raw.strip()
+        # 2) Collapse any internal runs of whitespace to a single space
+        clean = " ".join(clean.split())
+
+        # 3) Lookup existing
+        existing = cls.search_by_name_raw(cursor, clean)
+        if existing is not None:
+            return existing
+
+        # 4) Insert the cleaned name
+        sql = f"""
+            INSERT INTO player_raw (fullname_raw)
+            VALUES (?)
+        """
+        cursor.execute(sql, (clean,))
+        return cursor.lastrowid
+    
+    @classmethod
+    def search_by_name_raw(cls, cursor, fullname_raw: str) -> Optional[int]:
+        """
+        Return player_id_raw if a raw‐player with this fullname exists, else None.
+        We do minimal whitespace normalization here so that
+        leading/trailing spaces or double-spaces don’t break the match.
+        """
+        # 1) Strip leading/trailing whitespace...
+        clean = fullname_raw.strip()
+        # 2) Collapse any internal runs of whitespace to a single space
+        clean = " ".join(clean.split())
+
+        sql = """
+            SELECT player_id_raw
+              FROM player_raw
+             WHERE fullname_raw = ?
+        """
+        cursor.execute(sql, (clean,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+    
+    @staticmethod
+    def cache_raw_name_map(cursor) -> Dict[str, int]:
+        """
+        Build a map from normalized fullname_raw → player_id_raw.
+        """
+        cursor.execute("SELECT player_id_raw, fullname_raw FROM player_raw")
+        out: Dict[str, int] = {}
+        for raw_id, fullname in cursor.fetchall():
+            key = normalize_key(fullname)
+            out[key] = raw_id
+        logging.info(f"Cached {len(out)} raw player names")
+        return out

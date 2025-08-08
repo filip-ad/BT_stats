@@ -87,6 +87,8 @@ def scrape_tournaments_ondata():
             arena        = cols[4].get_text(strip=True)
             country_code = cols[5].get_text(strip=True)
 
+            print(f"ℹ️  Processing tournament: {shortname} ({start_str}–{end_str}) in {city}, {arena}, {country_code}")
+
             # parse dates
             start_date = parse_date(start_str)
             end_date   = parse_date(end_str)
@@ -112,11 +114,6 @@ def scrape_tournaments_ondata():
                 full_url = urljoin(SCRAPE_TOURNAMENTS_URL_ONDATA, m.group(1))
             else:
                 logging.warning(f"{shortname}: no valid onclick URL")
-                db_results.append({
-                    "status":   "warning",
-                    "key":      shortname,
-                    "reason":   "No valid onclick URL"
-                })
                 full_url = None
 
             # extract ondata_id ONLY if full_url is non-None
@@ -127,17 +124,12 @@ def scrape_tournaments_ondata():
                 logging.debug(f"{shortname}: invalid ondata_id in URL {full_url}")
                 ondata_id = None         
 
-            # get the tournament longname
+            # # get the tournament longname
             longname = None
             if ondata_id:
                 longname = _fetch_tournament_longname(ondata_id)
                 if not longname:
                     logging.warning(f"{shortname}: could not fetch tournament longname")
-                    db_results.append({
-                        "status":   "warning",
-                        "key":      shortname,
-                        "reason":   "Could not fetch tournament longname"
-                    })
 
             # build Tournament
             tour = Tournament.from_dict({
