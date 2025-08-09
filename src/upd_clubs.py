@@ -4,7 +4,7 @@
 
 import logging
 from db import get_conn
-from clubs_data import CLUBS, CLUB_ALIASES, CLUB_EXT_IDS
+from clubs_data import CLUBS, CLUB_ALIASES, CLUB_EXT_IDS, CLUBS_COUNTRY_TEAMS, CLUB_ALIASES_COUNTRY_TEAMS
 
 def upd_clubs():
     """
@@ -16,44 +16,37 @@ def upd_clubs():
     logging.info("Updating clubs...")
     print("ℹ️  Updating clubs...")
 
-    try: 
+    try:
+        # Combine clubs and country teams, tagging their source
+        all_clubs = [(club, "canonical clubs") for club in CLUBS] + \
+                    [(club, "country teams") for club in CLUBS_COUNTRY_TEAMS]
 
-        # 1) canonical clubs
-        inserted_clubs = 0
-        for (
-            club_id, shortname, longname, club_type,
-            city, country_code, remarks,
-            homepage, active, district_id
-        ) in CLUBS:
+        # Track insertions by category
+        results = {"canonical clubs": {"attempted": 0, "inserted": 0},
+                "country teams": {"attempted": 0, "inserted": 0}}
+
+        for (club_id, shortname, longname, club_type, city, country_code, remarks,
+            homepage, active, district_id), category in all_clubs:
             cursor.execute("""
                 INSERT OR IGNORE INTO club (
-                    club_id,
-                    shortname,
-                    longname,
-                    club_type,
-                    city,
-                    country_code,
-                    remarks,
-                    homepage,
-                    active,
-                    district_id
+                    club_id, shortname, longname, club_type,
+                    city, country_code, remarks,
+                    homepage, active, district_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                club_id,
-                shortname,
-                longname,
-                club_type,
-                city,
-                country_code,
-                remarks,
-                homepage,
-                active,
-                district_id
-            ))
+            """, (club_id, shortname, longname, club_type, city, country_code,
+                remarks, homepage, active, district_id))
+            
+            results[category]["attempted"] += 1
             if cursor.rowcount == 1:
-                inserted_clubs += 1    
-        print(f"ℹ️  Canonical clubs: attempted={len(CLUBS)}, inserted={inserted_clubs}, ignored={len(CLUBS)-inserted_clubs}")
-        logging.info(f"Canonical clubs: attempted={len(CLUBS)}, inserted={inserted_clubs}, ignored={len(CLUBS)-inserted_clubs}")
+                results[category]["inserted"] += 1
+
+        # Log results for each category
+        for category, stats in results.items():
+            ignored = stats["attempted"] - stats["inserted"]
+            print(f"ℹ️  {category.capitalize()}: attempted={stats['attempted']}, "
+                f"inserted={stats['inserted']}, ignored={ignored}")
+            logging.info(f"{category.capitalize()}: attempted={stats['attempted']}, "
+                        f"inserted={stats['inserted']}, ignored={ignored}")
 
     except Exception as e:
         logging.error(f"Error inserting clubs: {e}")
@@ -82,8 +75,28 @@ def upd_clubs():
     attempted = len(CLUB_ALIASES)
     ignored = attempted - inserted_aliases
     print(f"ℹ️  Name-aliases:    attempted={attempted}, inserted={inserted_aliases}, ignored={ignored}")
-
     logging.info(f"Name-aliases: attempted={attempted}, inserted={inserted_aliases}, ignored={ignored}")
+
+    inserted_aliases = 0
+    ignored_aliases = []  # collect the ones INSERT OR IGNORE skipped
+    for club_id, alias_text, alias_type in CLUB_ALIASES_COUNTRY_TEAMS:
+        cursor.execute("""
+            INSERT OR IGNORE INTO club_name_alias (
+                club_id,
+                alias,
+                alias_type
+            ) VALUES (?, ?, ?)
+        """, (club_id, alias_text, alias_type))
+        if cursor.rowcount == 1:
+            inserted_aliases += 1       
+        else:
+            # rowcount == 0 means it was ignored
+            ignored_aliases.append((club_id, alias_text, alias_type)) 
+
+    attempted = len(CLUB_ALIASES_COUNTRY_TEAMS)
+    ignored = attempted - inserted_aliases
+    print(f"ℹ️  Name-aliases country teams:    attempted={attempted}, inserted={inserted_aliases}, ignored={ignored}")
+    logging.info(f"Name-aliases country teams:    attempted={attempted}, inserted={inserted_aliases}, ignored={ignored}")
 
     # print to debug
     # if ignored_aliases:

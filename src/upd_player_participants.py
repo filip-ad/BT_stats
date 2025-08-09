@@ -65,9 +65,10 @@ def upd_player_participants():
             classes = classes[:max_n]
 
     # 2) Build lookup caches exactly once
-    club_map        = Club.cache_name_map(cursor)
-    license_map     = PlayerLicense.cache_name_club_map(cursor)
-    player_name_map = Player.cache_name_map(cursor)
+    club_map                = Club.cache_name_map(cursor)
+    license_name_club_map   = PlayerLicense.cache_name_club_map(cursor)
+    player_name_map         = Player.cache_name_map(cursor)
+    cache_raw_name_map      = Player.cache_raw_name_map(cursor)
 
     results = []
     total_parsed   = 0
@@ -121,8 +122,8 @@ def upd_player_participants():
 
         # Wipe out any old participants for this class:
         deleted = PlayerParticipant.remove_for_class(cursor, tc.tournament_class_id)
-        logging.info(f"Deleted {deleted} old participants for class {tc.tournament_class_id_ext} ({tc.tournament_class_id})")
-        print(f"ℹ️  Deleted {deleted} old participants for class {tc.tournament_class_id_ext} ({tc.tournament_class_id})")
+        logging.info(f"Deleted {deleted} old participants for class (ext_id: {tc.tournament_class_id_ext}, id: {tc.tournament_class_id})")
+        print(f"ℹ️  Deleted {deleted} old participants for class (ext_id: {tc.tournament_class_id_ext}, id: {tc.tournament_class_id})")
 
         # If we didn’t get exactly the expected number, save for later review
         if expected_count is not None and len(participants) != expected_count:
@@ -144,19 +145,6 @@ def upd_player_participants():
                 f"{tc.shortname}: parsed {len(participants)}/{expected_count}, "
                 "recording in player_participant_missing"
             )
-
-        # parsed vs expected output
-        symbol    = "✅" if expected_count is None or len(participants) == expected_count else "❌"
-        count_str = f"{len(participants)}/{expected_count}" if expected_count is not None else str(len(participants))
-        print(
-            f"{symbol} Parsed {count_str} participants "
-            f"for class {tc.shortname} "
-            f"(class_ext={tc.tournament_class_id_ext} in tournament id {tc.tournament_id})"
-        )
-        logging.info(
-            f"Parsed {count_str} participants for class {tc.shortname} "
-            f"(class_ext={tc.tournament_class_id_ext}, class_id={tc.tournament_class_id}, date={tc.date}) in tournament id {tc.tournament_id})"
-        )
 
         # normalize class_date
         class_date = (
@@ -180,54 +168,98 @@ def upd_player_participants():
                 cursor,
                 class_date,
                 club_map,
-                license_map,
-                player_name_map
+                license_name_club_map,
+                player_name_map,
+                cache_raw_name_map
             )
             # attach idx & raw/club for later logging
             result.update({"idx": idx, "raw_name": raw_name, "club_name": club_name})
             class_results.append(result)
             results.append(result)  # only here, not again later
 
+            # — only extract IDs for success/skipped rows, never for failures —
+            if result["status"] != "failed":
+                # stash the club_id
+                result["club_id"] = pp.club_id
+
+                # for canonical participants
+                if result.get("category") == "canonical":
+                    result["player_id"] = pp.player_id
+
+                # for raw fallbacks
+                elif result.get("category") == "raw":
+                    # key is "raw_<raw_id>"
+                    raw_part = result["key"].split("_", 1)[1]
+                    result["raw_player_id"] = int(raw_part)
+
         t6 = time.perf_counter()
 
-        # — Per‐participant sorted logging —
-        status_order = {"success": 0, "raw": 1, "skipped": 2, "failed": 3}
-        for r in sorted(
-            class_results,
-            key=lambda x: (status_order.get(x["status"], 99), x["reason"], x["idx"])
-        ):
-            # only log failed
-            if r["status"] != "failed":
-                continue
+        # ── Config: True to log only FAILED main lines, False to include all ──
+        LOG_ONLY_FAILED = True
 
-            prefix  = f"[{r['idx']:02d}] {r['raw_name']}  /  {r['club_name']}"
-            padded  = f"{prefix:<50}"
-            status  = r["status"].capitalize()
-            reason  = r["reason"]
-            suffix = f" - Player matched via {r['match_type']}" if r.get("match_type") and r["status"] == "success" else ""
-            # logging.info(f"{padded} : {status} - {reason}")
-            logging.info(f"{padded} : {status} - {reason}{suffix} ")
+        # ── 1) Sort by idx ──
+        sorted_results = sorted(class_results, key=lambda r: r["idx"])
 
-        # — Per‐class timing summary —
-        logging.info(
-            f"class {tc.shortname}: download={(t2-t1):.2f}s "
-            f"parse={(t4-t3):.2f}s "
-            f"db={(t6-t5):.2f}s"
-        )
+        # ── 2) Print parsed vs expected count ──
+        parsed  = len(participants)
+        exp_cnt = expected_count or parsed
+        icon    = "✅" if parsed == exp_cnt else "❌"
+        print(f"{icon} Parsed {parsed}/{exp_cnt} participants for class {tc.shortname} "
+            f"(class_ext={tc.tournament_class_id_ext} in tournament id {tc.tournament_id})")
 
-        # — Per‐class summary print & log —
+        # ── 3) Emit each row ──
+        for r in sorted_results:
+
+            # 2a) Build core fields
+            idx  = f"{r['idx']:02d}"
+            st   = r["status"].upper().ljust(7)
+            name = r["raw_name"]
+            club = r["club_name"]
+            cid  = r.get("club_id","?")
+
+            # pick the right ID tag
+            if "player_id" in r:
+                idtag = f" pid:{r['player_id']}"
+            elif "raw_player_id" in r:
+                idtag = f" rpid:{r['raw_player_id']}"
+            else:
+                idtag = ""
+
+            # 2b) Main line
+            line = (
+                f"[{idx}] {st} {name}, {club} "
+                f"[cid:{cid}{idtag}]     {r['reason']}"
+            )
+
+            # 2c) Append ambiguous‐candidate list if this is that case
+            if r["status"] == "failed" and "candidates" in r:
+                cand_str = ", ".join(
+                    f"{c['player_id']}:{c.get('name','<no-name>')}"
+                    for c in r["candidates"]
+                )
+                line += f" [candidates={cand_str}]"
+
+            if not LOG_ONLY_FAILED or r["status"] == "failed":
+                # 3) Log & print main line
+                if r["status"] == "failed":
+                    logging.error(line)
+                else:
+                    logging.info(line)
+                # print(line)
+
+            # 4) Always emit warnings
+            for w in r.get("warnings", []):
+                warn_line = f"[{idx}] WARNING {st} {name}, {club} [cid:{cid}{idtag}]     {w}"
+                logging.warning(warn_line)
+                # print(warn_line)
+
+            # ── 4) Per‐class summary ──
         inserted = sum(1 for r in class_results if r["status"] == "success")
         skipped  = sum(1 for r in class_results if r["status"] == "skipped")
-        failed   = [r for r in class_results if r["status"] == "failed"]
-        raw_cnt  = sum(1 for r in class_results if r["status"] == "raw")
+        failed   = sum(1 for r in class_results if r["status"] == "failed")
+        print(f"   ✅ Inserted: {inserted}   ⏭️  Skipped: {skipped}   ❌ Failed: {failed}")
 
-        print(f"   ✅ Inserted: {inserted}   ⏭️  Skipped: {skipped}   ❌ Failed: {len(failed)}")
-        logging.info(
-            f"Class {tc.shortname} ({tc.tournament_class_id_ext}): "
-            f"Inserted {inserted}, Skipped {skipped}, Failed {len(failed)}, Raw {raw_cnt}"
-        )
-
-    # — overall commit & summary —
+      # — overall commit & summary —
     conn.commit()
     total = time.perf_counter() - overall_start
     print(f"ℹ️  Participant update complete in {total:.2f}s")
@@ -332,15 +364,29 @@ def parse_players_pdf(pdf_bytes: bytes) -> tuple[list[dict], int | None]:
     #         "club_name":  club_part
     #     })
 
-        # ── replace the regex loop with this ──
+    #     # ── replace the regex loop with this ──
+    # for line in text.splitlines():
+    #     if ',' not in line:
+    #         continue
+    #     name_part, club_part = line.split(',', 1)
+    #     participants.append({
+    #         "raw_name":  sanitize_name(name_part),
+    #         "club_name": club_part.strip()
+    #     })
+
     for line in text.splitlines():
-        if ',' not in line:
+        m = PART_RE.match(line)
+        if not m:
             continue
-        name_part, club_part = line.split(',', 1)
+
+        # group(1) is the name (without any leading “123 ” prefix)
+        raw_name   = sanitize_name(m.group(1))
+        club_name  = m.group(2).strip()
+
         participants.append({
-            "raw_name":  sanitize_name(name_part),
-            "club_name": club_part.strip()
-        })
+            "raw_name":  raw_name,
+            "club_name": club_name
+        })    
 
     # log every candidate we actually found
     # logging.info(f"parse_players_pdf: ✅ Keeping {len(participants)} entries:")

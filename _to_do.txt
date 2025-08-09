@@ -13,3 +13,24 @@ Improvements long term
 - Figure out how to deal with transitions
   Im thinking to create a separate player_license table which can be searched if not "real" license is found
   This would keep the integrity of the player_license so it only holds real scraped data
+
+
+ℹ️  Participant update complete in 2823.56s
+ℹ️  Total participants parsed: 451706/439951
+📊 Database Summary:
+   ✅ Success: 310869
+      • Participant added successfully (new raw player): 100554
+      • Participant added successfully (existing raw player): 133454
+      • Participant added successfully (matching canonical player): 76861
+   ❌ Failed: 140019
+      • Club not found (tried exact + prefix): 139822
+      • Ambiguous player candidates with expired licenses: 48
+      • Ambiguous player candidates with valid licenses: 146
+      • PDF parsing failed: No /Root object! - Is this really a PDF?: 3
+   ⏭️  Skipped: 821
+      • Participant already exists (matching canonical player): 800
+      • Participant already exists (raw player): 21
+   ⚠️  Warning: 10574
+      • Club name matched by prefix: 1472
+      • Player did not have a valid license in the club on the day of the tournament: 7777
+      • Matched via prior season license (expired before class_date): 1325

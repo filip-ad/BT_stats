@@ -358,25 +358,51 @@ class Player:
         return cursor.lastrowid
     
     @classmethod
-    def search_by_name_raw(cls, cursor, fullname_raw: str) -> Optional[int]:
+    def search_by_name_raw(
+        cls, 
+        cursor, 
+        fullname_raw: str,
+        cache_raw_name_map=None
+    ) -> Optional[int]:
         """
-        Return player_id_raw if a raw‐player with this fullname exists, else None.
-        We do minimal whitespace normalization here so that
-        leading/trailing spaces or double-spaces don’t break the match.
+        Return player_id_raw if a raw-player with this fullname exists, using cache if provided.
+        Falls back to substring match if not found.
         """
-        # 1) Strip leading/trailing whitespace...
-        clean = fullname_raw.strip()
-        # 2) Collapse any internal runs of whitespace to a single space
-        clean = " ".join(clean.split())
+        clean_key = normalize_key(fullname_raw)
 
-        sql = """
-            SELECT player_id_raw
-              FROM player_raw
-             WHERE fullname_raw = ?
-        """
-        cursor.execute(sql, (clean,))
-        row = cursor.fetchone()
-        return row[0] if row else None
+        # 1) Exact match via cache
+        if cache_raw_name_map is not None:
+            if clean_key in cache_raw_name_map:
+                return cache_raw_name_map[clean_key][0]["player_id_raw"]
+
+        # 2) Substring fallback in cache
+        parts = clean_key.split()
+        if cache_raw_name_map and len(parts) == 2:
+            first_tok, last_tok = parts
+            for cand_key, rows in cache_raw_name_map.items():
+                cand_parts = cand_key.split()
+                if len(cand_parts) >= 3 and first_tok in cand_key and last_tok in cand_key:
+                    return rows[0]["player_id_raw"]
+
+        return None
+        # """
+        # Return player_id_raw if a raw‐player with this fullname exists, else None.
+        # We do minimal whitespace normalization here so that
+        # leading/trailing spaces or double-spaces don’t break the match.
+        # """
+        # # 1) Strip leading/trailing whitespace...
+        # clean = fullname_raw.strip()
+        # # 2) Collapse any internal runs of whitespace to a single space
+        # clean = " ".join(clean.split())
+
+        # sql = """
+        #     SELECT player_id_raw
+        #       FROM player_raw
+        #      WHERE fullname_raw = ?
+        # """
+        # cursor.execute(sql, (clean,))
+        # row = cursor.fetchone()
+        # return row[0] if row else None
     
     @staticmethod
     def cache_raw_name_map(cursor) -> Dict[str, int]:

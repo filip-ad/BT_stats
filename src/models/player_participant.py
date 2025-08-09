@@ -1,386 +1,509 @@
-# src/models/player_participant.py
-
 import logging
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass
 from datetime import date
-import unicodedata
-from db import get_conn
-from models.player_license import PlayerLicense
 from models.club import Club
-from models.tournament_class import TournamentClass
 from models.player import Player
+from models.player_license import PlayerLicense
+from models.player_transition import PlayerTransition
 from utils import normalize_key
 
 @dataclass
 class PlayerParticipant:
-    tournament_class_id:    int
-    fullname_raw:           str
-    club_name_raw:          str
+    tournament_class_id: int
+    fullname_raw:        str
+    club_name_raw:       str
 
-    # Filled by save_to_db
-    player_id:              Optional[int] = None
-    club_id:                Optional[int] = None
-
+    # Filled during save
+    player_id:      Optional[int] = None
+    player_id_raw:  Optional[int] = None
+    club_id:        Optional[int] = None
 
     @staticmethod
     def from_dict(data: dict) -> "PlayerParticipant":
-        """
-        Construct a PlayerParticipant from a raw dict with keys:
-            - tournament_class_id
-            - fullname_raw
-            - club_name_raw
-        """
         return PlayerParticipant(
-            tournament_class_id = data["tournament_class_id"],
-            fullname_raw        = data["fullname_raw"],
-            club_name_raw       = data["club_name_raw"],
+            tournament_class_id=data["tournament_class_id"],
+            fullname_raw=data["fullname_raw"],
+            club_name_raw=data["club_name_raw"],
         )
-    
+
     @staticmethod
     def remove_for_class(cursor, tournament_class_id: int) -> int:
-        """
-        Delete all participants for a given tournament_class_id.
-        Call this before re-inserting the up-to-date list.
-        """
         cursor.execute(
-            "DELETE FROM player_participant WHERE tournament_class_id = ?",
+            "DELETE FROM player_participant WHERE tournament_class_id = ?", 
             (tournament_class_id,)
         )
-        # Return the number of rows deleted
         return cursor.rowcount
-    
+
     def save_to_db(
         self,
         cursor,
         class_date: date,
-        club_map: Dict[str, Club],
-        license_map: dict,
-        player_name_map: Dict[str, List[int]]
+        club_map: Dict[str, Club],                                                  # normalized club name → Club
+        license_name_club_map: Dict[Tuple[str, str, int], List[Dict[str, Any]]],    # (firstname, lastname, club_id) → license-rows
+        player_name_map: Dict[str, List[int]],                                      # normalized "firstname lastname" → [player_id,...]
+        cache_raw_name_map: Dict[str, List[int]]                                    # normalized raw names → [player_id_raw]
     ) -> dict:
         """
-        Lookup strategy:
-        1) Normalize club_name_raw and lookup in club_map which holds cannonical and alias clubs.
-        2) Normalize all parts of fullname_raw and create all conmbinations, then lookup in player_name_map.
-        3) If exactly one match, use that player_id.
-        4) If multiple matches, search for a player license for the club (and prefeably on class_date).
-        5) If no valid license found, search the transition table for the name and club.
-        6) If no matches, search the player_raw table for the fullname_raw and club_name_raw.
-        7) If not found in player_raw, insert a new raw player entry.
-        Returns {"status","key","reason"}.
+        High-level orchestration of club and player matching, with staged fallbacks.
+        Returns a dict with status, key, reason, match_type, category, and optional warnings.
         """
+        warnings: List[str] = []
 
         # 1) Club lookup
-        norm_club = Club._normalize(self.club_name_raw)
-        club      = club_map.get(norm_club)
-
-        warnings = []
-
-        if not club and len(norm_club) >= 5:
-            # prefix fallback over all normalized variants
-            prefix_keys = [k for k in club_map if k.startswith(norm_club)]
-            if len(prefix_keys) == 1:
-                club = club_map[prefix_keys[0]]
-                warnings.append("Club name matched by prefix")
-                all_aliases = [a["alias"] for a in club.aliases]
-                logging.info(
-                    f"Prefix‐matched “{self.club_name_raw}” → "
-                    f"shortname={club.shortname!r}, aliases={all_aliases}"
-                )
-
-                # record this prefix match for later review
-                cursor.execute("""
-                    INSERT OR IGNORE INTO club_name_prefix_match (
-                        tournament_class_id,
-                        club_raw_name,
-                        matched_club_id,
-                        matched_club_aliases
-                    ) VALUES (?, ?, ?, ?)
-                """, (
-                    self.tournament_class_id,
-                    self.club_name_raw,
-                    club.club_id,
-                    ",".join(all_aliases)
-                ))
-
-            elif prefix_keys:
-                # ambiguous — more than one candidate
-                logging.warning(
-                    f"Ambiguous prefix matches for “{self.club_name_raw}”: "
-                    f"{[club_map[k].shortname for k in prefix_keys]}"
-                )
-
+        club = self.find_club(cursor, club_map, warnings)
         if not club:
-            logging.warning(
-                f"Club not found for “{self.club_name_raw}” (norm: {norm_club})"
-            )
-            cursor.execute("""
-                INSERT OR IGNORE INTO club_missing
-                    (club_name_raw, club_name_norm)
-                VALUES (?, ?)
-            """, (self.club_name_raw, norm_club))
             return {
                 "status": "failed",
                 "key":    f"{self.tournament_class_id}_{self.fullname_raw}",
                 "reason": "Club not found (tried exact + prefix)",
                 "warnings": warnings
             }
+        self.club_id = club.club_id
 
-        club_id = club.club_id
+        if self.club_id == 9999:
+            warnings.append("Using 'Unknown club' as fallback")
 
-
-        # 2) Normalize fullname_raw: strip diacritics + lowercase
-        # Example: 'Harry Hamrén' -> 'harry hamren'
-        clean_name = normalize_key(self.fullname_raw)
-
-        # 3) Name-only lookup
-        # pids = Player.find_by_name(cursor, clean_name)
-
-       # 3) Name-only lookup via prebuilt map + split‐candidates
-        parts = clean_name.split()
-        candidates = [
-           normalize_key(f"{fn} {ln}")
-           for i in range(1, len(parts))
-           for ln in [" ".join(parts[:i])]
-           for fn in [" ".join(parts[i:])]
-       ]
-        matches = set()
-        for key in candidates:
-           matches.update(player_name_map.get(key, []))
-        pids = list(matches)
-
-        pid = None
-        match_type = None
-
-        # --- branch A: exactly one player match ---
-        if len(pids) == 1:
-            pid = pids[0]
-            match_type = "unique name"
-    
-            # —— QA check: does this player actually hold a license for this club at class_date?
-            cursor.execute("""
-                SELECT 1
-                FROM player_license
-                WHERE player_id = ?
-                AND club_id    = ?
-                AND date(valid_from) <= date(?)
-                AND date(valid_to)   >= date(?)
-            """, (pid, club_id, class_date.isoformat(), class_date.isoformat()))
-            has_license = bool(cursor.fetchone())
-            logging.debug(
-                f"QA: unique-name match for '{self.fullname_raw}' → pid={pid}, "
-                f"{'HAS' if has_license else 'NO'} license at club_id={club_id} on {class_date}"
+        # 2) Player matching pipeline
+        for strategy in [
+            self.match_by_name,
+            self.match_by_name_with_license,
+            self.match_by_transition,
+            self.match_by_any_season_license,
+            self.match_by_name_substring_license
+        ]:
+            outcome = strategy(
+                cursor, 
+                class_date, 
+                license_name_club_map, 
+                player_name_map,
+                cache_raw_name_map,
+                warnings
             )
-            if not has_license:
-                warnings.append(f"Player did not have a valid license in the club on the day of the tournament")
-                logging.debug(
-                    f"Player {self.fullname_raw} (pid={pid}) does not have a valid license at {club.shortname!r} (club_id={club_id}) on {class_date}"
+            if isinstance(outcome, dict):
+                return outcome  # final failure or raw insertion
+            if outcome is not None:
+                pid, match_type, warnings = outcome
+                self.player_id = pid
+                break
+        else:
+            # No strategy found a pid: fallback to raw
+            return self.fallback_raw(cursor, warnings, cache_raw_name_map)
+
+        # 3) Insert canonical participant
+        return self.insert_participant(cursor, match_type, warnings)
+
+    def find_club(
+        self,
+        cursor,
+        club_map,
+        warnings: List[str]
+    ) -> Optional[Club]:
+        '''
+        Description
+        '''
+        norm = Club._normalize(self.club_name_raw)
+        club = club_map.get(norm)
+        # prefix fallback
+        if not club and len(norm) >= 5:
+            prefix_keys = [k for k in club_map if k.startswith(norm)]
+            if len(prefix_keys) == 1:
+                club = club_map[prefix_keys[0]]
+                warnings.append("Club name matched by prefix")
+                all_aliases = [a['alias'] for a in club.aliases]
+                logging.info(
+                    f"Prefix‐matched '{self.club_name_raw}' → {club.shortname}, aliases={all_aliases}"
                 )
-
-
-        elif len(pids) > 1:
-            # First, try licenses valid on class_date
-            placeholders = ",".join("?" for _ in pids)
-            sql = f"""
-                SELECT DISTINCT player_id
-                FROM player_license
-                WHERE player_id IN ({placeholders})
-                AND club_id = ?
-                AND date(valid_from) <= date(?)
-                AND date(valid_to)   >= date(?)
-            """
-            params = [*pids, club_id, class_date.isoformat(), class_date.isoformat()]
-            cursor.execute(sql, params)
-            licensed = [row[0] for row in cursor.fetchall()]
-
-            if len(licensed) == 1:
-                pid = licensed[0]
-                match_type = "license"
-            elif len(licensed) > 1:
-                return {
-                    "status":   "failed",
-                    "key":      f"{self.tournament_class_id}_{clean_name}",
-                    "reason":   "Ambiguous player candidates with valid licenses",
-                    "warnings": warnings
-                }
-
-            # Fallback: allow any previous license for this club
-            if len(licensed) == 0:
-                cursor.execute(f"""
-                    SELECT DISTINCT player_id
-                    FROM player_license
-                    WHERE player_id IN ({placeholders})
-                    AND club_id = ?
-                """, [*pids, club_id])
-                any_licensed = [row[0] for row in cursor.fetchall()]
-
-                if len(any_licensed) == 1:
-                    pid = any_licensed[0]
-                    match_type = "expired license"
-                    warnings.append(
-                        "Matched via prior season license (expired before class_date)"
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO club_name_prefix_match
+                        (tournament_class_id, club_raw_name, matched_club_id, matched_club_aliases)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        self.tournament_class_id,
+                        self.club_name_raw,
+                        club.club_id,
+                        ",".join(all_aliases)
                     )
-                elif len(any_licensed) > 1:
-                    return {
-                        "status":   "failed",
-                        "key":      f"{self.tournament_class_id}_{clean_name}",
-                        "reason":   "Ambiguous player candidates with expired licenses",
-                        "warnings": warnings
-                    }
-
-            # ——— Step 5: Transition lookup ———
-            # If we still haven’t found a pid but have name‐candidates, try transfers
-            if pid is None and pids:
-                placeholders = ",".join("?" for _ in pids)
-                sql = f"""
-                    SELECT player_id
-                    FROM player_transition
-                    WHERE (club_id_to   = ? OR club_id_from = ?)
-                    AND date(transition_date) <= date(?)
-                    AND player_id IN ({placeholders})
+                )
+        if not club:
+            club = Club.get_by_id(cursor, 9999)  # Fallback to "Unknown club"
+            logging.warning(
+                f"Club not found for '{self.club_name_raw}' (norm: {norm}). Using 'Unknown club'."
+            )
+            cursor.execute(
                 """
-                params = [club_id, club_id,class_date.isoformat(), *pids]
-                cursor.execute(sql, params)
-                trans = [row[0] for row in cursor.fetchall()]
+                INSERT OR IGNORE INTO club_missing (club_name_raw, club_name_norm)
+                VALUES (?, ?)
+                """,
+                (self.club_name_raw, norm)
+            )
+        return club
 
-                if len(trans) == 1:
-                    pid = trans[0]
-                    match_type = "transition"
-                    
-                elif len(trans) > 1:
-                    return {
-                        "status":       "failed",
-                        "key":          f"{self.tournament_class_id}_{self.fullname_raw}",
-                        "reason":       "Ambiguous transition matches",
-                        "match_type":   "transition",
-                        "warnings":     warnings
-                    }
-    
-        # try “any‐season licence + name substring” for tricky reversed names
-        if pid is None:
-            parts = clean_name.split()  # e.g. ["tidblom","niclas"]
-            # build a loose LIKE match against firstname or lastname
-            cursor.execute("""
-                SELECT DISTINCT p.player_id
-                FROM player p
-                JOIN player_license pl ON p.player_id = pl.player_id
-                WHERE pl.club_id = ?
-                AND (
-                        lower(p.firstname) LIKE ?
-                    OR lower(p.lastname)  LIKE ?
-                )
-            """, (
-                club_id,
-                f"%{parts[-1]}%",   # match e.g. "niclas"
-                f"%{parts[0]}%"     # match e.g. "tidblom"
-            ))
-            name_lic_pids = [row[0] for row in cursor.fetchall()]
+    def get_name_candidates(
+        self, 
+        player_name_map,
+        ) -> List[int]:
+        '''
+        Description
+        '''
+        clean = normalize_key(self.fullname_raw)
+        parts = clean.split()
+        keys = [
+            normalize_key(f"{fn} {ln}")
+            for i in range(1, len(parts))
+            for ln in [" ".join(parts[:i])]
+            for fn in [" ".join(parts[i:])]
+        ]
+        matches = set()
+        for k in keys:
+            matches.update(player_name_map.get(k, []))
+        return list(matches)
 
-            if len(name_lic_pids) == 1:
-                # we’ve found exactly one licence‐holder whose name contains the parts
-                pid        = name_lic_pids[0]
-                match_type = "license_name_fallback"
-                warnings.append(
-                    "Matched via any‐season licence + name substring"
-                )                
+    def match_by_name(
+        self,
+        cursor,
+        class_date: date,
+        license_name_club_map,
+        player_name_map,
+        cache_raw_name_map,
+        warnings
+    ):
+        # 1) Find all candidate player_ids by exact normalized name
+        pids = self.get_name_candidates(player_name_map)
+        if len(pids) != 1:
+            return None
 
-        # --- branch C: no name matches → try any-season licence, then raw fallback ---
-        if len(pids) == 0:
-            # 1) Any-season licence for this club?
-            cursor.execute("""
-                SELECT DISTINCT player_id
-                FROM player_license
-                WHERE club_id = ?
-            """, (club_id,))
-            lic_any = [row[0] for row in cursor.fetchall()]
+        pid = pids[0]
+        warnings: List[str] = []
 
-            if len(lic_any) == 1:
-                # found exactly one player who’s ever had a licence here → treat as canonical
-                pid        = lic_any[0]
-                match_type = "license_fallback"
-                warnings.append("Matched via any-season licence for club")
+        # 2) Look up all license‐rows for this club in your cache
+        valid = False
+        for (fn, ln, cid), rows in license_name_club_map.items():
+            if cid != self.club_id:
+                continue
+            for lic in rows:
+                if lic["player_id"] != pid:
+                    continue
+                # compare dates as date objects
+                if lic["valid_from"] <= class_date <= lic["valid_to"]:
+                    valid = True
+                    break
+            if valid:
+                break
 
-                # insert as canonical
-                cursor.execute("""
-                    INSERT OR IGNORE INTO player_participant
-                    (tournament_class_id, player_id, player_id_raw, club_id)
-                    VALUES (?, ?, NULL, ?)
-                """, (self.tournament_class_id, pid, club_id))
+        # 3) If we never saw a valid‐today license, warn
+        if not valid:
+            warnings.append(
+                "Player did not have a valid license in the club on the day of the tournament"
+            )
 
-                if cursor.rowcount == 1:
-                    status = "success"
-                    reason = "Participant added successfully (any-season licence match)"
-                else:
-                    status = "skipped"
-                    reason = "Participant already exists (any-season licence match)"
+        return pid, "unique_name", warnings
 
-                return {
-                    "status":     status,
-                    "key":        f"{self.tournament_class_id}_{pid}",
-                    "reason":     reason,
-                    "match_type": match_type,
-                    "warnings":   warnings
-                }
 
-            # 2) Still no single licence → raw fallback
-            clean_name   = " ".join(self.fullname_raw.strip().split())
-            existing_raw = Player.search_by_name_raw(cursor, clean_name)
-            if existing_raw is not None:
-                raw_id     = existing_raw
-                match_type = "raw_fallback_existing"
-            else:
-                raw_id     = Player.save_to_db_raw(cursor, clean_name)
-                match_type = "raw_fallback_new"
+    def match_by_name_with_license(
+        self,
+        cursor,
+        class_date: date,
+        license_name_club_map,
+        player_name_map,
+        cache_raw_name_map,
+        warnings
+    ):
+        pids = self.get_name_candidates(player_name_map)
+        if len(pids) <= 1:
+            return None
+        placeholders = ",".join("?" for _ in pids)
+        sql = f"""
+            SELECT DISTINCT player_id FROM player_license
+             WHERE player_id IN ({placeholders})
+               AND club_id = ?
+               AND date(valid_from) <= date(?)
+               AND date(valid_to)   >= date(?)
+        """
+        params = [*pids, self.club_id, class_date.isoformat(), class_date.isoformat()]
+        cursor.execute(sql, params)
+        valid = [r[0] for r in cursor.fetchall()]
+        if len(valid) == 1:
+            return valid[0], "license", []
+        if len(valid) > 1:
+            return {
+                "status":       "failed",
+                "key":          f"{self.tournament_class_id}_{normalize_key(self.fullname_raw)}",
+                "reason":       "Ambiguous player candidates with valid licenses",
+                "category":     "",
+                "match_type":   ""
+            }
+        cursor.execute(
+            f"SELECT DISTINCT player_id FROM player_license WHERE player_id IN ({placeholders}) AND club_id = ?",
+            [*pids, self.club_id]
+        )
+        expired = [r[0] for r in cursor.fetchall()]
+        if len(expired) == 1:
+            return expired[0], "expired_license", ["Matched via prior season license (expired before class_date)"]
+        if len(expired) > 1:
+            return {
+                "status":       "failed",
+                "key":          f"{self.tournament_class_id}_{normalize_key(self.fullname_raw)}",
+                "reason":       "Ambiguous player candidates with expired licenses",
+                "category":     "",
+                "match_type":   ""
+            }
+        return None
 
-            cursor.execute("""
+    def match_by_transition(
+        self,
+        cursor,
+        class_date: date,
+        license_name_club_map,
+        player_name_map,
+        cache_raw_name_map,
+        warnings
+    ):
+        pids = self.get_name_candidates(player_name_map)
+        if not pids:
+            return None
+        placeholders = ",".join("?" for _ in pids)
+        sql = f"""
+            SELECT player_id FROM player_transition
+             WHERE (club_id_to = ? OR club_id_from = ?)
+               AND date(transition_date) <= date(?)
+               AND player_id IN ({placeholders})
+        """
+        params = [self.club_id, self.club_id, class_date.isoformat(), *pids]
+        cursor.execute(sql, params)
+        trans = [r[0] for r in cursor.fetchall()]
+        if len(trans) == 1:
+            return trans[0], "transition", []
+        if len(trans) > 1:
+            return {
+                "status":       "failed",
+                "key":          f"{self.tournament_class_id}_{self.fullname_raw}",
+                "reason":       "Ambiguous transition matches",
+                "category":     "None",
+                "match_type":   ""
+            }
+        return None
+
+    def match_by_any_season_license(
+            self, 
+            cursor, 
+            *_args
+        ):
+        cursor.execute(
+            "SELECT DISTINCT player_id FROM player_license WHERE club_id = ?",
+            (self.club_id,)
+        )
+        all_l = [r[0] for r in cursor.fetchall()]
+        if len(all_l) == 1:
+            pid = all_l[0]
+            cursor.execute(
+                """
                 INSERT OR IGNORE INTO player_participant
-                (tournament_class_id, player_id, player_id_raw, club_id)
-                VALUES (?, NULL, ?, ?)
-            """, (self.tournament_class_id, raw_id, club_id))
-
-            if cursor.rowcount == 1:
-                status = "success"
-                reason = (
-                    "Participant added successfully (new raw player)"
-                    if match_type == "raw_fallback_new"
-                    else "Participant added successfully (existing raw player)"
-                )
-            else:
-                status = "skipped"
-                reason = "Participant already exists (raw player)"
-
+                  (tournament_class_id, player_id, player_id_raw, club_id)
+                VALUES (?, ?, NULL, ?)
+                """,
+                (self.tournament_class_id, pid, self.club_id)
+            )
+            status = "success" if cursor.rowcount == 1 else "skipped"
+            reason = (
+                "Participant added successfully (matching canonical player)"
+                if status == "success"
+                else "Participant already exists (matching canonical player)"
+            )
             return {
                 "status":     status,
-                "key":        f"raw_{raw_id}",
+                "key":        f"{self.tournament_class_id}_{pid}",
                 "reason":     reason,
-                "match_type": match_type,
-                "warnings":   warnings
-            }        
-
-        # --- branch A/B final insert for canonical pid ---
-        cursor.execute("""
-            INSERT OR IGNORE INTO player_participant
-                (tournament_class_id, player_id, player_id_raw, club_id)
-            VALUES (?, ?, NULL, ?)
-        """, (
-            self.tournament_class_id,
-            pid,
-            club_id
-        ))
-        if cursor.rowcount == 1:
-            return {
-                "status":       "success",
-                "key":          f"{self.tournament_class_id}_{pid}",
-                "reason":       "Participant added successfully (matching canonical player)",
-                "match_type":   match_type,
-                "warnings":     warnings
+                "match_type": "license_fallback",
+                "category":   "canonical"
             }
+        return None
+
+    def match_by_name_substring_license(
+        self,
+        cursor,
+        class_date: date,
+        license_name_club_map,
+        player_name_map,
+        cache_raw_name_map,
+        warnings
+    ):
+        clean = normalize_key(self.fullname_raw)
+        raw_parts = clean.split()
+
+        # need at least 2 names to substring match
+        if len(raw_parts) > 2:
+            return None
+        
+        first_tok, last_tok = raw_parts[0], raw_parts[-1]
+
+        # 1) find all license-rows for this club whose normalized key has both tokens
+        candidates = []
+        for (fn, ln, cid), rows in license_name_club_map.items():
+            if cid != self.club_id:
+                continue
+            # only consider candidates whose own name has >=3 tokens
+            candidate_key = normalize_key(f"{fn} {ln}")
+            cand_parts = candidate_key.split()
+            if len(cand_parts) < 3:
+                continue
+
+            # and where both raw tokens appear somewhere in their name
+            if first_tok in candidate_key and last_tok in candidate_key:
+                candidates.extend(rows)
+
+        if not candidates:
+            return None
+
+        # 2) split into valid vs expired
+        valid_ids = set()
+        expired_ids = set()
+        for row in candidates:
+            pid = row["player_id"]
+            vf, vt = row["valid_from"], row["valid_to"]
+            if vf <= class_date <= vt:
+                valid_ids.add(pid)
+            else:
+                expired_ids.add(pid)
+
+        # 3) exactly one valid → success
+        if len(valid_ids) == 1:
+            pid = next(iter(valid_ids))
+            logging.info(
+                f"Matched {self.fullname_raw} → player_id={pid} (valid license)"
+            )
+            return pid, "license_name_fallback", ["Matched via name-substring against 3+ token candidate"]
+
+        # 4) ambiguous valids → failure
+        if len(valid_ids) > 1:
+            candidates_list = []
+            for pid in valid_ids:
+                player = Player.get_by_id(cursor, pid)
+                name = f"{player.firstname} {player.lastname}" if player else None
+                candidates_list.append({"player_id": pid, **({"name": name} if name else {})})
+            return {
+                "status":     "failed",
+                "key":        f"{self.tournament_class_id}_{clean}",
+                "reason":     "Ambiguous substring + license matches",
+                "candidates": candidates_list,
+                "category":   "",
+                "match_type": ""
+            }
+
+        # 5) single expired → fallback
+        if len(expired_ids) == 1:
+            pid = next(iter(expired_ids))
+            return pid, "expired_license", ["Matched via prior-season license (expired)"]
+
+        # 6) ambiguous expired → failure
+        if len(expired_ids) > 1:
+            return {
+                "status":     "failed",
+                "key":        f"{self.tournament_class_id}_{clean}",
+                "reason":     "Ambiguous substring + license matches (expired only)",
+                "candidates": [{"player_id": pid} for pid in expired_ids],
+                "category":   "",
+                "match_type": ""
+            }
+
+        return None
+
+    def fallback_raw(
+            self, 
+            cursor, 
+            warnings: List[str],
+            cache_raw_name_map
+        ) -> dict:
+        clean = " ".join(self.fullname_raw.strip().split())
+        existing = Player.search_by_name_raw(cursor, clean, cache_raw_name_map)
+        new_raw = None
+        if existing is not None:
+            # use existing raw‐player
+            self.player_id_raw  = existing
+            self.player_id      = None
+            match_type          = "raw_fallback_existing"
         else:
-            return {
-                "status":       "skipped",
-                "key":          f"{self.tournament_class_id}_{pid}",
-                "reason":       "Participant already exists (matching canonical player)",
-                "match_type":   match_type,
-                "warnings":     warnings
-            }
+            # create a new raw‐player
+            new_raw             = Player.save_to_db_raw(cursor, clean)
+            self.player_id_raw  = new_raw
+            self.player_id      = None
+            match_type          = "raw_fallback_new"
+        # insert into participant    
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO player_participant (
+                tournament_class_id, 
+                player_id, 
+                player_id_raw, 
+                club_id
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                self.tournament_class_id,
+                self.player_id,       # will be None
+                self.player_id_raw,   # the raw‐ID
+                self.club_id
+            )
+        )
+        inserted = cursor.rowcount == 1
+        if match_type == "raw_fallback_new" and inserted:
+            reason = "Participant added successfully (new raw player)"
+        elif match_type == "raw_fallback_existing" and inserted:
+            reason = "Participant added successfully (existing raw player)"
+        else:
+            reason = "Participant already exists (raw player)"
 
+        if new_raw: 
+            warnings.append("Could not match with player_id, new raw player inserted")
+        else:
+            warnings.append("Could not match with player_id, existing raw player used")
+
+        return {
+            "status":     "success" if inserted else "skipped",
+            "key":        f"raw_{self.player_id_raw}",
+            "reason":     reason,
+            "match_type": match_type,
+            "category":   "raw",
+            "warnings":   warnings
+        }
+    
+    def insert_participant(
+        self,
+        cursor,
+        match_type: str,
+        warnings: List[str]
+    ) -> dict:
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO player_participant (
+                tournament_class_id, 
+                player_id, 
+                player_id_raw, 
+                club_id
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                self.tournament_class_id,
+                self.player_id,     # canonical or None
+                self.player_id_raw, # raw or None
+                self.club_id
+            )
+        )
+        inserted = cursor.rowcount == 1
+        if inserted:
+            reason = "Participant added successfully (matching canonical player)"
+        else:
+            reason = "Participant already exists (matching canonical player)"
+
+        return {
+            "status":     "success" if inserted else "skipped",
+            "key":        f"{self.tournament_class_id}_{self.player_id or self.player_id_raw}",
+            "reason":     reason,
+            "match_type": match_type,
+            "category":   "canonical",
+            "warnings":   warnings
+        }
