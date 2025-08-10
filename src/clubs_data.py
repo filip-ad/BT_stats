@@ -1965,6 +1965,10 @@ CLUB_ALIASES_COUNTRY_TEAMS = [
     (5194, 'PR', 'short'),
     (5194, 'PRI', 'short'),
     (5194, 'PUR', 'short'),
+
+    # Manually added
+    (5064, 'GER', 'short'),
+    (5153, 'SIN', 'short')
 ]
 
 CLUBS = [

@@ -1,5 +1,3 @@
-# # src/upd_players.py
-
 # src/upd_players.py
 
 import logging
@@ -10,6 +8,7 @@ from utils import sanitize_name, print_db_insert_results
 from models.player import Player
 
 # ── 1) MANUAL DUPLICATES GROUPS ────────────────────────────────────────────────
+
 # Any ext-IDs in the same set are the same real person.
 DUPLICATE_EXT_GROUPS: List[Set[int]] = [
     
@@ -28,7 +27,7 @@ for grp in DUPLICATE_EXT_GROUPS:
     for alias_ext in grp:
         CANONICAL_EXT[alias_ext] = keep
 
-def upd_players():
+def upd_players_verified():
     conn, cursor = get_conn()
     logging.info("Updating player table...")
     print("ℹ️  Updating player table...")
@@ -36,7 +35,11 @@ def upd_players():
     try:
         # ── 2) Load raw license rows ────────────────────────────────────────
         cursor.execute("""
-            SELECT player_id_ext, firstname, lastname, year_born
+            SELECT 
+                player_id_ext, 
+                firstname, 
+                lastname, 
+                year_born
             FROM player_license_raw
             WHERE player_id_ext IS NOT NULL
               AND TRIM(firstname) <> ''
@@ -47,7 +50,11 @@ def upd_players():
 
         # ── 3) Load raw ranking rows ────────────────────────────────────────
         cursor.execute("""
-            SELECT player_id_ext, firstname, lastname, year_born
+            SELECT 
+                player_id_ext, 
+                firstname, 
+                lastname, 
+                year_born
             FROM player_ranking_raw
             WHERE player_id_ext IS NOT NULL
               AND TRIM(firstname) <> ''
@@ -57,6 +64,7 @@ def upd_players():
         ranking_rows = cursor.fetchall()
 
         # ── 4) Merge into a single map, giving license priority ─────────────
+
         # ext_id → (firstname, lastname, year_born)
         player_data: Dict[int, Tuple[str,str,int]] = {}
 
@@ -66,7 +74,8 @@ def upd_players():
                 player_data[ext] = (
                     sanitize_name(fn),
                     sanitize_name(ln),
-                    int(yb)
+                    int(yb),
+                    'license' # source_system
                 )
 
         # 4b) Then ranking only if missing
@@ -75,7 +84,8 @@ def upd_players():
                 player_data[ext] = (
                     sanitize_name(fn),
                     sanitize_name(ln),
-                    int(yb)
+                    int(yb),
+                    'ranking' # source_system
                 )
 
         logging.info(f"Found {len(player_data):,} unique external players in license and ranking tables")
@@ -83,15 +93,14 @@ def upd_players():
 
         # ── 5) Insert/upsert each canonical player & aliases ────────────────
         results = []
-        for ext_id, (fn, ln, yb) in sorted(player_data.items()):
+        for ext_id, (fn, ln, yb, source) in sorted(player_data.items()):
             canonical_ext = CANONICAL_EXT.get(ext_id, ext_id)
 
             # 5a) Upsert the canonical player row
             if ext_id == canonical_ext:
-                p = Player(firstname=fn, lastname=ln, year_born=yb)
-                res = p.save_to_db(cursor, ext_id)
+                p = Player(firstname=fn, lastname=ln, year_born=yb, is_verified=True)
+                res = p.save_to_db(cursor, ext_id, source_system=source)
                 results.append(res)
-
 
             # 5b) If this ext was an alias, register it
             else:
@@ -110,7 +119,9 @@ def upd_players():
                     player_id_ext=ext_id,
                     firstname=fn,
                     lastname=ln,
-                    year_born=yb
+                    year_born=yb,
+                    fullname_raw=None,  
+                    source_system=source
                 )
 
                 results.append(aliased)

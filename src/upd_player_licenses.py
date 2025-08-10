@@ -21,20 +21,23 @@ def upd_player_licenses():
         start_time = time.time()
 
         # Cache mappings   
-        cache_start = time.time()
-        season_map = Season.cache_all(cursor) 
-        club_name_map = Club.cache_name_map(cursor)
-        club_id_ext_map  = Club.cache_id_ext_map(cursor)
-        player_id_ext_map = Player.cache_id_ext_map(cursor)
-        license_map = License.cache_all(cursor)
+        cache_start         = time.time()
+        season_map          = Season.cache_all(cursor) 
+        club_name_map       = Club.cache_name_map(cursor)
+        club_id_ext_map     = Club.cache_id_ext_map(cursor)
+        player_id_ext_map   = Player.cache_id_ext_map(cursor)
+        license_map         = License.cache_all(cursor)
         logging.info(f"Cached mappings in {time.time() - cache_start:.2f} seconds")
 
         # Cache duplicate licenses
         duplicate_start = time.time()
         cursor.execute("""
-            SELECT player_id_ext, club_id_ext, season_id_ext, 
-                   LOWER(TRIM(SUBSTR(license_info_raw, 1, INSTR(license_info_raw, '(') - 1))) AS license_key,
-                   MIN(row_id) AS min_row_id
+            SELECT 
+                player_id_ext, 
+                club_id_ext, 
+                season_id_ext, 
+                LOWER(TRIM(SUBSTR(license_info_raw, 1, INSTR(license_info_raw, '(') - 1))) AS license_key,
+                MIN(row_id) AS min_row_id
             FROM player_license_raw
             GROUP BY player_id_ext, club_id_ext, season_id_ext, license_key
             HAVING COUNT(*) > 1
@@ -46,8 +49,16 @@ def upd_player_licenses():
         fetch_start = time.time()
         cursor.execute('''
             SELECT 
-                row_id, season_id_ext, season_label, club_name, club_id_ext,
-                player_id_ext, firstname, lastname, year_born, license_info_raw
+                row_id, 
+                season_id_ext, 
+                season_label, 
+                club_name, 
+                club_id_ext,
+                CAST(player_id_ext AS TEXT) AS player_id_ext_str,
+                firstname, 
+                lastname, 
+                year_born, 
+                license_info_raw
             FROM player_license_raw
         ''')
         rows = cursor.fetchall()
@@ -72,8 +83,7 @@ def upd_player_licenses():
         
         for row in rows:
             row_start = time.time()
-            (row_id, season_id_ext, label, club_name, club_id_ext,
-             player_id_ext, firstname, lastname, year_born, license_info_raw) = row
+            (row_id, season_id_ext, label, club_name, club_id_ext, player_id_ext, firstname, lastname, year_born, license_info_raw) = row
 
             # Process license_info_raw
             license_part = license_info_raw.strip()
@@ -97,13 +107,13 @@ def upd_player_licenses():
                 })
                 continue
 
-            type = match.group("type").strip().capitalize()
-            license_date = match.group("date")
-            age_group = match.group("age").strip().capitalize() if match.group("age") else None
+            type            = match.group("type").strip().capitalize()
+            license_date    = match.group("date")
+            age_group       = match.group("age").strip().capitalize() if match.group("age") else None
 
             # Check for duplicates using cached map
-            license_key = f"{type} {age_group}".strip().lower() if age_group else type.lower()
-            duplicate_key = (player_id_ext, club_id_ext, season_id_ext, license_key)
+            license_key     = f"{type} {age_group}".strip().lower() if age_group else type.lower()
+            duplicate_key   = (player_id_ext, club_id_ext, season_id_ext, license_key)
             if duplicate_key in duplicate_map and duplicate_map[duplicate_key] != row_id:
                 logging.warning(f"Duplicate license detected for player_id_ext {player_id_ext}: {type} "
                               f"(age group: {age_group}) for club_id_ext {club_id_ext}, season_id_ext {season_id_ext}, row_id {row_id}")
@@ -128,10 +138,10 @@ def upd_player_licenses():
             season = season_map.get(label)
             if not season:
                 logging.debug(f"No season in cache for label {label}, row_id {row_id}")
-                season_id = None  # Will be validated in batch
+                season_id       = None  # Will be validated in batch
             else:
-                season_id = season.season_id
-                valid_to = season.end_date
+                season_id       = season.season_id
+                valid_to        = season.end_date
 
             # Check valid_from date against season dates
             if not season.contains_date(valid_from):
@@ -163,7 +173,6 @@ def upd_player_licenses():
                 player_id = player.player_id
 
             # Map club using club_name
-            # club = club_name_map.get(club_name)
             club = club_id_ext_map.get(club_id_ext)
             if not club:
                 # Fallback to club_name if club_id_ext is not found

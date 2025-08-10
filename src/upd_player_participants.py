@@ -65,10 +65,10 @@ def upd_player_participants():
             classes = classes[:max_n]
 
     # 2) Build lookup caches exactly once
-    club_map                = Club.cache_name_map(cursor)
-    license_name_club_map   = PlayerLicense.cache_name_club_map(cursor)
-    player_name_map         = Player.cache_name_map(cursor)
-    cache_raw_name_map      = Player.cache_raw_name_map(cursor)
+    club_map                    = Club.cache_name_map(cursor)
+    license_name_club_map       = PlayerLicense.cache_name_club_map(cursor)
+    player_name_map             = Player.cache_name_map(cursor)
+    player_unverified_name_map  = Player.cache_unverified_name_map(cursor)
 
     results = []
     total_parsed   = 0
@@ -170,7 +170,7 @@ def upd_player_participants():
                 club_map,
                 license_name_club_map,
                 player_name_map,
-                cache_raw_name_map
+                player_unverified_name_map
             )
             # attach idx & raw/club for later logging
             result.update({"idx": idx, "raw_name": raw_name, "club_name": club_name})
@@ -290,19 +290,6 @@ def download_pdf(url: str, retries: int = 3, timeout: int = 30) -> bytes | None:
             break
     return None
 
-# # if you still want to skip pure national–only entries, keep this set
-# COUNTRY_CODES = {
-#     "SWE","DEN","NOR","FIN","GER","FRA","BEL","IRL","THA","PUR","NED",
-#     "USA","ENG","WAL","SMR","SIN","ROU","SUI"
-# }
-
-# match a line that begins with a number, then “anything (except comma)” for the name,
-# then a comma, then the rest up to end-of-line as the club
-# PART_RE = re.compile(
-#     r'^\s*\d+\s+([^,]+?)\s*,\s*([^\r\n]+)',
-#     re.MULTILINE
-# )
-
 PART_RE = re.compile(
     r'^\s*(?:\d+\s+)?([^,]+?)\s*,\s*(\S.*)$',
     re.MULTILINE
@@ -323,6 +310,7 @@ def parse_players_pdf(pdf_bytes: bytes) -> tuple[list[dict], int | None]:
     {"raw_name": ..., "club_name": ...}.
     """
     participants = []
+    unique_entries = set()  # To track unique (name, club) pairs
     full_text = []
 
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
@@ -333,6 +321,15 @@ def parse_players_pdf(pdf_bytes: bytes) -> tuple[list[dict], int | None]:
                 block = re.sub(r'Directly qualified.*$', "", block, flags=re.M)
                 block = re.sub(r'Group stage.*$',        "", block, flags=re.M)
                 full_text.append(block)
+
+    # Known patterns to exclude (e.g., headers, footers)
+    EXCLUDE_PATTERNS = [
+        r'Directly qualified.*$',
+        r'Group stage.*$',
+        r'Total entries.*$',
+        r'Page \d+.*$',  # Common footer pattern
+        r'^\s*$',  # Empty lines
+    ]                    
 
     text = "\n".join(full_text)
 
@@ -345,48 +342,38 @@ def parse_players_pdf(pdf_bytes: bytes) -> tuple[list[dict], int | None]:
     )
     if m:
         expected_count = int(m.group(1))
-        logging.info(f"Expected participants: {expected_count}")    
-
-    # # find every “rank name, club” line
-    # for m in PART_RE.finditer(text):
-    #     name_part = m.group(1).strip()
-    #     club_part = m.group(2).strip()
-
-    #     # if the “club” is *exactly* one of the country codes, we skip it
-    #     # if club_part.upper() in COUNTRY_CODES:
-    #     #     logging.info(f"parse_players_pdf: ❌ Skipping national entry “{name_part}, {club_part}”")
-    #     #     continue
-
-    #     # OK, keep it
-    #     raw = sanitize_name(name_part)
-    #     participants.append({
-    #         "raw_name":   raw,
-    #         "club_name":  club_part
-    #     })
-
-    #     # ── replace the regex loop with this ──
-    # for line in text.splitlines():
-    #     if ',' not in line:
-    #         continue
-    #     name_part, club_part = line.split(',', 1)
-    #     participants.append({
-    #         "raw_name":  sanitize_name(name_part),
-    #         "club_name": club_part.strip()
-    #     })
+        logging.info(f"Expected participants: {expected_count}")
+    else:
+        logging.warning("Could not extract expected participant count from PDF")    
 
     for line in text.splitlines():
+
+        line = line.strip()
+        if not line:
+            continue   
+        
         m = PART_RE.match(line)
         if not m:
+            logging.debug(f"Skipped non-matching line: '{line}'")
             continue
 
         # group(1) is the name (without any leading “123 ” prefix)
         raw_name   = sanitize_name(m.group(1))
         club_name  = m.group(2).strip()
 
+        # Deduplicate entries
+        entry_key = (raw_name, club_name)
+        if entry_key in unique_entries:
+            logging.debug(f"Skipped duplicate entry: '{raw_name}, {club_name}'")
+            continue        
+
+        unique_entries.add(entry_key)
         participants.append({
             "raw_name":  raw_name,
             "club_name": club_name
         })    
+    
+    logging.info(f"Parsed {len(participants)} unique participant entries")
 
     # log every candidate we actually found
     # logging.info(f"parse_players_pdf: ✅ Keeping {len(participants)} entries:")

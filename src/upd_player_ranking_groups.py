@@ -1,61 +1,67 @@
-# # src/upd_player_ranking_group.py
+# src/upd_player_ranking_group.py
 
 import logging
 import time
-from models.player_ranking_group import PlayerRankingGroup
-from models.player import Player
+from typing import Dict, Set
+
 from db import get_conn
 from utils import print_db_insert_results
+from models.player import Player
+from models.player_ranking_group import PlayerRankingGroup
 
 def upd_player_ranking_groups():
+    """
+    Update the player_ranking_group table by:
+    1. Deleting existing entries for licensed players.
+    2. Inserting new entries based on raw license data.
+    This ensures the table reflects the latest ranking groups from licenses.
+    """
     conn, cursor = get_conn()
     logging.info("Updating player ranking groups...")
     print("ℹ️  Updating player ranking groups...")
     start_time = time.time()
 
     try:
-        # Check initial row count
+        # Log initial row count for verification
         cursor.execute("SELECT COUNT(*) FROM player_ranking_group")
         initial_count = cursor.fetchone()[0]
         logging.info(f"Initial rows in player_ranking_group: {initial_count}")
 
-        # Load mapping from player_id_ext to canonical player_id
-        cursor.execute("SELECT player_id_ext, player_id FROM player_alias")
-        player_id_map = {row[0]: row[1] for row in cursor.fetchall()}
+        # Load ext to player_id mapping using existing Player cache function
+        # cache returns Dict[str, Player] since player_id_ext is TEXT
+        cache = Player.cache_id_ext_map(cursor)
+        ext_to_player_map: Dict[str, int] = {ext: player.player_id for ext, player in cache.items()}
 
-        # Load mapping from ranking_group name to id
+        # Load ranking_group mapping: class_short -> ranking_group_id
         cursor.execute("SELECT class_short, ranking_group_id FROM ranking_group")
-        ranking_group_map = {row[0]: row[1] for row in cursor.fetchall()}
+        ranking_group_map: Dict[str, int] = {row[0]: row[1] for row in cursor.fetchall()}
 
-        # Step 1: Delete all existing ranking groups for relevant players
+        # Step 1: Collect unique player_id_exts from license_raw and derive player_ids for deletion
         cursor.execute("""
             SELECT DISTINCT player_id_ext
             FROM player_license_raw
             WHERE player_id_ext IS NOT NULL AND TRIM(ranking_group_raw) != ''
         """)
-        player_id_exts = [row[0] for row in cursor.fetchall()]
-        deleted_count = 0
-        deleted_players = set()
+        player_id_exts: Set[int] = {row[0] for row in cursor.fetchall()}
 
-        for player_id_ext in player_id_exts:
-            player_id = player_id_map.get(player_id_ext)
-            if not player_id:
-                logging.debug(f"Skipping player_id_ext {player_id_ext}: No matching player in player_alias")
-                continue
-            delete_result = PlayerRankingGroup.delete_by_player_id(cursor, player_id)
-            if delete_result["status"] == "success":
-                deleted_rows = int(delete_result["reason"].split()[1])
-                if deleted_rows > 0:
-                    deleted_count += deleted_rows
-                    deleted_players.add(player_id)
-                    logging.debug(f"Deleted {deleted_rows} ranking group rows for player_id {player_id}")
-                else:
-                    logging.debug(f"No ranking group rows to delete for player_id {player_id}")
-            else:
-                logging.error(f"Failed to delete ranking groups for player_id {player_id}: {delete_result['reason']}")
+        # Map to canonical player_ids (skip unmapped); convert ext to str for lookup
+        player_ids_to_delete: Set[int] = {
+            ext_to_player_map[str(ext)] for ext in player_id_exts if str(ext) in ext_to_player_map
+        }
 
-        print(f"🗑️  Deleted {deleted_count} existing player ranking group rows for {len(deleted_players)} players")
-        logging.info(f"Deleted {deleted_count} existing player_ranking_group rows for {len(deleted_players)} players")
+        if player_ids_to_delete:
+            # Bulk delete for efficiency
+            placeholders = ','.join(['?'] * len(player_ids_to_delete))
+            cursor.execute(f"""
+                DELETE FROM player_ranking_group
+                WHERE player_id IN ({placeholders})
+            """, list(player_ids_to_delete))
+            deleted_count = cursor.rowcount
+            print(f"🗑️  Deleted {deleted_count} existing player ranking group rows for {len(player_ids_to_delete)} players")
+            logging.info(f"Deleted {deleted_count} existing player_ranking_group rows for {len(player_ids_to_delete)} players")
+        else:
+            deleted_count = 0
+            logging.info("No player ranking groups to delete")
 
         # Step 2: Insert new ranking groups
         insert_start = time.time()
@@ -67,15 +73,14 @@ def upd_player_ranking_groups():
         rows = cursor.fetchall()
         logging.info(f"Fetched {len(rows)} rows from player_license_raw in {time.time() - insert_start:.2f} seconds")
 
-        seen = set()
+        seen: Set[Tuple[int, int]] = set()  # (player_id, ranking_group_id) to avoid duplicates
         db_results = []
 
-        for row in rows:
-            row_start = time.time()
-            player_id_ext, raw_groups = row
-            player_id = player_id_map.get(player_id_ext)
+        for player_id_ext, raw_groups in rows:
+            # Convert to str for map lookup
+            player_id = ext_to_player_map.get(str(player_id_ext))
             if not player_id:
-                logging.debug(f"Skipping player_id_ext {player_id_ext}: No matching player in player_alias")
+                logging.debug(f"Skipping player_id_ext {player_id_ext}: No matching player in alias map")
                 continue
 
             groups = [g.strip() for g in raw_groups.split(",") if g.strip()]
@@ -88,20 +93,20 @@ def upd_player_ranking_groups():
 
                 key = (player_id, ranking_group_id)
                 if key in seen:
-                    logging.debug(f"Skipped duplicate ranking group for player_id {player_id}, ranking_group_id {ranking_group_id}")
+                    logging.debug(f"Skipped duplicate: player_id {player_id}, ranking_group_id {ranking_group_id}")
                     continue
                 seen.add(key)
 
+                # Create and save the relation
                 rel = PlayerRankingGroup(player_id=player_id, ranking_group_id=ranking_group_id)
                 result = rel.save_to_db(cursor)
                 db_results.append(result)
-            logging.debug(f"Processed row for player_id_ext {player_id_ext} in {time.time() - row_start:.2f} seconds")
 
-        # Print results
+        # Print insert results
         print_db_insert_results(db_results)
         logging.info(f"Insert completed in {time.time() - insert_start:.2f} seconds")
 
-        # Verify final row count
+        # Log final row count for verification
         cursor.execute("SELECT COUNT(*) FROM player_ranking_group")
         final_count = cursor.fetchone()[0]
         logging.info(f"Final rows in player_ranking_group: {final_count}")
@@ -111,6 +116,7 @@ def upd_player_ranking_groups():
     except Exception as e:
         logging.error(f"Error updating player ranking groups: {e}")
         print(f"❌ Error updating player ranking groups: {e}")
+        conn.rollback()
 
     finally:
         conn.commit()

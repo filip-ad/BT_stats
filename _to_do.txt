@@ -1,6 +1,9 @@
 To do
 =======================================================
 
+Should be able to search the transtion and license RAW tables for players not found. Then I can resolve firstname and lastname, even though I dont have player_id_ext!
+
+
  - Split validation and insert function with only "clean" records. Implement batch insert.
    This way db_results will always be OK, but create new validation_results to print.
  - Refine _find_player_dupl.py, and start cleaning data by mapping duplicates
@@ -15,22 +18,28 @@ Improvements long term
   This would keep the integrity of the player_license so it only holds real scraped data
 
 
-ℹ️  Participant update complete in 2823.56s
-ℹ️  Total participants parsed: 451706/439951
+ℹ️  Participant update complete in 4407.42s
+ℹ️  Total participants parsed: 451693/439951
 📊 Database Summary:
-   ✅ Success: 310869
-      • Participant added successfully (new raw player): 100554
-      • Participant added successfully (existing raw player): 133454
-      • Participant added successfully (matching canonical player): 76861
-   ❌ Failed: 140019
-      • Club not found (tried exact + prefix): 139822
-      • Ambiguous player candidates with expired licenses: 48
-      • Ambiguous player candidates with valid licenses: 146
+   ✅ Success: 450632
+      • Participant added successfully (matching canonical player): 283403
+      • Participant added successfully (new unverified player): 26601
+      • Participant added successfully (existing unverified player): 140628
+   ❌ Failed: 553
+      • Ambiguous player candidates with valid licenses: 391
+      • Ambiguous player candidates with expired licenses: 135
+      • Ambiguous transition matches: 12
+      • Ambiguous substring + license matches: 12
       • PDF parsing failed: No /Root object! - Is this really a PDF?: 3
-   ⏭️  Skipped: 821
-      • Participant already exists (matching canonical player): 800
-      • Participant already exists (raw player): 21
-   ⚠️  Warning: 10574
-      • Club name matched by prefix: 1472
-      • Player did not have a valid license in the club on the day of the tournament: 7777
-      • Matched via prior season license (expired before class_date): 1325
+   ⏭️  Skipped: 511
+      • Participant already exists (unverified player): 504
+      • Participant already exists (matching canonical player): 7
+   ⚠️  Warning: 333634
+      • Player did not have a valid license in the club on the day of the tournament: 44817
+      • Matched via prior season license (expired before class_date): 4447
+      • Could not match with verified player, new unverified player inserted: 26601
+      • Matched via prior-season license (expired): 696
+      • Could not match with verified player, existing unverified player used: 141132
+      • Using 'Unknown club' as fallback: 109872
+      • Matched via name-substring against 3+ token candidate: 5793
+      • Club name matched by prefix: 276

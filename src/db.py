@@ -341,73 +341,70 @@ def create_tables(cursor):
     # Create tournament class final results table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tournament_class_final_results (
-            tournament_class_id INTEGER NOT NULL,
-            player_id INTEGER NOT NULL,
-            position INTEGER NOT NULL,
-            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            tournament_class_id         INTEGER NOT NULL,
+            player_id                   INTEGER NOT NULL,
+            position                    INTEGER NOT NULL,
+            row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                   
             FOREIGN KEY (tournament_class_id) REFERENCES tournament_class(tournament_class_id),
-            UNIQUE (tournament_class_id, player_id)
+            UNIQUE      (tournament_class_id, player_id)
         )
     ''')
 
     # Create player table (cannonical player data)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player (
-            player_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            firstname TEXT,
-            lastname TEXT,
-            year_born INTEGER,
-            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            player_id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            firstname                   TEXT,
+            lastname                    TEXT,
+            year_born                   INTEGER,
+            fullname_raw                TEXT,
+            is_verified                 BOOLEAN DEFAULT FALSE,
+            row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
     # Create player alias table (include firstname, lastname, year_born to cater for different spellings in the future)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player_alias (
-            player_id INTEGER NOT NULL,
-            player_id_ext INTEGER,
-            firstname TEXT,
-            lastname TEXT,
-            year_born INTEGER,
-            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE (player_id_ext),
-            FOREIGN KEY (player_id) REFERENCES player(player_id)
+            player_alias_id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            player_id                   INTEGER NOT NULL,
+            player_id_ext               TEXT,
+            firstname                   TEXT,
+            lastname                    TEXT,
+            year_born                   INTEGER,
+            fullname_raw                TEXT,
+            source_system               TEXT,
+            row_created TIMESTAMP       DEFAULT CURRENT_TIMESTAMP,        
+            FOREIGN KEY (player_id)     REFERENCES player(player_id),    
+            UNIQUE      (player_id_ext)      
         ) 
     ''')
 
     # Create player participant table (starting list of players in a class)
     cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_participant (
-                tournament_class_id   INTEGER     NOT NULL,
-                player_id             INTEGER,
-                player_id_raw         INTEGER,
-                club_id               INTEGER,
-                row_created           TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
-
-                -- exactly one of the two IDs must be non-NULL:
-                CHECK (
-                    (player_id     IS NOT NULL AND player_id_raw IS NULL)
-                OR (player_id     IS NULL     AND player_id_raw IS NOT NULL)
-                ),
-
+                participant_id          INTEGER         PRIMARY KEY AUTOINCREMENT,
+                tournament_class_id     INTEGER         NOT NULL,
+                player_id               INTEGER,
+                club_id                 INTEGER,
+                row_created             TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
                 FOREIGN KEY (tournament_class_id)   REFERENCES tournament_class(tournament_class_id),
                 FOREIGN KEY (player_id)             REFERENCES player(player_id),
-                FOREIGN KEY (club_id)               REFERENCES club(club_id),
-
-                UNIQUE (tournament_class_id, player_id),
-                UNIQUE (tournament_class_id, player_id_raw)
+                FOREIGN KEY (club_id)               REFERENCES club(club_id), 
+                UNIQUE      (tournament_class_id, player_id)
             )
     ''')
 
-    # Create a player "raw" table for players not yet in the player table (no external ID)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS player_raw (
-            player_id_raw INTEGER PRIMARY KEY AUTOINCREMENT,
-            fullname_raw TEXT NOT NULL,
-            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(fullname_raw)
-        )
-    ''')
+    # # Create a player "raw" table for players not yet in the player table (no external ID)
+    # cursor.execute('''
+    #     CREATE TABLE IF NOT EXISTS player_raw (
+    #         player_id_raw INTEGER PRIMARY KEY AUTOINCREMENT,
+    #         fullname_raw TEXT NOT NULL,
+    #         row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    #         UNIQUE(fullname_raw)
+    #     )
+    # ''')
 
     # Create raw data table for player_licenses_raw
     # Rename season to season_label later..

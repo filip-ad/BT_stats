@@ -4,7 +4,7 @@
 import logging
 from utils import setup_logging
 from upd_clubs import upd_clubs
-from upd_players import upd_players
+from upd_players_verified import upd_players_verified
 from upd_player_licenses_raw import upd_player_licenses_raw
 from upd_player_licenses import upd_player_licenses
 from upd_player_ranking_groups import upd_player_ranking_groups
@@ -34,7 +34,7 @@ def main():
         # Drop existing tables to ensure a clean slate
         drop_tables(cursor, [
             # 'club',
-            # 'club_name_alias',
+            # 'club_name_alias'
             # 'club_ext_id',
             # 'club_missing'
             # 'player_participant_missing',
@@ -42,17 +42,15 @@ def main():
             # 'club_name_prefix_match'
             # 'club_name_prefix_match'
             # 'player',
-            # 'player_alias',
-            # 'player_raw',
+            # 'player_alias'
             # 'player_participant'
             # 'license',
             # 'season'
             # 'tournament',
             # 'tournament_class'
-            # 'tournament_class_participant'
-            # 'player_ranking_group', 
-            # 'ranking_group'
+            # 'player_participant'
             # 'player_ranking_group'
+            # 'ranking_group'
             # 'player_ranking', 
             # 'player_license'
             # 'player_license_raw',
@@ -80,13 +78,13 @@ def main():
         # Describe all functions, what they do, what tables are updated, variables etc etc
         #
 
-        upd_clubs()
+        # upd_clubs()
 
         # - Scrape and populate player_license_raw table. No dependency.
         # upd_player_licenses_raw()
 
         # - Update player table. Depends on player_license_raw.
-        # upd_players()
+        #   upd_players_verified()
 
         # - Update player_ranking_group table. Depends on player_license_raw.
         # upd_player_ranking_groups()
