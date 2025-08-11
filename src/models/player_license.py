@@ -406,8 +406,9 @@ class PlayerLicense:
                 # Overlap check
                 if ov_key in overlapping_licenses:
                     of, ot = overlapping_licenses[ov_key]
-                    # if any overlap at all
-                    if not (lic.valid_from > ot or lic.valid_from < of and lic.valid_from < of):
+                    # overlap if NOT (new_end < of OR new_start > ot)
+                    new_start, new_end = lic.valid_from, lic.valid_to
+                    if not (new_end < of or new_start > ot):
                         results.append({"status":"failed","row_id":lic.row_id,"reason":"Overlaps existing license"})
                         continue
 

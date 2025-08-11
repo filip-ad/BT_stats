@@ -969,7 +969,7 @@ def create_and_populate_static_tables(cursor):
     # Insert series
     for series in NATIONAL_SERIES_MEN + NATIONAL_SERIES_WOMEN + REGIONAL_SERIES_MEN + REGIONAL_SERIES_WOMEN:
         cursor.execute('''
-            INSERT INTO series (name, code, scope, tier, gender, organizer)
+            INSERT OR IGNORE INTO series (name, code, scope, tier, gender, organizer)
             VALUES (?, ?, ?, ?, ?, ?)
         ''', series)
 

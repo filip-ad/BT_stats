@@ -84,7 +84,7 @@ class Player:
                 cursor.execute("SELECT player_id FROM player_alias WHERE player_id_ext = ?", (player_id_ext,))
                 existing = cursor.fetchone()
                 if existing:
-                    logging.warning(f"Skipping duplicate player alias: {self.firstname} {self.lastname} ({player_id_ext})")
+                    # logging.warning(f"Skipping duplicate player alias: {self.firstname} {self.lastname} ({player_id_ext})")
                     return {
                         "status": "skipped",
                         "player": f"{self.firstname} {self.lastname}",

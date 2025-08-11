@@ -19,6 +19,7 @@ def upd_player_licenses():
         logging.info("Updating player licenses...")
         print("ℹ️  Updating player licenses...")
         start_time = time.time()
+        seen_final_keys = set()
 
         # Cache mappings   
         cache_start         = time.time()
@@ -33,16 +34,16 @@ def upd_player_licenses():
         duplicate_start = time.time()
         cursor.execute("""
             SELECT 
-                player_id_ext, 
-                club_id_ext, 
-                season_id_ext, 
+                CAST(player_id_ext AS TEXT) AS player_id_ext,
+                CAST(club_id_ext   AS TEXT) AS club_id_ext,
+                CAST(season_id_ext AS TEXT) AS season_id_ext,
                 LOWER(TRIM(SUBSTR(license_info_raw, 1, INSTR(license_info_raw, '(') - 1))) AS license_key,
                 MIN(row_id) AS min_row_id
             FROM player_license_raw
-            GROUP BY player_id_ext, club_id_ext, season_id_ext, license_key
+            GROUP BY 1,2,3,4
             HAVING COUNT(*) > 1
         """)
-        duplicate_map = {(row[0], row[1], row[2], row[3]): row[4] for row in cursor.fetchall()}
+        duplicate_map = {(r[0], r[1], r[2], r[3]): r[4] for r in cursor.fetchall()}
         logging.info(f"Cached {len(duplicate_map)} duplicate licenses in {time.time() - duplicate_start:.2f} seconds")
 
         # Fetch raw data
@@ -192,6 +193,17 @@ def upd_player_licenses():
                 license_id = None  # Will be validated in batch
             else:
                 license_id = license.license_id
+
+            # After you’ve resolved player_id, club_id, season_id, license_id:
+            final_key = (player_id, club_id, season_id, license_id)
+            if final_key in seen_final_keys:
+                db_results.append({
+                    "status": "skipped",
+                    "row_id": row_id,
+                    "reason": "Duplicate after alias resolution in this batch"
+                })
+                continue
+            seen_final_keys.add(final_key)    
 
             # Create PlayerLicense object
             player_license = PlayerLicense(

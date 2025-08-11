@@ -154,8 +154,8 @@ from models.player import Player
 # ──────────────────────────────────────────────────────────────────────────────
 # SAFETY / BEHAVIOR SWITCHES
 # ──────────────────────────────────────────────────────────────────────────────
-DRY_RUN: bool = True                  # ← flip False to actually write to DB
-AUTO_MERGE_DUP_PLAYERS: bool = False  # ← True to merge duplicate player rows
+DRY_RUN: bool = False                  # ← flip False to actually write to DB
+AUTO_MERGE_DUP_PLAYERS: bool = True  # ← True to merge duplicate player rows
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 1) MANUAL DUPLICATE GROUPS
@@ -166,6 +166,7 @@ DUPLICATE_EXT_GROUPS: List[Set[int]] = [
     {12033, 39961},     # Nicklas Forsling, born 1987
     {12546, 63530},     # Magnus Oskarsson, born 1970
     {400241, 579767},   # Maxim Stevens, born 2003
+    {15987, 58542},     # Davis Bui (b. 1995) 
     # add more as you discover them...
 ]
 
@@ -227,68 +228,148 @@ def _as_text_ext(ext_id) -> str:
 def merge_players(cursor, keep_id: int, drop_id: int, *, dry_run: bool = True) -> None:
     """
     Move references from drop_id -> keep_id across known tables, then delete drop_id.
-    Handles UNIQUE on player_participant(tournament_class_id, player_id).
-    Extend the 'fk_targets' list if you add new tables.
+    Handles UNIQUE collisions by resolving them before UPDATEs.
     """
     assert keep_id != drop_id, "keep_id and drop_id must differ"
 
     logging.info("── Merge plan: player_id %s  ←  %s%s",
                  keep_id, drop_id, " (DRY RUN)" if dry_run else "")
 
-    # 0) Ensure aliases moved
-    _run(cursor,
-         "UPDATE player_alias SET player_id = ? WHERE player_id = ?",
-         (keep_id, drop_id),
-         dry=dry_run)
+    def run(sql, params):
+        if dry_run:
+            logging.info("[DRY RUN] %s | %s", " ".join(sql.split()), params)
+            return 0
+        cursor.execute(sql, params)
+        return cursor.rowcount
 
-    # 1) Resolve player_participant UNIQUE conflicts per class
-    if _table_exists(cursor, "player_participant"):
-        # Delete drop rows that would collide
-        sql_pre = """
-        DELETE FROM player_participant
-         WHERE player_id = :drop
-           AND EXISTS (
+    def table_exists(name: str) -> bool:
+        cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,))
+        return cursor.fetchone() is not None
+
+    # 0) Move aliases (safe)
+    run("UPDATE player_alias SET player_id = ? WHERE player_id = ?", (keep_id, drop_id))
+
+    # 1) player_participant UNIQUE(tournament_class_id, player_id)
+    if table_exists("player_participant"):
+        # delete would-be duplicates
+        run("""
+            DELETE FROM player_participant
+             WHERE player_id = :drop
+               AND EXISTS (
                  SELECT 1 FROM player_participant p2
                   WHERE p2.tournament_class_id = player_participant.tournament_class_id
                     AND p2.player_id = :keep
-           )
-        """
-        _run(cursor, sql_pre, {"keep": keep_id, "drop": drop_id}, dry=dry_run)
-        # Move the rest
-        _run(cursor,
-             "UPDATE player_participant SET player_id = ? WHERE player_id = ?",
-             (keep_id, drop_id),
-             dry=dry_run)
+               )
+        """, {"keep": keep_id, "drop": drop_id})
+        # move the rest
+        run("UPDATE player_participant SET player_id = ? WHERE player_id = ?", (keep_id, drop_id))
 
-    # 2) Simple FK tables with 'player_id'
-    fk_targets = [
-        ("player_license", "player_id"),
-        ("player_ranking", "player_id"),
-        ("player_ranking_group", "player_id"),
-        ("player_transition", "player_id"),
-        ("match_side_player", "player_id"),              # if present
-        ("tournament_class_entries", "player_id"),       # legacy helpers
-        ("tournament_class_players", "player_id"),
-        ("tournament_class_final_results", "player_id"),
-    ]
-    for tbl, col in fk_targets:
-        if _table_exists(cursor, tbl) and _col_exists(cursor, tbl, col):
-            _run(cursor, f"UPDATE {tbl} SET {col} = ? WHERE {col} = ?",
-                 (keep_id, drop_id), dry=dry_run)
+    # 2) tournament_class_* tables with UNIQUE(tournament_class_id, player_id)
+    for tbl in ("tournament_class_entries", "tournament_class_players", "tournament_class_final_results"):
+        if table_exists(tbl):
+            run(f"""
+                DELETE FROM {tbl}
+                 WHERE player_id = :drop
+                   AND EXISTS (
+                     SELECT 1 FROM {tbl} t2
+                      WHERE t2.tournament_class_id = {tbl}.tournament_class_id
+                        AND t2.player_id = :keep
+                   )
+            """, {"keep": keep_id, "drop": drop_id})
+            run(f"UPDATE {tbl} SET player_id = ? WHERE player_id = ?", (keep_id, drop_id))
 
-    # 3) Legacy 'match' table with direct player columns (if it still exists)
-    if _table_exists(cursor, "match"):
-        for col in ("player1_id", "player2_id", "winning_player_id", "losing_player_id"):
-            if _col_exists(cursor, "match", col):
-                _run(cursor, f"UPDATE match SET {col} = ? WHERE {col} = ?",
-                     (keep_id, drop_id), dry=dry_run)
+    # 3) player_license UNIQUE(player_id, license_id, season_id, club_id)
+    if table_exists("player_license"):
+        # 3a) find conflicts between drop and keep
+        cursor.execute("""
+            SELECT d.license_id, d.season_id, d.club_id,
+                   d.valid_from, d.valid_to,
+                   k.valid_from, k.valid_to
+              FROM player_license d
+              JOIN player_license k
+                ON k.player_id = :keep
+               AND d.player_id = :drop
+               AND k.license_id = d.license_id
+               AND k.season_id  = d.season_id
+               AND k.club_id    = d.club_id
+        """, {"keep": keep_id, "drop": drop_id})
+        conflicts = cursor.fetchall()
 
-    # 4) Finally, delete the dropped player row
-    _run(cursor, "DELETE FROM player WHERE player_id = ?", (drop_id,), dry=dry_run)
+        # 3b) merge date ranges on the keep row, then delete the drop row
+        for lic_id, season_id, club_id, d_from, d_to, k_from, k_to in conflicts:
+            # expand keep row to cover both ranges
+            run("""
+                UPDATE player_license
+                   SET valid_from = CASE
+                                      WHEN date(valid_from) <= date(:d_from) THEN valid_from
+                                      ELSE :d_from
+                                    END,
+                       valid_to   = CASE
+                                      WHEN date(valid_to)   >= date(:d_to)   THEN valid_to
+                                      ELSE :d_to
+                                    END
+                 WHERE player_id = :keep
+                   AND license_id = :lic
+                   AND season_id  = :season
+                   AND club_id    = :club
+            """, {
+                "d_from": d_from, "d_to": d_to,
+                "keep": keep_id, "lic": lic_id, "season": season_id, "club": club_id
+            })
+            # remove drop duplicate
+            run("""
+                DELETE FROM player_license
+                 WHERE player_id = :drop
+                   AND license_id = :lic
+                   AND season_id  = :season
+                   AND club_id    = :club
+            """, {"drop": drop_id, "lic": lic_id, "season": season_id, "club": club_id})
 
-    logging.info("✔ Merge %s → %s %s",
-                 drop_id, keep_id, "(DRY RUN only)" if dry_run else "")
+        # 3c) move remaining non-conflicting rows
+        run("UPDATE player_license SET player_id = ? WHERE player_id = ?", (keep_id, drop_id))
 
+    # 4) player_ranking PRIMARY KEY(player_id, date)
+    if table_exists("player_ranking"):
+        # delete would-be duplicates (same date already on keep)
+        run("""
+            DELETE FROM player_ranking
+             WHERE player_id = :drop
+               AND EXISTS (
+                 SELECT 1 FROM player_ranking r2
+                  WHERE r2.player_id = :keep
+                    AND r2.date = player_ranking.date
+               )
+        """, {"keep": keep_id, "drop": drop_id})
+        run("UPDATE player_ranking SET player_id = ? WHERE player_id = ?", (keep_id, drop_id))
+
+    # 5) player_ranking_group (no UNIQUE, but keep safe order)
+    if table_exists("player_ranking_group"):
+        run("UPDATE player_ranking_group SET player_id = ? WHERE player_id = ?", (keep_id, drop_id))
+
+    # 6) player_transition (UNIQUE(player_id, club_id_from, club_id_to, transition_date))
+    if table_exists("player_transition"):
+        run("""
+            DELETE FROM player_transition
+             WHERE player_id = :drop
+               AND EXISTS (
+                 SELECT 1 FROM player_transition t2
+                  WHERE t2.player_id = :keep
+                    AND t2.club_id_from    = player_transition.club_id_from
+                    AND t2.club_id_to      = player_transition.club_id_to
+                    AND t2.transition_date = player_transition.transition_date
+               )
+        """, {"keep": keep_id, "drop": drop_id})
+        run("UPDATE player_transition SET player_id = ? WHERE player_id = ?", (keep_id, drop_id))
+
+    # # 7) legacy 'match' table columns (if still present)
+    # if table_exists("match"):
+    #     for col in ("player1_id", "player2_id", "winning_player_id", "losing_player_id"):
+    #         # best-effort; no uniques here
+    #         run(f"UPDATE match SET {col} = ? WHERE {col} = ?", (keep_id, drop_id))
+
+    # 8) finally delete drop player
+    run("DELETE FROM player WHERE player_id = ?", (drop_id,))
+    logging.info("✔ Merge %s → %s %s", drop_id, keep_id, "(DRY RUN only)" if dry_run else "")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # MAIN: Verified players + aliases + optional merges (with progress prints)
@@ -351,8 +432,8 @@ def upd_players_verified():
                     'ranking'
                 )
 
-        logging.info("Found %,d unique external players in license+ranking", len(player_data))
-        print(f"ℹ️  Found {len(player_data):,} unique external players in license and ranking tables")
+        # logging.info("Found %,d unique external players in license+ranking", len(player_data))
+        # print(f"ℹ️  Found {len(player_data):,} unique external players in license and ranking tables")
 
         # ── counters for summary ────────────────────────────────────────────
         c_created_canonical = 0
@@ -471,23 +552,23 @@ def upd_players_verified():
                             (_as_text_ext(ext_id),))
             if row:
                 c_skipped_existing += 1
-                if idx % 1000 == 0:
-                    print(f"   … {idx:,}/{len(remaining):,} processed (skipping existing aliases)")
-                continue
+                # if idx % 1000 == 0:
+                #     print(f"   … {idx:,}/{len(remaining):,} processed (skipping existing aliases)")
+                # continue
 
             # Insert a new verified player and its alias
-            if DRY_RUN:
-                logging.info("[DRY RUN] Would INSERT player + alias for ext=%s (%s)",
-                             ext_id, _seasoned_name(fn, ln, yb))
-                if idx % 1000 == 0:
-                    print(f"   … {idx:,}/{len(remaining):,} processed (dry-run inserts)")
-            else:
-                p = Player(firstname=fn, lastname=ln, year_born=yb, is_verified=True)
-                res = p.save_to_db(cursor, _as_text_ext(ext_id), source_system=source)
-                results.append(res)
-                c_inserted_new += 1
-                if idx % 1000 == 0:
-                    print(f"   … {idx:,}/{len(remaining):,} processed (inserted so far: {c_inserted_new:,})")
+            # if DRY_RUN:
+            #     logging.info("[DRY RUN] Would INSERT player + alias for ext=%s (%s)",
+            #                  ext_id, _seasoned_name(fn, ln, yb))
+            #     if idx % 1000 == 0:
+            #         print(f"   … {idx:,}/{len(remaining):,} processed (dry-run inserts)")
+            # else:
+            p = Player(firstname=fn, lastname=ln, year_born=yb, is_verified=True)
+            res = p.save_to_db(cursor, _as_text_ext(ext_id), source_system=source)
+            results.append(res)
+            c_inserted_new += 1
+            # if idx % 1000 == 0:
+            #     print(f"   … {idx:,}/{len(remaining):,} processed (inserted so far: {c_inserted_new:,})")
 
         # ── 7) Commit / Report ─────────────────────────────────────────────
         print("\n──────────────── Summary ────────────────")
