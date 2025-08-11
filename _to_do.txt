@@ -1,7 +1,11 @@
 To do
 =======================================================
 
+BIG PROBLEM -> New RAW PLAYER INSERTED AS DUPLICATES::::
+
 Should be able to search the transtion and license RAW tables for players not found. Then I can resolve firstname and lastname, even though I dont have player_id_ext!
+
+Need to identify types of tournament classes, singles, doubles, division. Any else?
 
 
  - Split validation and insert function with only "clean" records. Implement batch insert.

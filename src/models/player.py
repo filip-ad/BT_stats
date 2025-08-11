@@ -309,11 +309,32 @@ class Player:
             logging.error(f"Error building cache_id_ext_map: {e}")
             return {}
         
+    # @staticmethod
+    # def cache_unverified_name_map(cursor) -> Dict[str, int]:
+    #     """
+    #     Build a map from normalized fullname_raw → player_id for unverified players.
+    #     Only includes players where is_verified = FALSE and fullname_raw is not NULL/empty.
+    #     """
+    #     unverified_map: Dict[str, int] = {}
+    #     cursor.execute("""
+    #         SELECT player_id, fullname_raw 
+    #         FROM player 
+    #         WHERE is_verified = FALSE AND fullname_raw IS NOT NULL AND fullname_raw != ''
+    #     """)
+    #     for pid, fr in cursor.fetchall():
+    #         clean = " ".join(fr.strip().split())  # Clean as in fallback_unverified
+    #         key = normalize_key(clean)  # Or just use clean if no normalize needed
+    #         if key not in unverified_map:  # Avoid duplicates, though unlikely
+    #             unverified_map[key] = pid
+    #     logging.info(f"Cached {len(unverified_map)} unverified player names")
+    #     return unverified_map        
+
     @staticmethod
     def cache_unverified_name_map(cursor) -> Dict[str, int]:
         """
-        Build a map from normalized fullname_raw → player_id for unverified players.
+        Build a map from cleaned fullname_raw → player_id for unverified players.
         Only includes players where is_verified = FALSE and fullname_raw is not NULL/empty.
+        Cleaning removes extra spaces but preserves case/accents for "rawness."
         """
         unverified_map: Dict[str, int] = {}
         cursor.execute("""
@@ -322,12 +343,11 @@ class Player:
             WHERE is_verified = FALSE AND fullname_raw IS NOT NULL AND fullname_raw != ''
         """)
         for pid, fr in cursor.fetchall():
-            clean = " ".join(fr.strip().split())  # Clean as in fallback_unverified
-            key = normalize_key(clean)  # Or just use clean if no normalize needed
-            if key not in unverified_map:  # Avoid duplicates, though unlikely
-                unverified_map[key] = pid
+            clean = " ".join(fr.strip().split())  # Minimal clean: trim extra spaces
+            if clean not in unverified_map:  # Avoid duplicates
+                unverified_map[clean] = pid
         logging.info(f"Cached {len(unverified_map)} unverified player names")
-        return unverified_map        
+        return unverified_map       
     
     @staticmethod
     def search_by_name_and_year(

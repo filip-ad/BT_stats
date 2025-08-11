@@ -218,9 +218,6 @@ CLUB_ALIASES = [
 (934, 'Linköpings Bordtennissällskap', 'long'),
 (948, 'Vikingstad Bordtennisklubb', 'long'),
 (99, 'Mölndals Bordtennissällskap', 'long'),
-(952, 'Islands Bordtennisförbund', 'long'),
-(952, 'Island', 'short'),
-(952, 'Iceland National Team', 'long'),
 (74, 'LinnePartille Pingisklubb', 'long'),
 (74, 'LinnePartille PK', 'short')
 

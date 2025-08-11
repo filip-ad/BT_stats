@@ -11,7 +11,7 @@ import time
 from urllib.parse import urljoin
 from typing import List, Dict
 from db import get_conn
-from utils import print_db_insert_results, sanitize_name
+from utils import print_db_insert_results, sanitize_name, normalize_key
 from models.player_license import PlayerLicense
 from models.club import Club
 from models.tournament_class import TournamentClass
@@ -158,11 +158,13 @@ def upd_player_participants():
         for idx, raw in enumerate(participants, start=1):
             raw_name  = raw["raw_name"]
             club_name = raw["club_name"].strip()
+            seed_val  = raw.get("seed")  # may be None
 
             pp = PlayerParticipant.from_dict({
                 "tournament_class_id": tc.tournament_class_id,
                 "fullname_raw":        raw_name,
                 "club_name_raw":       club_name,
+                "seed":                seed_val
             })
             result = pp.save_to_db(
                 cursor,
@@ -295,6 +297,12 @@ PART_RE = re.compile(
     re.MULTILINE
 )
 
+HEADER_RE = re.compile(
+    r'\b\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?\s*\(\s*(\d+)\s+[^\d()]+\)',
+    re.I
+)
+
+
 def extract_columns(page):
     """
     Split a page into left/right halves so we can catch two-column layouts.
@@ -306,79 +314,135 @@ def extract_columns(page):
 
 def parse_players_pdf(pdf_bytes: bytes) -> tuple[list[dict], int | None]:
     """
-    Extract participant entries from PDF.  Returns list of
-    {"raw_name": ..., "club_name": ...}.
+    Extract participant entries from PDF.
+    Returns: (participants, expected_count)
+    where each participant is {"raw_name": str, "club_name": str, "seed": Optional[int]}.
     """
-    participants = []
-    unique_entries = set()  # To track unique (name, club) pairs
-    full_text = []
+    participants: list[dict] = []
+    unique_entries: set[tuple[str, str]] = set()
 
-    with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-        for page in pdf.pages:
-            left, right = extract_columns(page)
-            # drop those section headers entirely:
-            for block in (left, right):
-                block = re.sub(r'Directly qualified.*$', "", block, flags=re.M)
-                block = re.sub(r'Group stage.*$',        "", block, flags=re.M)
-                full_text.append(block)
-
-    # Known patterns to exclude (e.g., headers, footers)
-    EXCLUDE_PATTERNS = [
-        r'Directly qualified.*$',
-        r'Group stage.*$',
-        r'Total entries.*$',
-        r'Page \d+.*$',  # Common footer pattern
-        r'^\s*$',  # Empty lines
-    ]                    
-
-    text = "\n".join(full_text)
-
-    # extract expected participant count from header, in any of several languages
-    # 'entries', 'anmälda', 'påmeldte', 'tilmeldte'
-    expected_count = None
-    m = re.search(
+    # --- constants/regex ---
+    HEADER_RE = re.compile(
         r'\b\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?\s*\(\s*(\d+)\s+[^\d()]+\)',
-        text
+        re.I,
     )
-    if m:
-        expected_count = int(m.group(1))
-        logging.info(f"Expected participants: {expected_count}")
-    else:
-        logging.warning("Could not extract expected participant count from PDF")    
+    BOLD_RE = re.compile(r"(bold|black|heavy|demi|semibold|semi-bold|sb)\b", re.I)
+    CATEGORY_TOKENS = {"vet", "veteran", "junior", "pojkar", "flickor", "herrar", "damer"}
 
-    for line in text.splitlines():
+    def _strip_above_header(block: str) -> tuple[str, int | None]:
+        m = HEADER_RE.search(block)
+        if m:
+            return block[m.end():], int(m.group(1))
+        return block, None
 
-        line = line.strip()
-        if not line:
-            continue   
-        
-        m = PART_RE.match(line)
-        if not m:
-            logging.debug(f"Skipped non-matching line: '{line}'")
-            continue
+    full_text_blocks: list[str] = []
+    bold_name_keys: set[str] = set()
+    expected_count: int | None = None
 
-        # group(1) is the name (without any leading “123 ” prefix)
-        raw_name   = sanitize_name(m.group(1))
-        club_name  = m.group(2).strip()
+    pdf = pdfplumber.open(BytesIO(pdf_bytes))
+    try:
+        for page in pdf.pages:
+            # ---- text blocks (handle two columns) ----
+            left, right = extract_columns(page)
+            for raw_block in (left, right):
+                # remove sections you already cut elsewhere
+                block = re.sub(r'Directly qualified.*$', "", raw_block, flags=re.M)
+                block = re.sub(r'Group stage.*$',        "", block, flags=re.M)
 
-        # Deduplicate entries
-        entry_key = (raw_name, club_name)
-        if entry_key in unique_entries:
-            logging.debug(f"Skipped duplicate entry: '{raw_name}, {club_name}'")
-            continue        
+                # cut everything above the per-block header (kills titles)
+                block, cnt = _strip_above_header(block)
+                if expected_count is None and cnt is not None:
+                    expected_count = cnt
 
-        unique_entries.add(entry_key)
-        participants.append({
-            "raw_name":  raw_name,
-            "club_name": club_name
-        })    
-    
-    logging.info(f"Parsed {len(participants)} unique participant entries")
+                if block:
+                    full_text_blocks.append(block)
 
-    # log every candidate we actually found
-    # logging.info(f"parse_players_pdf: ✅ Keeping {len(participants)} entries:")
+            # ---- bold name detection for seeding ----
+            words = page.extract_words(
+                use_text_flow=True,
+                keep_blank_chars=False,
+                extra_attrs=["fontname"]
+            )
+            if not words:
+                continue
 
-    # for i, p in enumerate(participants, 1):
-    #     logging.info(f"   [{i:02d}] {p['raw_name']}  /  {p['club_name']}")
+            # cluster tokens by line (y top within tolerance)
+            lines: dict[int, list[dict]] = {}
+            tol = 2
+            for w in words:
+                t = int(round(w["top"]))
+                key = next((k for k in lines.keys() if abs(k - t) <= tol), t)
+                lines.setdefault(key, []).append(w)
 
+            for _, line_words in lines.items():
+                # reconstruct "name before comma"
+                name_tokens = []
+                for w in line_words:
+                    txt = w["text"]
+                    if "," in txt:
+                        before = txt.split(",", 1)[0].strip()
+                        if before:
+                            name_tokens.append(before)
+                        break
+                    else:
+                        name_tokens.append(txt)
+                if not name_tokens:
+                    continue
+
+                # drop leading index like "12"
+                if name_tokens and re.fullmatch(r"\d+", name_tokens[0]):
+                    name_tokens = name_tokens[1:]
+
+                name_candidate = " ".join(name_tokens).strip()
+
+                # must contain letters to be a plausible name
+                if not re.search(r"[A-Za-zÅÄÖåäöØøÆæÉéÈèÜüß]", name_candidate):
+                    continue
+
+                any_bold = any(
+                    (BOLD_RE.search((w.get("fontname") or "")) is not None)
+                    for w in line_words[: max(1, len(name_tokens))]
+                )
+                if any_bold:
+                    bold_name_keys.add(normalize_key(sanitize_name(name_candidate)))
+    finally:
+        pdf.close()
+
+    # ---- parse participants from the cleaned blocks ----
+    seed_counter = 1
+    for block in full_text_blocks:
+        for line in block.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+
+            m = PART_RE.match(line)
+            if not m:
+                continue
+
+            raw_name  = sanitize_name(m.group(1))
+            club_name = m.group(2).strip()
+
+            # skip obvious class/category words accidentally in "club" position
+            if club_name.lower() in CATEGORY_TOKENS:
+                continue
+
+            key = (raw_name, club_name)
+            if key in unique_entries:
+                continue
+            unique_entries.add(key)
+
+            is_seeded = normalize_key(raw_name) in bold_name_keys
+            seed_val = seed_counter if is_seeded else None
+            if is_seeded:
+                logging.info(f"Seed {seed_val}: {raw_name}")
+                seed_counter += 1
+
+            participants.append({
+                "raw_name":  raw_name,
+                "club_name": club_name,
+                "seed":      seed_val,
+            })
+
+    logging.info(f"Parsed {len(participants)} unique participant entries (seeded: {seed_counter-1})")
     return participants, expected_count
