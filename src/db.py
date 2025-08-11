@@ -2,24 +2,51 @@
 # db.py: 
 
 import sqlite3
-import sys
-import os
 from config import DB_NAME
 import logging
 from datetime import timedelta
-from clubs_data import CLUBS, CLUB_ALIASES
+import datetime
+
+# --- register adapters/converters once (Python 3.12+ friendly) ---
+_ADAPTERS_REGISTERED = False
+
 
 def get_conn():
     try:
-        conn = sqlite3.connect(DB_NAME, detect_types=sqlite3.PARSE_DECLTYPES)
+        _register_sqlite_date_time_adapters()
+
+        # Enable parsing for declared column types (DATE/TIMESTAMP)
+        conn = sqlite3.connect(
+            DB_NAME,
+            detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
+        )
         logging.debug(f"Connected to database: {DB_NAME}")
+
+        # Recommended pragmas (same as before, plus foreign_keys)
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA synchronous = NORMAL;")
         conn.execute("PRAGMA temp_store = MEMORY;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+
         return conn, conn.cursor()
     except sqlite3.Error as e:
         print(f"❌ Database connection failed: {e}")
         raise
+
+def _register_sqlite_date_time_adapters() -> None:
+    global _ADAPTERS_REGISTERED
+    if _ADAPTERS_REGISTERED:
+        return
+
+    # Serialize Python date/datetime -> ISO strings
+    sqlite3.register_adapter(datetime.date, lambda d: d.isoformat())
+    sqlite3.register_adapter(datetime.datetime, lambda dt: dt.isoformat(sep=" "))
+
+    # Parse DB values back into Python objects for columns declared as DATE/TIMESTAMP
+    sqlite3.register_converter("DATE", lambda b: datetime.date.fromisoformat(b.decode()))
+    sqlite3.register_converter("TIMESTAMP", lambda b: datetime.datetime.fromisoformat(b.decode()))
+
+    _ADAPTERS_REGISTERED = True    
 
 def save_to_db_transitions(cursor, transitions):
     db_results = []
@@ -356,26 +383,6 @@ def create_tables(cursor):
         );
     ''')
 
-    # 3) Team fixtures (league team-vs-team meetings)
-    # -- Using club_id for teams; if you later add a separate team table we can swap FKs.
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS team_fixture (
-            fixture_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            league_id       TEXT NOT NULL,        -- or FK later
-            season_label    TEXT NOT NULL,        -- '2024/25', etc.
-            round_no        INTEGER,              -- 1..N
-            date            DATE,
-            home_club_id    INTEGER,
-            away_club_id    INTEGER,
-            home_score      INTEGER,              -- rubber wins
-            away_score      INTEGER,
-            status          TEXT,                 -- 'scheduled','final',...
-            notes           TEXT,
-            FOREIGN KEY (home_club_id) REFERENCES club(club_id),
-            FOREIGN KEY (away_club_id) REFERENCES club(club_id)
-            );
-    ''')
-
     # Create match table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS match (
@@ -620,7 +627,9 @@ def create_tables(cursor):
             PRIMARY KEY (player_id, run_date),
             FOREIGN KEY (player_id) REFERENCES player(player_id)
         )
-    ''')    
+    ''')
+
+    ############# Series tables ####################
 
     #  Groups within a series-season (e.g., 'Norra', 'Södra', or district pools for regional)
     cursor.execute('''
@@ -682,6 +691,8 @@ def create_tables(cursor):
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS team_fixture (
             fixture_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            --league_id       TEXT NOT NULL,        -- or FK later
+            --season_label    TEXT NOT NULL,        -- '2024/25', etc.
             round_id        INTEGER NOT NULL,
             date            DATETIME,
             home_team_id    INTEGER NOT NULL,
@@ -696,6 +707,7 @@ def create_tables(cursor):
             FOREIGN KEY (away_team_id) REFERENCES team(team_id)
         );    
     ''')    
+
 
 def create_and_populate_static_tables(cursor):
 
@@ -1030,6 +1042,18 @@ def create_and_populate_static_tables(cursor):
         );
     ''')
 
+    # Create table for documenting club names with prefixes
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS club_name_prefix_match (
+            tournament_class_id INTEGER NOT NULL,
+            club_raw_name TEXT NOT NULL,
+            matched_club_id INTEGER NOT NULL,
+            matched_club_aliases TEXT NOT NULL,
+            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(club_raw_name)
+        );
+    ''')
+
     # Create missing participants table to be fixed in parsing later
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS player_participant_missing (
@@ -1051,18 +1075,6 @@ def create_and_populate_static_tables(cursor):
             UNIQUE      (tournament_class_id, tournament_class_id_ext),
             FOREIGN KEY (tournament_class_id) REFERENCES tournament_class(tournament_class_id)
     )
-    ''')
-
-    # Create table for documenting club names with prefixes
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS club_name_prefix_match (
-            tournament_class_id INTEGER NOT NULL,
-            club_raw_name TEXT NOT NULL,
-            matched_club_id INTEGER NOT NULL,
-            matched_club_aliases TEXT NOT NULL,
-            row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(club_raw_name)
-        );
     ''')
 
     # Create table for documenting missing group parsing information

@@ -226,10 +226,10 @@ def print_db_insert_results(db_results):
     logging.info("Database Summary:")
     for st, emoji in [("success","✅"),("failed","❌"),("skipped","⏭️ ")]:
         total = sum(summary.get(st,{}).values())
-        print(f"   {emoji} {st.capitalize()}: {total}")
+        print(f"   {emoji} {st.capitalize()}: {total:,}")
         logging.info(f"   - {st.capitalize()}: {total}")
         for reason, cnt in summary[st].items():
-            print(f"      • {reason}: {cnt}")
+            print(f"      • {reason}: {cnt:,}")
             logging.info(f"      • {reason}: {cnt}")
 
     warning_list = []

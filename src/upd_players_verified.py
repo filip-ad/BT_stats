@@ -470,7 +470,7 @@ def upd_players_verified():
                 continue
 
             can_fn, can_ln, can_yb, can_src = can_tuple
-            print(f"   • Group {i}/{len(groups)}: canonical {can_ext} → {_seasoned_name(can_fn, can_ln, can_yb)}")
+            # print(f"   • Group {i}/{len(groups)}: canonical {can_ext} → {_seasoned_name(can_fn, can_ln, can_yb)}")
             logging.info("Group %d: canonical %s (%s)", i, can_ext, _seasoned_name(can_fn, can_ln, can_yb))
 
             # Ensure canonical exists
@@ -503,7 +503,7 @@ def upd_players_verified():
                     if old_pid != canon_player.player_id:
                         c_alias_repointed += 1
                         logging.info("Repoint alias %s: %s → %s", ext_id, old_pid, canon_player.player_id)
-                        print(f"      ↪ Repoint alias {ext_id}: {old_pid} → {canon_player.player_id}")
+                        # print(f"      ↪ Repoint alias {ext_id}: {old_pid} → {canon_player.player_id}")
                         _run(cursor,
                              "UPDATE player_alias SET player_id = ? WHERE player_id_ext = ?",
                              (canon_player.player_id, _as_text_ext(ext_id)),
@@ -517,7 +517,7 @@ def upd_players_verified():
                     else:
                         c_skipped_existing += 1
                         logging.info("Alias %s already on canonical player_id %s", ext_id, canon_player.player_id)
-                        print(f"      = Alias {ext_id} already points to canonical")
+                        # print(f"      = Alias {ext_id} already points to canonical")
                 else:
                     # No alias row exists → add one
                     fn, ln, yb, src = player_data.get(ext_id, (can_fn, can_ln, can_yb, "manual"))
@@ -553,23 +553,13 @@ def upd_players_verified():
                             (_as_text_ext(ext_id),))
             if row:
                 c_skipped_existing += 1
-                # if idx % 1000 == 0:
-                #     print(f"   … {idx:,}/{len(remaining):,} processed (skipping existing aliases)")
-                # continue
 
             # Insert a new verified player and its alias
-            # if DRY_RUN:
-            #     logging.info("[DRY RUN] Would INSERT player + alias for ext=%s (%s)",
-            #                  ext_id, _seasoned_name(fn, ln, yb))
-            #     if idx % 1000 == 0:
-            #         print(f"   … {idx:,}/{len(remaining):,} processed (dry-run inserts)")
-            # else:
             p = Player(firstname=fn, lastname=ln, year_born=yb, is_verified=True)
             res = p.save_to_db(cursor, _as_text_ext(ext_id), source_system=source)
             results.append(res)
             c_inserted_new += 1
-            # if idx % 1000 == 0:
-            #     print(f"   … {idx:,}/{len(remaining):,} processed (inserted so far: {c_inserted_new:,})")
+
 
         # ── 7) Commit / Report ─────────────────────────────────────────────
         print("\n──────────────── Summary ────────────────")
@@ -590,6 +580,7 @@ def upd_players_verified():
         else:
             conn.commit()
             print_db_insert_results(results)
+            print("")
             logging.info("Done updating players")
 
     except Exception as e:

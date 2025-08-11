@@ -16,6 +16,7 @@ from upd_tournaments import upd_tournaments
 from upd_tournament_classes import upd_tournament_classes
 from upd_player_participants import upd_player_participants
 from upd_player_positions import upd_player_positions
+from upd_tournament_group_stage import upd_tournament_group_stage
 from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes
 
 
@@ -82,42 +83,30 @@ def main():
         # Describe all functions, what they do, what tables are updated, variables etc etc
         #
 
-        # upd_clubs()
-
-        # - Scrape and populate player_license_raw table. No dependency.
+        # 1 Scrape and populate raw tables.
         # upd_player_licenses_raw()
-
-        # - Update player table. Depends on player_license_raw.
-        upd_players_verified()
-
-        # - Update player_ranking_group table. Depends on player_license_raw.
-        # upd_player_ranking_groups()
-
-        # - Update player license table. Depends on player_license_raw, club, player, season, and license tables.
-        # upd_player_licenses()
-
-        # - Scrape and populate player_transition_raw table. No dependency.
         # upd_player_transitions_raw()
-
-        # - Update player transitions. Depends on player_transition_raw, club, player, season, and license tables.
-        # upd_player_transitions()
-
-        # - Update player rankings raw table. No dependency.
         # upd_player_rankings_raw()
+
+        # 2 update clubs, verified players and player ranking groups
+        # upd_clubs()
+        # upd_players_verified()
+
+
+        # upd_player_ranking_groups()
+        # upd_player_licenses()
+        # upd_player_transitions()
 
         ################################################################################################
 
         # # Get tournaments
         # upd_tournaments()
-
-        # # # Scrape classes
         # upd_tournament_classes()
 
-        # # Fetch tournament class entries and process PDFs
-        # upd_player_participants()
 
-        # # Update player positions
+        # upd_player_participants()
         # upd_player_positions()
+        upd_tournament_group_stage()
 
     except Exception as e:
         logging.error(f"Error: {e}")
