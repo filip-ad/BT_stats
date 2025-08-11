@@ -88,13 +88,13 @@ def main():
         # upd_player_licenses_raw()
 
         # - Update player table. Depends on player_license_raw.
-        # upd_players_verified()
+        upd_players_verified()
 
         # - Update player_ranking_group table. Depends on player_license_raw.
         # upd_player_ranking_groups()
 
         # - Update player license table. Depends on player_license_raw, club, player, season, and license tables.
-        upd_player_licenses()
+        # upd_player_licenses()
 
         # - Scrape and populate player_transition_raw table. No dependency.
         # upd_player_transitions_raw()

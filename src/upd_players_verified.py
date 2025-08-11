@@ -167,6 +167,7 @@ DUPLICATE_EXT_GROUPS: List[Set[int]] = [
     {12546, 63530},     # Magnus Oskarsson, born 1970
     {400241, 579767},   # Maxim Stevens, born 2003
     {15987, 58542},     # Davis Bui (b. 1995) 
+    {40187, 588796},     # Terje Herting (b. 1978) 
     # add more as you discover them...
 ]
 
