@@ -131,6 +131,14 @@ class TournamentClass:
         """
         items = TournamentClass.cache_all(cursor)
         return {tc.tournament_class_id: tc for tc in items}
+    
+    @staticmethod
+    def cache_by_id_ext(cursor):
+        """
+        Returns a dict mapping tournament_class_id_ext to TournamentClass instances.
+        """
+        items = TournamentClass.cache_all(cursor)
+        return {tc.tournament_class_id_ext: tc for tc in items if tc.tournament_class_id_ext is not None}
 
     @classmethod
     def get_by_id(cls, cursor, class_id: int) -> Optional["TournamentClass"]:

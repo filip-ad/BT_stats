@@ -309,6 +309,7 @@ class PlayerLicense:
 
             # 2) Chunked fetch of existing player_license keys
             existing_licenses = set()
+            players_with_licenses = {k[0] for k in existing_licenses}  # Set of player_ids with at least one existing license
             all_lics = licenses
             cols_per_row = 4
             for i in range(0, len(all_lics), MAX_VARS // cols_per_row):
@@ -391,12 +392,15 @@ class PlayerLicense:
                         lic.valid_from = ed
                     else:
                         results.append({
-                            "status":"failed","row_id":lic.row_id,
+                            "status":"failed",
+                            "row_id":lic.row_id,
                             "reason":f"Valid from {lic.valid_from} outside {sd}–{ed}"
                         })
                         continue
                 if lic.valid_from == ed:
-                    results.append({"status":"skipped","row_id":lic.row_id,"reason":"Valid from date equals season end date"})
+                    results.append({"status":"skipped",
+                                    "row_id":lic.row_id,
+                                    "reason":"Valid from date equals season end date"})
                     continue
 
                 # Overlap check

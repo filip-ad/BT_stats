@@ -115,21 +115,51 @@ class Tournament:
 
 
     def save_to_db(self, cursor):
-        """Save the Tournament instance to the database, checking for duplicates."""
+        """
+        Save the Tournament instance to the database, checking for duplicates.
+        If this tournament lacks a valid OnData ID or URL, we still proceed
+        but tag it with a warning (likely an upcoming tournament).
+        """
+
+        # Prepare a warning if there’s no valid external URL
+        warnings = []
+        if not (self.tournament_id_ext and self.url):
+            warnings.append("No valid URL (likely an upcoming tournament)")
+
+        # Check required fields
         if not (self.shortname and self.startdate and self.enddate):
             return {
                 "status":   "failed",
                 "key":      self.shortname or "Unknown",
                 "reason":   "Missing one of required fields (shortname, startdate, enddate)"
             }
+        
+        # Check for missing longname
+        if not self.longname:
+            warnings.append("Missing tournament longname")
 
         # Check for duplicate by tournament_id_ext
         if Tournament.get_by_id_ext(cursor, self.tournament_id_ext):
-            logging.warning(f"Skipping duplicate tournament: {self.shortname} ({self.tournament_id_ext})")
+            logging.debug(f"Skipping duplicate tournament: {self.shortname} ({self.tournament_id_ext})")
             return {
-                "status":   "skipped",
-                "key":      self.tournament_id_ext,
-                "reason":   "Tournament already exists"
+                "status":       "skipped",
+                "key":          self.tournament_id_ext,
+                "reason":       "Tournament already exists",
+                "warnings":     warnings
+            }
+        
+        # Check for duplicate by shortname + startdate (for tournaments NOT STARTED without ext ID)
+        cursor.execute(
+            "SELECT tournament_id FROM tournament WHERE shortname = ? AND startdate = ?",
+            (self.shortname, self.startdate.isoformat())
+        )
+        if cursor.fetchone():
+            logging.warning(f"Skipping duplicate tournament (by name+date): {self.shortname} on {self.startdate}")
+            return {
+                "status":       "skipped",
+                "key":          f"{self.shortname}_{self.startdate.isoformat()}",
+                "reason":       "Tournament already exists",
+                "warnings":     warnings
             }
 
         try:
@@ -164,8 +194,9 @@ class Tournament:
             logging.debug(f"Inserted tournament into DB: {self.shortname}")
             return {
                 "status":   "success",
-                "key":      f"{self.shortname} ({self.tournament_id})",
-                "reason":   "Tournament inserted successfully"
+                "key":          f"{self.shortname} ({self.tournament_id})",
+                "reason":       "Tournament inserted successfully",
+                "warnings":     warnings
             }
         
         except sqlite3.Error as e:
