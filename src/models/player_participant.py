@@ -709,4 +709,30 @@ class PlayerParticipant:
                 data[class_id] = {}
             data[class_id][player_id] = (part_id, club_id)
         logging.info(f"Cached participant map by class (player_id→(participant_id,club_id)) for {len(data)} classes")
-        return data    
+        return data
+  
+    @staticmethod
+    def cache_by_class_name_fast(cursor):
+        """
+        Returns:
+        class_id -> {
+            "by_name_club": Dict[(name_key, club_id), participant_id],
+            "by_name_only": Dict[name_key, List[participant_id]]
+        }
+        """
+        from utils import normalize_key
+        data = {}
+        cursor.execute("""
+            SELECT pp.tournament_class_id,
+                pp.participant_id,
+                pp.club_id,
+                COALESCE(TRIM(p.firstname || ' ' || p.lastname), p.fullname_raw) AS nm
+            FROM player_participant pp
+            JOIN player p ON p.player_id = pp.player_id
+        """)
+        for class_id, pid, cid, nm in cursor.fetchall():
+            name_key = normalize_key(nm or "")
+            bucket = data.setdefault(class_id, {"by_name_club": {}, "by_name_only": {}})
+            bucket["by_name_club"][(name_key, cid)] = pid
+            bucket["by_name_only"].setdefault(name_key, []).append(pid)
+        return data
