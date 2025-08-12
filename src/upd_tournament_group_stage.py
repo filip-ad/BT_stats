@@ -104,6 +104,40 @@ def _infer_best_of(tokens: List[str]) -> Optional[int]:
     sets = [t for t in tokens if "-" in t]
     return len(sets) if sets else (5 if tokens else None)
 
+def _infer_best_of_from_sign(tokens: List[str]) -> Optional[int]:
+    # count integer-like tokens only
+    return sum(1 for t in tokens if t and re.fullmatch(r"[+-]?\d+", t.strip()))
+
+def _tokens_to_games_from_sign(tokens: List[str]) -> List[Tuple[int, int]]:
+    """
+    Strict deuce:
+      +x → P1 won, P2 scored x → score is (max(11, x+2), x)
+      -x → P2 won, P1 scored x → score is (x, max(11, x+2))
+    x is the loser’s points.
+    """
+    games: List[Tuple[int, int]] = []
+    for raw in tokens:
+        s = raw.replace(" ", "")
+        if not re.fullmatch(r"[+-]?\d+", s):
+            continue
+        v = int(s)
+        if v >= 0:
+            loser = v
+            p1 = max(11, loser + 2)  # winner
+            p2 = loser               # loser
+            games.append((p1, p2))
+        else:
+            loser = -v
+            p1 = loser               # loser on side1
+            p2 = max(11, loser + 2)  # winner on side2
+            games.append((p1, p2))
+    return games
+
+def _score_summary_from_sign(tokens: List[str]) -> Optional[str]:
+    g = _tokens_to_games_from_sign(tokens)
+    return ", ".join(f"{a}-{b}" for a, b in g) if g else None
+
+
 # ───────────────────────── Resolving helpers ─────────────────────────
 
 def _name_keys_for_lookup(name: str) -> List[str]:
@@ -139,11 +173,27 @@ def _resolve_fast(name: str, club: Optional[str],
             return lst[0]
     return None
 
+def _score_summary(tokens: List[str]) -> Optional[str]:
+    if not tokens:
+        return None
+    # keep set-like strings (e.g. "11-7") and time-like ("3:2") if they appear
+    pieces = [t.replace(" ", "") for t in tokens if "-" in t or ":" in t]
+    return ", ".join(pieces) if pieces else None    
+
 # ───────────────────────── Main entrypoint ─────────────────────────
 
 def upd_tournament_group_stage():
     conn, cur = get_conn()
     t0 = time.perf_counter()
+
+    # Ensure GROUP stage exists, fail fast with a clear message if not
+    group_sid = TournamentStage.id_by_code(cur, "GROUP")
+    if group_sid is None:
+        logging.error("Stage 'GROUP' not found in table stage. Seed the stage table first.")
+        print("❌ Stage 'GROUP' not found. Seed the stage table first.")
+        conn.close()
+        return
+
 
     classes_by_ext = TournamentClass.cache_by_id_ext(cur)
     if SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT is not None:
@@ -170,6 +220,7 @@ def upd_tournament_group_stage():
     totals = {"groups": 0, "matches": 0, "kept": 0, "skipped": 0}
     db_results = []
 
+    # Loop classes
     for idx, tc in enumerate(classes, 1):
         label = f"{tc.shortname or tc.class_description or tc.tournament_class_id} (ext:{tc.tournament_class_id_ext})"
         print(f"ℹ️  [{idx}/{len(classes)}] Class {label}  date={tc.date}")
@@ -214,10 +265,21 @@ def upd_tournament_group_stage():
         kept = skipped = 0
         _ = TournamentStage.id_by_code(cur, "GROUP")
 
+        logging.info(f"PDF URL: {url}")
+
+        # GROUP stage guaranteed by pre-flight
         for g_idx, g in enumerate(groups, 1):
             pool_name = g["name"]
             logging.info(f"    [POOL] {pool_name} — {len(g['matches'])} matches")
-            group = TournamentGroup(None, tc.tournament_class_id, pool_name, sort_order=g_idx)
+
+            # 1) Upsert the pool row and get a real group_id
+            group = TournamentGroup(
+                group_id=None,
+                tournament_class_id=tc.tournament_class_id,
+                name=pool_name,
+                sort_order=g_idx
+            ).upsert(cur)
+            group_id = group.group_id
             member_pids: set[int] = set()
 
             for i, m in enumerate(g["matches"], 1):
@@ -233,18 +295,51 @@ def upd_tournament_group_stage():
                 member_pids.update([p1_pid, p2_pid])
                 logging.info(f"       KEEP [{i}] prtcp={p1_pid} vs prtcp_id2={p2_pid} tokens={m['tokens']}")
 
+                best = _infer_best_of_from_sign(m['tokens'])
+                games = _tokens_to_games_from_sign(m['tokens'])
+                summary = _score_summary_from_sign(m['tokens'])
+
+                logging.info(f"[GROUP] g={g_idx} i={i} tokens={m['tokens']} → best_of={best}, "
+             f"games={games}, summary='{summary}'")
+
+                # 2) Persist match + sides + games using YOUR model
                 mx = Match(
+                    match_id=None,
                     tournament_class_id=tc.tournament_class_id,
                     fixture_id=None,
                     stage_code="GROUP",
-                    group_id=None,
-                    best_of=_infer_best_of(m['tokens']),
-                    date=None, score_summary=None, notes=None
+                    group_id=group_id,
+                    best_of=best,
+                    date=None,
+                    score_summary=summary,
+                    notes=None,
                 )
                 mx.add_side_participant(1, p1_pid)
                 mx.add_side_participant(2, p2_pid)
-                for no, (s1, s2) in enumerate(_tokens_to_games(m['tokens']), start=1):
+                for no, (s1, s2) in enumerate(games, start=1):
                     mx.add_game(no, s1, s2)
+
+                res = mx.save_to_db(cur)
+                logging.info(f"[GROUP] Inserted match_id={res.get('match_id')} for g={g_idx} i={i}")
+                if res.get("status") != "success":
+                    logging.warning(f"       WARN saving match: {res}")
+                    db_results.append({"status": "failed", "reason": res.get("reason", "unknown")})
+
+                
+                # DEBUG: After save_to_db()
+                logging.info(f"[GROUP] Inserted match_id={res.get('match_id')} for g={g_idx} i={i}")
+    
+
+                # 3) Upsert pool members once per pool
+                for pid in member_pids:
+                    group.add_member(cur, pid)   
+
+                # DEBUG: After adding pool members
+                logging.info(f"[GROUP] Pool '{pool_name}' members added: {sorted(member_pids)} "
+                            f"(count={len(member_pids)})")
+
+ 
+
 
         totals["kept"] += kept
         totals["skipped"] += skipped

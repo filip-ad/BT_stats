@@ -60,7 +60,8 @@ def main():
             # 'player_transition'
             # 'player_ranking_raw'
             # 'game',
-            # 'match',
+            'match_side_participant',
+            'match'
             # 'stage'
         ])
 
