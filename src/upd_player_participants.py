@@ -22,8 +22,6 @@ from models.player import Player
 
 PDF_BASE = "https://resultat.ondata.se/ViewClassPDF.php"
 
-
-
 def upd_player_participants():
     """
     Populate tournament_class_participant by downloading each class's 'stage=1' PDF.
@@ -156,15 +154,17 @@ def upd_player_participants():
         t5 = time.perf_counter()
         class_results = []
         for idx, raw in enumerate(participants, start=1):
-            raw_name  = raw["raw_name"]
-            club_name = raw["club_name"].strip()
-            seed_val  = raw.get("seed")  # may be None
+            raw_name        = raw["raw_name"]
+            club_name       = raw["club_name"].strip()
+            seed_val        = raw.get("seed")  
+            t_ptcp_id_ext   = raw.get("tournament_participant_id_ext")
 
             pp = PlayerParticipant.from_dict({
-                "tournament_class_id": tc.tournament_class_id,
-                "fullname_raw":        raw_name,
-                "club_name_raw":       club_name,
-                "seed":                seed_val
+                "tournament_class_id":              tc.tournament_class_id,
+                "tournament_participant_id_ext":    t_ptcp_id_ext,
+                "fullname_raw":                     raw_name,
+                "club_name_raw":                    club_name,
+                "seed":                             seed_val
             })
             result = pp.save_to_db(
                 cursor,
@@ -292,15 +292,8 @@ def download_pdf(url: str, retries: int = 3, timeout: int = 30) -> bytes | None:
             break
     return None
 
-PART_RE = re.compile(
-    r'^\s*(?:\d+\s+)?([^,]+?)\s*,\s*(\S.*)$',
-    re.MULTILINE
-)
 
-HEADER_RE = re.compile(
-    r'\b\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?\s*\(\s*(\d+)\s+[^\d()]+\)',
-    re.I
-)
+
 
 
 def extract_columns(page):
@@ -312,7 +305,9 @@ def extract_columns(page):
     right  = page.crop((w/2,  0,   w,   h)).extract_text() or ""
     return left, right
 
-def parse_players_pdf(pdf_bytes: bytes) -> tuple[list[dict], int | None]:
+def parse_players_pdf(
+        pdf_bytes: bytes
+    ) -> tuple[list[dict], int | None]:
     """
     Extract participant entries from PDF.
     Returns: (participants, expected_count)
@@ -326,7 +321,15 @@ def parse_players_pdf(pdf_bytes: bytes) -> tuple[list[dict], int | None]:
         r'\b\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?\s*\(\s*(\d+)\s+[^\d()]+\)',
         re.I,
     )
+
+    PART_RE = re.compile(
+        r'^\s*(?P<tpid>\d{1,3})\s+(?P<name>[^,]+?)\s*,\s*(?P<club>\S.*)$',
+        re.MULTILINE
+    )    
+
+
     BOLD_RE = re.compile(r"(bold|black|heavy|demi|semibold|semi-bold|sb)\b", re.I)
+
     CATEGORY_TOKENS = {"vet", "veteran", "junior", "pojkar", "flickor", "herrar", "damer"}
 
     def _strip_above_header(block: str) -> tuple[str, int | None]:
@@ -415,13 +418,13 @@ def parse_players_pdf(pdf_bytes: bytes) -> tuple[list[dict], int | None]:
             line = line.strip()
             if not line:
                 continue
-
             m = PART_RE.match(line)
             if not m:
                 continue
 
-            raw_name  = sanitize_name(m.group(1))
-            club_name = m.group(2).strip()
+            tournament_participant_id_ext   = m.group('tpid') or None  # preserves leading zeros
+            raw_name                        = sanitize_name(m.group('name'))
+            club_name                       = m.group('club').strip()
 
             # skip obvious class/category words accidentally in "club" position
             if club_name.lower() in CATEGORY_TOKENS:
@@ -435,13 +438,14 @@ def parse_players_pdf(pdf_bytes: bytes) -> tuple[list[dict], int | None]:
             is_seeded = normalize_key(raw_name) in bold_name_keys
             seed_val = seed_counter if is_seeded else None
             if is_seeded:
-                logging.info(f"Seed {seed_val}: {raw_name}")
+                # logging.info(f"Seed {seed_val}: {raw_name}")
                 seed_counter += 1
 
             participants.append({
-                "raw_name":  raw_name,
-                "club_name": club_name,
-                "seed":      seed_val,
+                "raw_name":                         raw_name,
+                "club_name":                        club_name,
+                "seed":                             seed_val,
+                "tournament_participant_id_ext":    tournament_participant_id_ext
             })
 
     logging.info(f"Parsed {len(participants)} unique participant entries (seeded: {seed_counter-1})")

@@ -1,6 +1,8 @@
 To do
 =======================================================
 
+Download all PDF:s?
+
 Make sure all classes are robust and well documented, to protect the database. 
 Minimize all db calls, handle it with verifications in the classes. 
 Add UPSERT:s instead of dropping tables... and use upsert/save to db always!

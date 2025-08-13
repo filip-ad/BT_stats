@@ -135,25 +135,3 @@ def _parse_row(row, tournament_id: int, base_date: datetime.date) -> Optional[To
         max_rank                = None,
         max_age                 = None,
     )
-
-
-
-# def infer_full_date(day_str, tournament_start):
-#     """
-#     Day_str is like '26', tournament_start may be a date or YYYY-MM-DD string.
-#     We parse start into a date, then replace day.
-#     """
-#     dt0 = parse_date(tournament_start, context="infer_full_date")
-#     if not dt0:
-#         return None
-
-#     m = re.search(r"\d+", day_str)
-#     if not m:
-#         return None
-#     day = int(m.group())
-
-#     try:
-#         return dt0.replace(day=day)
-#     except ValueError:
-#         logging.warning(f"Invalid day {day} for month {dt0.month}")
-#         return None

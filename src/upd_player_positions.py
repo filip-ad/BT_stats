@@ -60,8 +60,8 @@ def upd_player_positions():
 
     for idx, tc in enumerate(classes, 1):
         label = f"{tc.shortname or tc.longname or tc.tournament_class_id} (ext:{tc.tournament_class_id_ext})"
-        logging.info(f"[{idx}/{len(classes)}] Class {label}  date={tc.date}")
-        print(f"ℹ️  [{idx}/{len(classes)}] Class {label}  date={tc.date}")
+        # logging.info(f"[{idx}/{len(classes)}] Class {label}  date={tc.date}")
+        # print(f"ℹ️  [{idx}/{len(classes)}] Class {label}  date={tc.date}")
 
         if not tc or not tc.tournament_class_id_ext:
             logging.warning(f"  ↳ Skipping: Missing class {tc} or external class_id {tc.tournament_class_id_ext}")
@@ -84,8 +84,8 @@ def upd_player_positions():
 
         # clear old positions for safe re-runs
         cleared = PlayerParticipant.clear_final_positions_for_class(cur, tc.tournament_class_id)
-        logging.info(f"  ↳ Cleared final_position for {cleared} participants (class_id={tc.tournament_class_id})")
-        print(f"  ↳ Cleared final_position for {cleared} participants (class_id={tc.tournament_class_id})")
+        # logging.info(f"  ↳ Cleared final_position for {cleared} participants (class_id={tc.tournament_class_id})")
+        # print(f"  ↳ Cleared final_position for {cleared} participants (class_id={tc.tournament_class_id})")
 
         # Download stage=6 PDF
         url = RESULTS_URL_TMPL.format(class_id=tc.tournament_class_id_ext)
@@ -121,8 +121,8 @@ def upd_player_positions():
 
         parsed_count = len(rows)        # expected = number of lines (ties allowed)
         total_parsed += parsed_count
-        logging.info(f"  ↳ Parsed {parsed_count} positions from PDF.")
-        print(f"✅ Parsed {parsed_count}/{parsed_count} positions for class {tc.shortname or tc.longname or tc.tournament_class_id} (class_ext={tc.tournament_class_id_ext} in tournament id {tc.tournament_id})")
+        # logging.info(f"  ↳ Parsed {parsed_count} positions from PDF.")
+        # print(f"✅ Parsed {parsed_count}/{parsed_count} positions for class {tc.shortname or tc.longname or tc.tournament_class_id} (class_ext={tc.tournament_class_id_ext} in tournament id {tc.tournament_id})")
 
         if parsed_count == 0:
             db_results.append({

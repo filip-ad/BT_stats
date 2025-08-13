@@ -10,23 +10,26 @@ from utils import normalize_key
 
 @dataclass
 class PlayerParticipant:
-    tournament_class_id: int
-    fullname_raw:        str
-    club_name_raw:       str
-    seed:                Optional[int] = None
-    final_position:      Optional[int] = None
+    tournament_class_id:            Optional[int] = None
+    tournament_participant_id_ext:  Optional[str] = None
+    fullname_raw:                   Optional[str] = None
+    club_name_raw:                  Optional[str] = None
+    seed:                           Optional[int] = None
+    final_position:                 Optional[int] = None
 
     # Filled during save
-    player_id:      Optional[int] = None
-    club_id:        Optional[int] = None
+    participant_id:                 Optional[int] = None
+    player_id:                      Optional[int] = None
+    club_id:                        Optional[int] = None
 
     @staticmethod
     def from_dict(data: dict) -> "PlayerParticipant":
         return PlayerParticipant(
             tournament_class_id=data["tournament_class_id"],
+            tournament_participant_id_ext=data.get("tournament_participant_id_ext"),
             fullname_raw=data["fullname_raw"],
             club_name_raw=data["club_name_raw"],
-            seed=data.get("seed"),                 # ← keep it
+            seed=data.get("seed"),                 
             final_position=data.get("final_position"),
         )
     
@@ -413,69 +416,6 @@ class PlayerParticipant:
 
         return None
 
-    # def fallback_unverified(
-    #         self, 
-    #         cursor, 
-    #         warnings: List[str],
-    #         cache_unverified_name_map
-    #     ) -> dict:
-    #     clean = " ".join(self.fullname_raw.strip().split())
-    #     existing = cache_unverified_name_map.get(clean)
-    #     if existing is not None:
-    #         # use existing unverified player
-    #         self.player_id = existing
-    #         match_type = "unverified_fallback_existing"
-    #     else:
-    #         # create a new unverified player
-    #         cursor.execute(
-    #             """
-    #             INSERT INTO player (fullname_raw, is_verified)
-    #             VALUES (?, FALSE)
-    #             """,
-    #             (clean,)
-    #         )
-    #         new_id = cursor.lastrowid
-    #         self.player_id = new_id
-    #         cache_unverified_name_map[clean] = new_id
-    #         match_type = "unverified_fallback_new"
-    #     # insert into participant    
-    #     cursor.execute(
-    #         """
-    #         INSERT OR IGNORE INTO player_participant (
-    #             tournament_class_id, 
-    #             player_id, 
-    #             club_id
-    #         )
-    #         VALUES (?, ?, ?)
-    #         """,
-    #         (
-    #             self.tournament_class_id,
-    #             self.player_id,
-    #             self.club_id
-    #         )
-    #     )
-    #     inserted = cursor.rowcount == 1
-    #     if match_type == "unverified_fallback_new" and inserted:
-    #         reason = "Participant added successfully (new unverified player)"
-    #     elif match_type == "unverified_fallback_existing" and inserted:
-    #         reason = "Participant added successfully (existing unverified player)"
-    #     else:
-    #         reason = "Participant already exists (unverified player)"
-
-    #     if "new" in match_type: 
-    #         warnings.append("Could not match with verified player, new unverified player inserted")
-    #     else:
-    #         warnings.append("Could not match with verified player, existing unverified player used")
-
-    #     return {
-    #         "status":     "success" if inserted else "skipped",
-    #         "key":        f"{self.tournament_class_id}_{self.player_id}",
-    #         "reason":     reason,
-    #         "match_type": match_type,
-    #         "category":   "unverified",
-    #         "warnings":   warnings
-    #     }
-
     def fallback_unverified(
                 self, 
                 cursor, 
@@ -506,15 +446,19 @@ class PlayerParticipant:
                 """
                 INSERT OR IGNORE INTO player_participant (
                     tournament_class_id, 
+                    tournament_participant_id_ext,
                     player_id, 
-                    club_id
+                    club_id,
+                    seed
                 )
-                VALUES (?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     self.tournament_class_id,
+                    self.tournament_participant_id_ext,
                     self.player_id,
-                    self.club_id
+                    self.club_id,
+                    self.seed
                 )
             )
             inserted = cursor.rowcount == 1
@@ -549,14 +493,16 @@ class PlayerParticipant:
             """
             INSERT OR IGNORE INTO player_participant (
                 tournament_class_id, 
+                tournament_participant_id_ext,
                 player_id, 
                 club_id,
                 seed
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 self.tournament_class_id,
+                self.tournament_participant_id_ext,
                 self.player_id,
                 self.club_id,
                 self.seed

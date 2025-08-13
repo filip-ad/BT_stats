@@ -17,7 +17,7 @@ from upd_tournament_classes import upd_tournament_classes
 from upd_player_participants import upd_player_participants
 from upd_player_positions import upd_player_positions
 from upd_tournament_group_stage import upd_tournament_group_stage
-from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes
+from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes, create_FK_cascades, create_views, drop_old_fk_triggers
 
 
 def main():
@@ -45,7 +45,7 @@ def main():
             # 'club_name_prefix_match'
             # 'player',
             # 'player_alias'
-            # 'player_participant'
+            
             # 'license',
             # 'season'
             # 'tournament',
@@ -59,21 +59,22 @@ def main():
             # 'player_transition_raw'
             # 'player_transition'
             # 'player_ranking_raw'
+            # 'player_participant_missing_positions',
+
+            # In order:
             # 'game',
-            'match_side_participant',
-            'match'
-            # 'stage'
+            # 'match_side_participant',
+            # 'match',
+            # 'tournament_group_member',
+            # 'tournament_group'
+            # 'player_participant'
         ])
 
-
-        # # # Create static tables
         create_and_populate_static_tables(cursor)
-
-        # Create tables if they don't exist
         create_tables(cursor)  
-
-        # Create indexes
         create_indexes(cursor)
+        create_FK_cascades(cursor)
+        create_views(cursor)
 
         conn.commit()
         conn.close()
@@ -104,9 +105,8 @@ def main():
         # upd_tournaments()
         # upd_tournament_classes()
 
-
-        # upd_player_participants()
-        # upd_player_positions()
+        upd_player_participants()
+        upd_player_positions()
         upd_tournament_group_stage()
 
     except Exception as e:

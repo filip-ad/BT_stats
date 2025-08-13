@@ -100,13 +100,17 @@ def _tokens_to_games(tokens: List[str]) -> List[Tuple[int, int]]:
                 pass
     return games
 
-def _infer_best_of(tokens: List[str]) -> Optional[int]:
-    sets = [t for t in tokens if "-" in t]
-    return len(sets) if sets else (5 if tokens else None)
-
 def _infer_best_of_from_sign(tokens: List[str]) -> Optional[int]:
     # count integer-like tokens only
     return sum(1 for t in tokens if t and re.fullmatch(r"[+-]?\d+", t.strip()))
+
+def derive_best_of_from_summary(score_summary: str) -> int:
+    try:
+        p1_games, p2_games = map(int, score_summary.split("-"))
+    except ValueError:
+        return None
+    winner_games = max(p1_games, p2_games)
+    return winner_games * 2 - 1
 
 def _tokens_to_games_from_sign(tokens: List[str]) -> List[Tuple[int, int]]:
     """
@@ -180,6 +184,27 @@ def _score_summary(tokens: List[str]) -> Optional[str]:
     pieces = [t.replace(" ", "") for t in tokens if "-" in t or ":" in t]
     return ", ".join(pieces) if pieces else None    
 
+def _score_summary_games_won(tokens: list[str]) -> str:
+    """
+    Returns score summary in match-game form, e.g. '3-2'.
+    Strict deuce rules apply for interpreting winners from tokens.
+    """
+    p1_games = 0
+    p2_games = 0
+
+    for raw in tokens:
+        s = raw.strip().replace(" ", "")
+        if not re.fullmatch(r"[+-]?\d+", s):
+            continue
+        v = int(s)
+        if v >= 0:
+            p1_games += 1
+        else:
+            p2_games += 1
+
+    return f"{p1_games}-{p2_games}"
+
+
 # ───────────────────────── Main entrypoint ─────────────────────────
 
 def upd_tournament_group_stage():
@@ -231,7 +256,11 @@ def upd_tournament_group_stage():
         by_name_only = class_fast.get("by_name_only", {})
 
         if not by_name_club and not by_name_only:
-            db_results.append({"status": "skipped", "reason": f"No participants in class_id={tc.tournament_class_id}", "warnings": ""})
+            logging.warning(f"No participants found for class {tc.tournament_class_id} (ext={tc.tournament_class_id_ext})")
+            db_results.append({
+                "status": "skipped", 
+                "reason": f"No participants in class_id", 
+                "warnings": ""})
             continue
 
         url = RESULTS_URL_TMPL.format(class_id=tc.tournament_class_id_ext)
@@ -270,7 +299,7 @@ def upd_tournament_group_stage():
         # GROUP stage guaranteed by pre-flight
         for g_idx, g in enumerate(groups, 1):
             pool_name = g["name"]
-            logging.info(f"    [POOL] {pool_name} — {len(g['matches'])} matches")
+            # logging.info(f"    [POOL] {pool_name} — {len(g['matches'])} matches")
 
             # 1) Upsert the pool row and get a real group_id
             group = TournamentGroup(
@@ -293,14 +322,13 @@ def upd_tournament_group_stage():
 
                 kept += 1
                 member_pids.update([p1_pid, p2_pid])
-                logging.info(f"       KEEP [{i}] prtcp={p1_pid} vs prtcp_id2={p2_pid} tokens={m['tokens']}")
+                # logging.info(f"       KEEP [{i}] prtcp={p1_pid} vs prtcp_id2={p2_pid} tokens={m['tokens']}")
 
                 best = _infer_best_of_from_sign(m['tokens'])
                 games = _tokens_to_games_from_sign(m['tokens'])
-                summary = _score_summary_from_sign(m['tokens'])
+                summary = _score_summary_games_won(m['tokens'])
 
-                logging.info(f"[GROUP] g={g_idx} i={i} tokens={m['tokens']} → best_of={best}, "
-             f"games={games}, summary='{summary}'")
+                # logging.info(f"[GROUP] g={g_idx} i={i} tokens={m['tokens']} → best_of={best}, games_won={summary}")
 
                 # 2) Persist match + sides + games using YOUR model
                 mx = Match(
@@ -320,14 +348,14 @@ def upd_tournament_group_stage():
                     mx.add_game(no, s1, s2)
 
                 res = mx.save_to_db(cur)
-                logging.info(f"[GROUP] Inserted match_id={res.get('match_id')} for g={g_idx} i={i}")
+                # logging.info(f"[GROUP] Inserted match_id={res.get('match_id')} for g={g_idx} i={i}")
                 if res.get("status") != "success":
                     logging.warning(f"       WARN saving match: {res}")
                     db_results.append({"status": "failed", "reason": res.get("reason", "unknown")})
 
                 
                 # DEBUG: After save_to_db()
-                logging.info(f"[GROUP] Inserted match_id={res.get('match_id')} for g={g_idx} i={i}")
+                # logging.info(f"[GROUP] Inserted match_id={res.get('match_id')} for g={g_idx} i={i}")
     
 
                 # 3) Upsert pool members once per pool
@@ -335,11 +363,7 @@ def upd_tournament_group_stage():
                     group.add_member(cur, pid)   
 
                 # DEBUG: After adding pool members
-                logging.info(f"[GROUP] Pool '{pool_name}' members added: {sorted(member_pids)} "
-                            f"(count={len(member_pids)})")
-
- 
-
+                # logging.info(f"[GROUP] Pool '{pool_name}' members added: {sorted(member_pids)} (count={len(member_pids)})")
 
         totals["kept"] += kept
         totals["skipped"] += skipped
@@ -353,3 +377,5 @@ def upd_tournament_group_stage():
     print_db_insert_results(db_results)
     print("")
     conn.close()
+
+

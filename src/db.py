@@ -353,6 +353,7 @@ def create_tables(cursor):
             gender TEXT,
             max_rank INTEGER,
             max_age INTEGER,
+            URL TEXT,
             row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (tournament_id) REFERENCES tournament(tournament_id),
             UNIQUE (tournament_class_id_ext)
@@ -386,16 +387,17 @@ def create_tables(cursor):
     # Create match table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS match (
-            match_id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            tournament_class_id INTEGER,                 -- NOT NULL for tournaments
-            fixture_id          INTEGER,                 -- NOT NULL for league fixtures
-            stage_id            INTEGER NOT NULL,        -- 'GROUP','R16',... or 'LEAGUE'
-            group_id            INTEGER,                 -- only for stage='GROUP'
-            best_of             INTEGER,                 -- e.g. 5
-            date                DATE,
-            score_summary       TEXT,
-            notes               TEXT,
-            row_created         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            match_id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+            tournament_class_id         INTEGER,            -- NOT NULL for tournaments
+            tournament_match_id_ext     TEXT,               -- Tournament specific match ID
+            fixture_id                  INTEGER,                 -- NOT NULL for league fixtures
+            stage_id                    INTEGER NOT NULL,        -- 'GROUP','R16',... or 'LEAGUE'
+            group_id                    INTEGER,                 -- only for stage='GROUP'
+            best_of                     INTEGER,                 -- e.g. 5
+            date                        DATE,
+            score_summary               TEXT,
+            notes                       TEXT,
+            row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CHECK ( (tournament_class_id IS NOT NULL) != (fixture_id IS NOT NULL) ), -- XOR
             FOREIGN KEY (tournament_class_id) REFERENCES tournament_class(tournament_class_id),
             FOREIGN KEY (fixture_id)          REFERENCES team_fixture(fixture_id),
@@ -497,13 +499,14 @@ def create_tables(cursor):
     # Create player participant table (including seed and final position)
     cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_participant (
-                participant_id          INTEGER         PRIMARY KEY AUTOINCREMENT,
-                tournament_class_id     INTEGER         NOT NULL,
-                player_id               INTEGER,
-                club_id                 INTEGER,
-                seed                    INTEGER,
-                final_position          INTEGER,
-                row_created             TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
+                participant_id                  INTEGER         PRIMARY KEY AUTOINCREMENT,
+                tournament_class_id             INTEGER         NOT NULL,
+                tournament_participant_id_ext   TEXT,
+                player_id                       INTEGER,
+                club_id                         INTEGER,
+                seed                            INTEGER,
+                final_position                  INTEGER,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
                 FOREIGN KEY (tournament_class_id)   REFERENCES tournament_class(tournament_class_id),
                 FOREIGN KEY (player_id)             REFERENCES player(player_id),
                 FOREIGN KEY (club_id)               REFERENCES club(club_id), 
@@ -1072,8 +1075,7 @@ def create_and_populate_static_tables(cursor):
             final_results_url           TEXT,
             nbr_of_missing_positions    INTEGER NOT NULL,
             row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE      (tournament_class_id, tournament_class_id_ext),
-            FOREIGN KEY (tournament_class_id) REFERENCES tournament_class(tournament_class_id)
+            UNIQUE      (tournament_class_id, tournament_class_id_ext)
     )
     ''')
 
@@ -1094,8 +1096,6 @@ def create_indexes(cursor):
 
     indexes = [
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_tournament_id ON tournament_class(tournament_id)",
-        "CREATE INDEX IF NOT EXISTS idx_final_results_class_id ON tournament_class_final_results(tournament_class_id)",
-        "CREATE INDEX IF NOT EXISTS idx_final_results_player_id ON tournament_class_final_results(player_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_license_player_id ON player_license(player_id)",
         "CREATE INDEX IF NOT EXISTS idx_player_ranking_date ON player_ranking(date)",
         "CREATE INDEX IF NOT EXISTS idx_match_tournament_class_id ON match(tournament_class_id)",
@@ -1118,3 +1118,244 @@ def create_indexes(cursor):
 
     for stmt in indexes:
         cursor.execute(stmt)
+
+def drop_old_fk_triggers(cursor):
+    print("ℹ️  Dropping old FK cascade triggers...")
+    old_triggers = [
+        "fk_cascade_class_entries",
+        "fk_cascade_class_players",
+        "fk_cascade_final_results",
+        "fk_cascade_game",
+        "fk_cascade_match"
+    ]
+
+    for trig in old_triggers:
+        cursor.execute(f"DROP TRIGGER IF EXISTS {trig};")
+        print(f"  🗑  Dropped trigger: {trig}")        
+
+def create_FK_cascades(cursor):
+    print("ℹ️  Creating foreign key cascades...")
+
+    cascades = [
+        # Always enforce FK constraints
+        "PRAGMA foreign_keys = ON;",
+
+    # game → match
+    """
+    CREATE TRIGGER IF NOT EXISTS fk_cascade_game
+    BEFORE DELETE ON match
+    FOR EACH ROW
+    BEGIN
+        DELETE FROM game WHERE match_id = OLD.match_id;
+    END;
+    """,
+
+    # match_side_participant → player_participant
+    """
+    CREATE TRIGGER IF NOT EXISTS fk_cascade_match_side_participant
+    BEFORE DELETE ON player_participant
+    FOR EACH ROW
+    BEGIN
+        DELETE FROM match_side_participant WHERE participant_id = OLD.participant_id;
+    END;
+    """,
+
+    # tournament_group_member → player_participant
+    """
+    CREATE TRIGGER IF NOT EXISTS fk_cascade_group_member
+    BEFORE DELETE ON player_participant
+    FOR EACH ROW
+    BEGIN
+        DELETE FROM tournament_group_member WHERE participant_id = OLD.participant_id;
+    END;
+    """,
+
+    # group_standing → player_participant
+    """
+    CREATE TRIGGER IF NOT EXISTS fk_cascade_group_standing
+    BEFORE DELETE ON player_participant
+    FOR EACH ROW
+    BEGIN
+        DELETE FROM group_standing WHERE participant_id = OLD.participant_id;
+    END;
+    """,
+
+    # tournament_group → match
+    """
+    CREATE TRIGGER IF NOT EXISTS fk_cascade_match_from_group
+    BEFORE DELETE ON tournament_group
+    FOR EACH ROW
+    BEGIN
+        DELETE FROM match WHERE group_id = OLD.group_id;
+    END;
+    """,
+
+    # tournament_group → group_standing
+    """
+    CREATE TRIGGER IF NOT EXISTS fk_cascade_group_standing_from_group
+    BEFORE DELETE ON tournament_group
+    FOR EACH ROW
+    BEGIN
+        DELETE FROM group_standing WHERE group_id = OLD.group_id;
+    END;
+    """,
+
+    # tournament_group → tournament_group_member
+    """
+    CREATE TRIGGER IF NOT EXISTS fk_cascade_group_member_from_group
+    BEFORE DELETE ON tournament_group
+    FOR EACH ROW
+    BEGIN
+        DELETE FROM tournament_group_member WHERE group_id = OLD.group_id;
+    END;
+    """,
+
+    # tournament_class → tournament_group
+    """
+    CREATE TRIGGER IF NOT EXISTS fk_cascade_group
+    BEFORE DELETE ON tournament_class
+    FOR EACH ROW
+    BEGIN
+        DELETE FROM tournament_group WHERE tournament_class_id = OLD.tournament_class_id;
+    END;
+    """,
+
+    # tournament_class → match
+    """
+    CREATE TRIGGER IF NOT EXISTS fk_cascade_match_from_class
+    BEFORE DELETE ON tournament_class
+    FOR EACH ROW
+    BEGIN
+        DELETE FROM match WHERE tournament_class_id = OLD.tournament_class_id;
+    END;
+    """,
+
+    # tournament_class → player_participant
+    """
+    CREATE TRIGGER IF NOT EXISTS fk_cascade_participant
+    BEFORE DELETE ON tournament_class
+    FOR EACH ROW
+    BEGIN
+        DELETE FROM player_participant WHERE tournament_class_id = OLD.tournament_class_id;
+    END;
+    """
+]
+
+    for stmt in cascades:
+        cursor.execute(stmt)
+
+
+def create_views(cursor):
+    print("ℹ️  Creating views...")
+
+    # cursor.execute("DROP VIEW IF EXISTS vw_tournament_class_participants;")
+    # cursor.execute("DROP VIEW IF EXISTS vw_tournament_class_matches;")
+
+    views = [
+        (
+            "vw_tournament_class_participants",
+            """
+            CREATE VIEW IF NOT EXISTS vw_tournament_class_participants AS
+            SELECT 
+                t.tournament_id,
+                t.tournament_id_ext,
+                pp.tournament_class_id,
+                tc.tournament_class_id_ext,
+                tc.date,
+                t.longname AS Tournament,
+                tc.shortname AS Class,
+                pp.player_id,
+                COALESCE(p.firstname || ' ' || p.lastname, p.fullname_raw) AS player_name,
+                p.is_verified,
+                pp.club_id,
+                c.shortname AS club_name,
+                pp.final_position,
+                pp.seed,
+                t.url AS URL
+            FROM 
+                player_participant pp
+            JOIN 
+                player p ON p.player_id = pp.player_id
+            JOIN 
+                club c ON c.club_id = pp.club_id
+            JOIN 
+                tournament_class tc ON tc.tournament_class_id = pp.tournament_class_id
+            JOIN 
+                tournament t ON t.tournament_id = tc.tournament_id
+            ORDER BY 
+                pp.tournament_class_id,
+                pp.final_position,
+                player_name;
+            """
+        ),
+        (
+            "vw_matches_flat",
+            """
+            CREATE VIEW vw_matches_flat AS
+            SELECT
+                t.tournament_id,
+                tc.tournament_class_id,
+                m.match_id,
+                s.label AS stage_label,
+                m.score_summary,
+
+                -- Player 1
+                pp1.player_id AS player1_id,
+                COALESCE(p1.firstname || ' ' || p1.lastname, p1.fullname_raw, '') AS player1_name,
+                COALESCE(pp1.club_id, pl1.club_id) AS player1_club_id,
+                c1.shortname AS player1_club_name,
+
+                -- Player 2
+                pp2.player_id AS player2_id,
+                COALESCE(p2.firstname || ' ' || p2.lastname, p2.fullname_raw, '') AS player2_name,
+                COALESCE(pp2.club_id, pl2.club_id) AS player2_club_id,
+                c2.shortname AS player2_club_name
+
+            FROM match m
+            JOIN tournament_class tc
+              ON tc.tournament_class_id = m.tournament_class_id
+            JOIN tournament t
+              ON t.tournament_id = tc.tournament_id
+            LEFT JOIN stage s
+              ON s.stage_id = m.stage_id
+
+            -- Resolve sides → participants → players
+            LEFT JOIN match_side_participant msp1
+              ON msp1.match_id = m.match_id AND msp1.side = 1
+            LEFT JOIN match_side_participant msp2
+              ON msp2.match_id = m.match_id AND msp2.side = 2
+            LEFT JOIN player_participant pp1
+              ON pp1.participant_id = msp1.participant_id
+            LEFT JOIN player_participant pp2
+              ON pp2.participant_id = msp2.participant_id
+            LEFT JOIN player p1
+              ON p1.player_id = pp1.player_id
+            LEFT JOIN player p2
+              ON p2.player_id = pp2.player_id
+
+            -- License at match/class date (fallback if participant row has no club)
+            LEFT JOIN player_license pl1
+              ON pl1.player_id = pp1.player_id
+             AND DATE(COALESCE(m.date, tc.date)) BETWEEN pl1.valid_from AND pl1.valid_to
+            LEFT JOIN player_license pl2
+              ON pl2.player_id = pp2.player_id
+             AND DATE(COALESCE(m.date, tc.date)) BETWEEN pl2.valid_from AND pl2.valid_to
+
+            -- Club names
+            LEFT JOIN club c1
+              ON c1.club_id = COALESCE(pp1.club_id, pl1.club_id)
+            LEFT JOIN club c2
+              ON c2.club_id = COALESCE(pp2.club_id, pl2.club_id)
+
+            ORDER BY
+                tc.tournament_class_id,
+                stage_label,
+                m.match_id;
+            """
+        )
+    ]
+
+    for name, create_sql in views:
+        cursor.execute(f"DROP VIEW IF EXISTS {name};")
+        cursor.execute(create_sql)
+        print(f"  ✅ Created view: {name}")
