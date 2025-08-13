@@ -5,35 +5,37 @@ from models.tournament_stage import TournamentStage
 
 @dataclass
 class Match:
-    match_id:               Optional[int] = None
-    tournament_class_id:    Optional[int] = None    # XOR with fixture_id
-    fixture_id:             Optional[int] = None    # XOR with tournament_class_id
-    stage_code:             Optional[str] = None    # 'GROUP','R16','...','LEAGUE'; optional for league
-    group_id:               Optional[int] = None
-    best_of:                Optional[int] = None
-    date:                   Optional[str] = None
-    score_summary:          Optional[str] = None
-    notes:                  Optional[str] = None
+    match_id:                   Optional[int] = None
+    tournament_class_id:        Optional[int] = None    # XOR with fixture_id
+    tournament_match_id_ext:    Optional[int] = None
+    fixture_id:                 Optional[int] = None    # XOR with tournament_class_id
+    stage_code:                 Optional[str] = None    # 'GROUP','R16','...','LEAGUE'; optional for league
+    group_id:                   Optional[int] = None
+    best_of:                    Optional[int] = None
+    date:                       Optional[str] = None
+    score_summary:              Optional[str] = None
+    notes:                      Optional[str] = None
 
-    sides_participants:     List[Tuple[int, int]] = field(default_factory=list)                             # [(side, participant_id)]
-    sides_players:          List[Tuple[int, int, Optional[int]]] = field(default_factory=list)              # [(side, player_id, club_id)]
-    games:                  List[Tuple[int, Optional[int], Optional[int]]] = field(default_factory=list)
+    sides_participants:         List[Tuple[int, int]] = field(default_factory=list)                             # [(side, participant_id)]
+    sides_players:              List[Tuple[int, int, Optional[int]]] = field(default_factory=list)              # [(side, player_id, club_id)]
+    games:                      List[Tuple[int, Optional[int], Optional[int]]] = field(default_factory=list)
 
     @staticmethod
     def from_dict(d: Dict) -> "Match":
         return Match(
-            match_id=d.get("match_id"),
-            tournament_class_id=d.get("tournament_class_id"),
-            fixture_id=d.get("fixture_id"),
-            stage_code=d.get("stage_code"),
-            group_id=d.get("group_id"),
-            best_of=d.get("best_of"),
-            date=d.get("date"),
-            score_summary=d.get("score_summary"),
-            notes=d.get("notes"),
-            sides_participants=d.get("sides_participants", []),
-            sides_players=d.get("sides_players", []),
-            games=d.get("games", []),
+            match_id                    = d.get("match_id"),
+            tournament_class_id         = d.get("tournament_class_id"),
+            tournament_match_id_ext     = d.get("tournament_match_id_ext"),
+            fixture_id                  = d.get("fixture_id"),
+            stage_code                  = d.get("stage_code"),
+            group_id                    = d.get("group_id"),
+            best_of                     = d.get("best_of"),
+            date                        = d.get("date"),
+            score_summary               = d.get("score_summary"),
+            notes                       = d.get("notes"),
+            sides_participants          = d.get("sides_participants", []),
+            sides_players               = d.get("sides_players", []),
+            games                       = d.get("games", []),
         )
 
     def add_side_participant(
@@ -99,17 +101,42 @@ class Match:
             self, 
             cursor
         ) -> Dict:
+
         err = self._validate(cursor)
         if err:
-            return {"status": "failed", "reason": err}
+            return {
+                "status":   "failed", 
+                "code":     "MATCH_VALIDATION_FAILED",
+                "reason":   err
+            }
 
         stage_id = TournamentStage.id_by_code(cursor, self.stage_code)
         try:
             cursor.execute("""
-                INSERT INTO match (tournament_class_id, fixture_id, stage_id, group_id, best_of, date, score_summary, notes)
+                INSERT INTO match (
+                           tournament_class_id,
+                           tournament_match_id_ext, 
+                           stage_id, 
+                           group_id, 
+                           best_of, 
+                           date, 
+                           score_summary, 
+                           notes
+                )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (self.tournament_class_id, self.fixture_id, stage_id, self.group_id, self.best_of, self.date, self.score_summary, self.notes))
+            """, (self.tournament_class_id, 
+                  self.tournament_match_id_ext, 
+                  stage_id, 
+                  self.group_id, 
+                  self.best_of, 
+                  self.date, 
+                  self.score_summary, 
+                  self.notes
+                  )
+            )
             self.match_id = cursor.lastrowid
+
+            
 
             if self.tournament_class_id is not None:
                 for side, pid in self.sides_participants:
@@ -140,7 +167,7 @@ class Match:
     def get_by_id(cursor, match_id: int) -> Optional["Match"]:
         try:
             cursor.execute("""
-                SELECT m.match_id, m.tournament_class_id, m.fixture_id, s.code, m.group_id,
+                SELECT m.match_id, m.tournament_class_id, m.tournament_match_id_ext, m.fixture_id, s.code, m.group_id,
                        m.best_of, m.date, m.score_summary, m.notes
                   FROM match m
                   JOIN stage s ON s.stage_id = m.stage_id
@@ -148,7 +175,7 @@ class Match:
             """, (match_id,))
             row = cursor.fetchone()
             if not row: return None
-            m = Match(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8])
+            m = Match(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9])
 
             if m.tournament_class_id is not None:
                 cursor.execute("SELECT side, participant_id FROM match_side_participant WHERE match_id=? ORDER BY side", (match_id,))

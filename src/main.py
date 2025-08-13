@@ -105,8 +105,8 @@ def main():
         # upd_tournaments()
         # upd_tournament_classes()
 
-        upd_player_participants()
-        upd_player_positions()
+        # upd_player_participants()
+        # upd_player_positions()
         upd_tournament_group_stage()
 
     except Exception as e:
