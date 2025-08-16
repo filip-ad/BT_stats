@@ -89,22 +89,24 @@ def setup_driver():
     logging.info("-------------------------------------------------------------------")
     return driver
 
-def parse_date(date_str, context=None):
-    """Parse a date string in 'YYYY-MM-DD' or 'YYYY.MM.DD' format into a datetime.date object.
-    If input is already a datetime.date, returns it unchanged."""
+def parse_date(date_str, context=None, return_iso=False):
+    """
+    Parse a date string in 'YYYY-MM-DD', 'YYYY.MM.DD', or ISO variants into a datetime.date object.
+    If input is already a datetime.date, returns it unchanged (or as ISO string if requested).
+    Optionally returns the date in ISO format ('YYYY-MM-DD') string.
+    """
     if isinstance(date_str, date):
-        # Already a date object, no need to parse
-        return date_str
+        return date_str.isoformat() if return_iso else date_str
 
     date_str = date_str.strip() if date_str else "None"
-    for fmt in ("%Y-%m-%d", "%Y.%m.%d"):
+    for fmt in ("%Y-%m-%d", "%Y.%m.%d", "%Y%m%d"):
         try:
-            return datetime.strptime(date_str, fmt).date()
+            parsed = datetime.strptime(date_str, fmt).date()
+            return parsed.isoformat() if return_iso else parsed
         except ValueError:
             continue
     logging.warning(f"Invalid date format: {date_str} (context: {context or 'unknown calling function'})")
     return None
-
 
 def print_db_insert_results(db_results):
     """

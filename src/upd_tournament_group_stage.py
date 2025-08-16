@@ -13,7 +13,7 @@ from config import (
 from models.club import Club
 from models.player import Player
 from models.tournament_class import TournamentClass
-from models.tournament_participant import TournamentParticipant
+from models.participant import Participant
 from models.tournament_group import TournamentGroup
 from models.match import Match
 from models.tournament_stage import TournamentStage

@@ -324,21 +324,22 @@ def create_tables(cursor):
         # Create tournaments table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament (
-                tournament_id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-                tournament_id_ext               TEXT,
-                longname                        TEXT,
-                shortname                       TEXT,
-                startdate                       DATE,
-                enddate                         DATE,
-                city                            TEXT,
-                arena                           TEXT,
-                country_code                    TEXT,
-                url                             TEXT,
-                status                          TEXT,
-                data_source_id                  INTEGER DEFAULT 1,
-                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (data_source_id)    REFERENCES data_source(data_source_id),
+                tournament_id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id_ext                   TEXT,
+                longname                            TEXT,
+                shortname                           TEXT,
+                startdate                           DATE,
+                enddate                             DATE,
+                city                                TEXT,
+                arena                               TEXT,
+                country_code                        TEXT,
+                url                                 TEXT,
+                tournament_status_id                INTEGER,
+                data_source_id                      INTEGER DEFAULT 1,
+                row_created                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (data_source_id)        REFERENCES data_source(data_source_id),
+                FOREIGN KEY (tournament_status_id)  REFERENCES tournament_status(tournament_status_id),
                 UNIQUE (tournament_id_ext, data_source_id),
                 UNIQUE (shortname, startdate)
             )
@@ -359,12 +360,14 @@ def create_tables(cursor):
                 max_rank                                    INTEGER,
                 max_age                                     INTEGER,
                 url                                         TEXT,
+                data_source_id                              INTEGER DEFAULT 1,
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (tournament_id)                 REFERENCES tournament(tournament_id)    ON DELETE CASCADE,
                 FOREIGN KEY (tournament_class_type_id)      REFERENCES tournament_class_type(tournament_class_type_id),
                 FOREIGN KEY (tournament_class_structure_id) REFERENCES tournament_class_structure(tournament_class_structure_id),
-                UNIQUE      (tournament_class_id_ext)
+                FOREIGN KEY (data_source_id)                REFERENCES data_source(data_source_id),
+                UNIQUE      (tournament_class_id_ext, data_source_id)
             )
         ''')
 
@@ -910,6 +913,29 @@ def create_and_populate_static_tables(cursor):
 
         ############### TOURNAMENT LOOKUPS ################
 
+        # Create tournament status table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tournament_status (
+                tournament_status_id        INTEGER PRIMARY KEY,
+                description                 TEXT NOT NULL,
+                UNIQUE(description)
+            ) WITHOUT ROWID;
+        ''')
+
+        tournament_statuses = [
+            (1, 'Upcoming'),
+            (2, 'Ongoing'),
+            (3, 'Ended'),
+            (4, 'Cancelled'),
+            (5, 'Postponed'),
+            (6, 'Unknown')
+        ]
+
+        cursor.executemany('''
+            INSERT OR IGNORE INTO tournament_status (tournament_status_id, description)
+            VALUES (?, ?)
+        ''', tournament_statuses)
+
         # Create stage table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_stage (
@@ -1172,6 +1198,8 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_structure_id ON tournament_class(tournament_class_structure_id)",
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_id_ext ON tournament_class(tournament_class_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_date ON tournament_class(date)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_class_ext_source ON tournament_class (tournament_class_id_ext, data_source_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_class_fallback ON tournament_class (tournament_id, shortname, date)",
 
         # Participant (replaced tournament_participant)
         "CREATE INDEX IF NOT EXISTS idx_participant_tournament_class_id ON participant(tournament_class_id)",
@@ -1395,11 +1423,43 @@ def create_views(cursor):
             GROUP BY s.tournament_class_group_id, s.participant_id
             ORDER BY s.tournament_class_group_id, s.position_in_group;
             """
+        ),
+        (
+            "vw_tournament_classes_overview_lkp_status",
+            """
+            CREATE VIEW IF NOT EXISTS vw_tournament_classes_overview AS
+            SELECT
+
+                t.shortname  AS tournament_shortname,
+                tc.longname  AS class_longname,
+                tc.shortname AS class_shortname,
+                tct.description AS tournament_class_type,
+                tcs.description AS tournament_class_structure,
+                ts.description  AS tournament_status,
+                tc.date       AS class_date,
+                t.country_code,
+                t.url         AS tournament_url,
+                tc.tournament_class_id,
+                tc.tournament_class_id_ext,
+                t.tournament_id,
+                t.tournament_id_ext
+            FROM tournament_class tc
+            JOIN tournament t
+            ON t.tournament_id = tc.tournament_id
+            LEFT JOIN tournament_class_type tct
+            ON tct.tournament_class_type_id = tc.tournament_class_type_id
+            LEFT JOIN tournament_class_structure tcs
+            ON tcs.tournament_class_structure_id = tc.tournament_class_structure_id
+            LEFT JOIN tournament_status ts
+            ON ts.tournament_status_id = t.tournament_status_id
+            ORDER BY t.tournament_id, tc.tournament_class_id DESC;
+            """
         )
     ]
 
     try:
         for name, create_sql in views:
+            cursor.execute("DROP VIEW IF EXISTS vw_tournament_classes_overview_lkp_status")
             cursor.execute(f"DROP VIEW IF EXISTS {name};")
             cursor.execute(create_sql)
             

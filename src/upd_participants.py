@@ -13,12 +13,12 @@ from models.player_license import PlayerLicense
 from models.club import Club
 from models.tournament_class import TournamentClass
 from config import SCRAPE_CLASS_PARTICIPANTS_MAX_CLASSES, SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT, SCRAPE_CLASS_PARTICIPANTS_ORDER
-from models.tournament_participant import TournamentParticipant
+from models.participant import Participant
 from models.player import Player
 
 PDF_BASE = "https://resultat.ondata.se/ViewClassPDF.php"
 
-def upd_tournament_participants():
+def upd_participants():
     """
     Populate tournament_class_participant by downloading each class's 'stage=1' PDF.
     """

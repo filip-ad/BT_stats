@@ -20,7 +20,7 @@ from upd_player_transitions import upd_player_transitions
 from upd_tournaments import upd_tournaments
 from upd_tournament_classes import upd_tournament_classes
 
-from upd_tournament_participants import upd_tournament_participants
+from upd_participants import upd_participants
 from upd_player_positions import upd_player_positions
 from upd_tournament_group_stage import upd_tournament_group_stage
 from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes, create_triggers, create_views
@@ -88,7 +88,7 @@ def main():
             # 'participant',
 
             # Tournament core
-            # 'tournament_class',
+            'tournament_class'
             # 'tournament',
 
             # Fixture (if exists)
@@ -113,7 +113,7 @@ def main():
             # If district exists and needs dropping (parent of club)
             # 'district'
 
-            'log_events'
+            # 'log_events'
         ])
 
         create_and_populate_static_tables(cursor)
@@ -148,10 +148,10 @@ def main():
         ################################################################################################
 
         # # Get tournaments
-        upd_tournaments()
-        # upd_tournament_classes()
+        # upd_tournaments()
+        upd_tournament_classes()
 
-        # upd_player_participants()
+        # upd_participants()
         # upd_player_positions()
         # upd_tournament_group_stage()
 

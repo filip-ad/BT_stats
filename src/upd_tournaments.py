@@ -58,8 +58,8 @@ def upd_tournaments() -> None:
         # =============================================================================
         for i, raw_data in enumerate(filtered_tournaments, 1):
 
-            start_d = parse_date(raw_data["start_str"])
-            item_key = f"{raw_data['shortname']} ({start_d})"
+            start_d     = parse_date(raw_data["start_str"])
+            item_key    = f"{raw_data['shortname']} ({start_d})"
             print(f"ℹ️  Processing tournament [{i}/{len(filtered_tournaments)}] {raw_data['shortname']}")
 
             # Parse tournaments
@@ -70,12 +70,12 @@ def upd_tournaments() -> None:
 
             # Create and validate tournament object
             # =============================================================================         
-            tournament = Tournament.from_dict(parsed_data)
-            val = tournament.validate(logger, item_key)  
+            tournament  = Tournament.from_dict(parsed_data)
+            val         = tournament.validate(logger, item_key)  
             if val["status"] != "success":
                 continue
 
-            tournament.upsert_to_db(cursor, logger, item_key)
+            tournament.upsert(cursor, logger, item_key)
             
         logger.summarize()
 
@@ -156,8 +156,8 @@ def parse_raw_tournament(
     Logs failures and warnings using logger.
     Returns parsed data dict on success, None on failure.
     """
-    start_date = parse_date(raw_data["start_str"])
-    end_date = parse_date(raw_data["end_str"])
+    start_date  = parse_date(raw_data["start_str"])
+    end_date    = parse_date(raw_data["end_str"])
     if not start_date or not end_date:
         logger.failure(item_key, "Invalid dates")
         return None
@@ -169,7 +169,7 @@ def parse_raw_tournament(
     m2                  = _ONDATA_URL_RE.search(full_url) if full_url else None
     ondata_id           = m2.group(1) if m2 else None
     longname            = _fetch_tournament_longname(ondata_id) if ondata_id else None
-    status              = "ENDED" if end_date < date.today() else "ONGOING" if start_date <= date.today() <= end_date else "UPCOMING"
+    status              = 6 if not (start_date and end_date) else 3 if end_date < date.today() else 2 if start_date <= date.today() <= end_date else 1
 
     parsed_data = {
         "tournament_id_ext":    ondata_id,
@@ -181,9 +181,10 @@ def parse_raw_tournament(
         "arena":                raw_data["arena"],
         "country_code":         raw_data["country_code"],
         "url":                  full_url,
-        "status":               status,
+        "tournament_status_id": status,
         "data_source_id":       1
     }
+
     return parsed_data
 
 def _fetch_tournament_longname(ondata_id: str) -> Optional[str]:

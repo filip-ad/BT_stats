@@ -13,7 +13,7 @@ from config import (
 from models.club import Club
 from models.player import Player
 from models.tournament_class import TournamentClass
-from models.tournament_participant import TournamentParticipant
+from models.participant import Participant
 
 RESULTS_URL_TMPL = "https://resultat.ondata.se/ViewClassPDF.php?classID={class_id}&stage=6"
 

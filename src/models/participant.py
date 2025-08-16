@@ -1,3 +1,5 @@
+# src/models/participant.py
+
 import logging
 from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass
@@ -8,7 +10,7 @@ from models.player import Player
 from utils import normalize_key, name_keys_for_lookup_all_splits
 
 @dataclass
-class TournamentParticipant:
+class Participant:
     tournament_class_id:            Optional[int] = None
     tournament_participant_id_ext:  Optional[str] = None
     fullname_raw:                   Optional[str] = None
