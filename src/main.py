@@ -3,21 +3,27 @@
 
 import logging
 from utils import setup_logging
+
 from upd_clubs import upd_clubs
 from upd_players_verified import upd_players_verified
+
 from upd_player_licenses_raw import upd_player_licenses_raw
 from upd_player_licenses import upd_player_licenses
+
 from upd_player_ranking_groups import upd_player_ranking_groups
 from upd_player_rankings_raw import upd_player_rankings_raw
 from upd_player_rankings import upd_player_rankings
+
 from upd_player_transitions_raw import upd_player_transitions_raw
 from upd_player_transitions import upd_player_transitions
+
 from upd_tournaments import upd_tournaments
 from upd_tournament_classes import upd_tournament_classes
-from upd_player_participants import upd_player_participants
+
+from upd_tournament_participants import upd_tournament_participants
 from upd_player_positions import upd_player_positions
 from upd_tournament_group_stage import upd_tournament_group_stage
-from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes, create_FK_cascades, create_views, drop_old_fk_triggers
+from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes, create_triggers, create_views
 
 
 def main():
@@ -59,21 +65,59 @@ def main():
             # 'player_transition_raw'
             # 'player_transition'
             # 'player_ranking_raw'
-            # 'player_participant_missing_positions',
 
-            # In order:
+            # Debugging tables (no FKs assumed)
+            # 'player_participant_missing_positions',
+            # 'player_participant_missing',
+            # 'debug_invalid_pdf_parse',
+            # 'debug_group_parse_missing',
+
+            # Game and match-related (leaves)
             # 'game',
-            # 'match_side_participant',
-            # 'match',
-            # 'tournament_group_member',
-            # 'tournament_group'
-            # 'player_participant'
+            # 'match_id_ext',
+            # 'match_side',
+            # 'match_competition',
+
+            # Group and standing
+            # 'tournament_class_group_member',
+            # 'tournament_class_group_standing',
+
+            # Participant-related
+            # 'participant_player',  # References player and club
+            # 'tournament_class_group',
+            # 'participant',
+
+            # Tournament core
+            # 'tournament_class',
+            # 'tournament',
+
+            # Fixture (if exists)
+            # 'fixture',
+
+            # Player and club extensions (dependents)
+            
+            # 'club_ext_id',   # References club
+            # 'club_name_alias',  # References club
+
+            # 'club',
+            # 'player_alias',  # References player
+            # 'player',
+            
+            # Lookup/static tables (no dependents)
+            # 'tournament_class_type',
+            # 'tournament_class_structure',
+            # 'competition_type',
+            # 'data_source',
+            # 'tournament_class_stage',
+
+            # If district exists and needs dropping (parent of club)
+            # 'district'
         ])
 
         create_and_populate_static_tables(cursor)
         create_tables(cursor)  
         create_indexes(cursor)
-        create_FK_cascades(cursor)
+        create_triggers(cursor)
         create_views(cursor)
 
         conn.commit()
@@ -102,12 +146,12 @@ def main():
         ################################################################################################
 
         # # Get tournaments
-        # upd_tournaments()
+        upd_tournaments()
         # upd_tournament_classes()
 
         # upd_player_participants()
         # upd_player_positions()
-        upd_tournament_group_stage()
+        # upd_tournament_group_stage()
 
     except Exception as e:
         logging.error(f"Error: {e}")

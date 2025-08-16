@@ -1,4 +1,4 @@
-# src/tournament.py
+# src/updaters/tournament_updater.py
 
 import logging
 from datetime import date
@@ -6,178 +6,208 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from utils import parse_date, print_db_insert_results
+from typing import List, Dict, Any, Optional
+from utils import parse_date, OperationLogger
 from db import get_conn
-from config import SCRAPE_TOURNAMENTS_ORDER, SCRAPE_TOURNAMENTS_CUTOFF_DATE, SCRAPE_TOURNAMENTS_URL_ONDATA
+from config import SCRAPE_TOURNAMENTS_CUTOFF_DATE, SCRAPE_TOURNAMENTS_URL_ONDATA
 from models.tournament import Tournament
 
-def upd_tournaments():
-
+def upd_tournaments() -> None:
+    """
+    Updater entry point: Scrape raw data, process through pipeline, aggregate results.
+    """
     conn, cursor = get_conn()
+
+    # Set up logging
+    # =============================================================================
+    logger = OperationLogger(
+        verbosity=3, 
+        print_output=False, 
+        log_to_db=False, 
+        cursor=cursor)
     
     try:
 
-        logging.info(f"Starting tournament scraping process from ondata, with cutoff date {SCRAPE_TOURNAMENTS_CUTOFF_DATE}...")
-        print(f"ℹ️  Starting tournament scraping process from ondata, with cutoff date {SCRAPE_TOURNAMENTS_CUTOFF_DATE}...")
-
-        db_results = []     
-        tournaments, db_results = scrape_tournaments_ondata()
-        
-        if not tournaments:
-            logging.warning("No tournaments scraped.")
-            print("⚠️  No tournaments scraped.")
+        try:
+            cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
+        except ValueError as ve:
+            logging.error(f"Invalid cutoff date format: {ve}")
+            print(f"❌ Invalid cutoff date format: {ve}")
             return
 
-        logging.info(f"Successfully scraped {len(tournaments)} tournaments from ondata.")
-        print(f"✅ Successfully scraped {len(tournaments)} tournaments from ondata.")
+        logging.info(f"Starting tournament update, cutoff: {cutoff_date}")
+        print(f"ℹ️  Starting tournament update, cutoff: {cutoff_date}")
 
-        # No need for batch insert here, save each tournament individually
-        for t in tournaments:
-            result = t.save_to_db(cursor)
-            db_results.append(result)
+        # Scrape all tournaments
+        # =============================================================================
+        raw_tournaments = scrape_raw_tournaments_ondata(logger)
+        if not raw_tournaments:
+            logging.warning("No raw data scraped")
+            print("⚠️  No raw data scraped")
+            return
 
-        print_db_insert_results(db_results)
+        # Filter by cutoff date
+        # =============================================================================
+        filtered_tournaments = [
+            t for t in raw_tournaments
+            if (start_date := parse_date(t["start_str"])) and start_date >= cutoff_date
+        ]
+
+        # Loop through filtered tournaments
+        # Pipeline: parse -> validate -> create -> upsert    
+        # =============================================================================
+        for i, raw_data in enumerate(filtered_tournaments, 1):
+
+            start_d = parse_date(raw_data["start_str"])
+            item_key = f"{raw_data['shortname']} ({start_d})"
+            print(f"ℹ️  Processing tournament [{i}/{len(filtered_tournaments)}] {raw_data['shortname']}")
+            logging.info(f"Processing tournament [{i}/{len(filtered_tournaments)}] {raw_data['shortname']}")
+
+            # Parse tournaments
+            # ============================================================================= 
+            parsed_data = parse_raw_tournament(raw_data, logger, item_key)
+            if parsed_data is None:
+                continue
+
+            # Create and validate tournament object
+            # =============================================================================         
+            tournament = Tournament.from_dict(parsed_data)
+            val = tournament.validate(logger, item_key)  
+            if val["status"] != "success":
+                continue
+
+            tournament.upsert_to_db(cursor, logger)
+            
+        logger.summarize()
+
 
     except Exception as e:
-        logging.error(f"Exception during tournament scraping: {e}")
-        print(f"❌ Exception during tournament scraping: {e}")
+        logging.error(f"Error in upd_tournaments: {e}")
+        print(f"❌ Error in upd_tournaments: {e}")
 
     finally:
         conn.commit()
         conn.close()
 
-def scrape_tournaments_ondata():
+def scrape_raw_tournaments_ondata(
+        logger: OperationLogger
+    ) -> List[Dict[str, Any]]:      
     """
-    Returns a list of Tournament instances for all
-    rows on the ?viewAll=1 page that meet the 
-    date/status criteria (start >= cutoff, etc).
+    Scrape raw HTML rows from ondata.se tables.
+    Returns list of raw dicts with table row data.
     """
-    db_results = []
 
-    _ONDATA_URL_RE = re.compile(r"https://resultat\.ondata\.se/(\w+)/?$")
-    _ONCLICK_URL_RE = re.compile(r"document\.location=(?:'|\")?([^'\"]+)(?:'|\")?")
-    
-    tournaments = []
-    today = date.today()
-    cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
+    raw_tournaments = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    try:
+        resp = requests.get(SCRAPE_TOURNAMENTS_URL_ONDATA, headers=headers, timeout=30)  # 30s timeout
+        resp.raise_for_status()
+    except requests.Timeout:
+        print("❌ Timeout fetching OnData tournaments. Site slow or network issue—try later or increase timeout.")
+        logger.failed("Timeout fetching OnData tournaments")
+        return []
+    except requests.ConnectionError:
+        print("❌ Connection error. Check network/proxy/VPN, or site may be down.")
+        logger.failed("Connection error fetching OnData tournaments")
+        return []
+    except requests.HTTPError as e:
+        print(f"❌ HTTP error: {e} (status: {resp.status_code if 'resp' in locals() else 'Unknown'})")
+        logger.failed(f"HTTP error fetching OnData tournaments: {e}")
+        return []
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        logger.failed(f"Unexpected error fetching OnData tournaments: {e}")
+        return []
 
-    resp = requests.get(SCRAPE_TOURNAMENTS_URL_ONDATA)
-    resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
-
-    # Find the Upcoming and Archive tables
     tables = soup.find_all("table", id="listtable")
     if not tables:
-        logging.error("Could not find any #listtable on page")
-        return tournaments
+        print("❌  No tables found on page—site structure may have changed.")
+        logger.failed("No tables found on page—site structure may have changed.")
+        return raw_tournaments
 
-    # loop both Upcoming and Archive tables
     for table in tables:
-        for idx, row in enumerate(table.find_all("tr")[1:], start=1):    
+        for row in table.find_all("tr")[1:]:
             cols = row.find_all("td")
             if len(cols) < 6:
-                logging.debug(f"Skipping row {idx}: only {len(cols)} < 6 columns")
                 continue
 
-            # basic cols
-            shortname    = cols[0].get_text(strip=True)
-            start_str    = cols[1].get_text(strip=True)
-            end_str      = cols[2].get_text(strip=True)
-            city         = cols[3].get_text(strip=True)
-            arena        = cols[4].get_text(strip=True)
-            country_code = cols[5].get_text(strip=True)
+            raw_data = {
+                "shortname":    cols[0].text.strip(),
+                "start_str":    cols[1].text.strip(),
+                "end_str":      cols[2].text.strip(),
+                "city":         cols[3].text.strip(),
+                "arena":        cols[4].text.strip(),
+                "country_code": cols[5].text.strip(),
+                "onclick":      row.get("onclick", "")
+            }
+            raw_tournaments.append(raw_data)
 
-            print(f"ℹ️  Processing tournament: {shortname} ({start_str}–{end_str}) in {city}, {arena}, {country_code}")
+    return raw_tournaments
 
-            # parse dates
-            start_date = parse_date(start_str)
-            end_date   = parse_date(end_str)
-            if not start_date or not end_date:
-                logging.warning(f"Skipping {shortname}: invalid dates “{start_str}”–“{end_str}”")
-                continue
-            if start_date < cutoff_date:
-                logging.debug(f"Skipping {shortname}: starts before cutoff ({start_date} < {cutoff_date})")
-                continue
-
-            # status
-            if end_date < today:
-                status = "ENDED"
-            elif start_date <= today <= end_date:
-                status = "ONGOING"
-            else:
-                status = "UPCOMING"
-
-            # extract URL from onclick attribute
-            onclick = row.get("onclick", "") or ""
-            m = _ONCLICK_URL_RE.search(onclick)
-            if m:
-                full_url = urljoin(SCRAPE_TOURNAMENTS_URL_ONDATA, m.group(1))
-            else:
-                logging.warning(f"{shortname}: no valid onclick URL")
-                full_url = None
-
-            # extract ondata_id ONLY if full_url is non-None
-            m2 = _ONDATA_URL_RE.search(full_url) if full_url else None
-            if m2:
-                ondata_id = m2.group(1)
-            else:
-                logging.debug(f"{shortname}: invalid ondata_id in URL {full_url}")
-                ondata_id = None         
-
-            # # get the tournament longname
-            longname = None
-            if ondata_id:
-                longname = _fetch_tournament_longname(ondata_id)
-                if not longname:
-                    logging.warning(f"{shortname}: could not fetch tournament longname")
-
-            # build Tournament
-            tour = Tournament.from_dict({
-                "tournament_id":     None,
-                "tournament_id_ext": ondata_id,
-                "longname":          longname,
-                "shortname":         shortname,
-                "startdate":         start_date,
-                "enddate":           end_date,
-                "city":              city,
-                "arena":             arena,
-                "country_code":      country_code,
-                "ondata_id":         ondata_id,
-                "url":               full_url,
-                "status":            status,
-                "data_source":       "ondata",
-            })
-            tournaments.append(tour)
-
-    # sort by start date (earliest first) before inserting into DB
-    tournaments.sort(key=lambda t: t.startdate)
-    return tournaments, db_results
-
-def _fetch_tournament_longname(ondata_id: str) -> str | None:
+def parse_raw_tournament(
+        raw_data: Dict[str, Any], 
+        logger: OperationLogger,
+        item_key: str
+    ) -> Optional[Dict[str, Any]]:
     """
-    Given the OnData tournament ID (e.g. "001262"), fetches
-    the tournament’s long name (the <title> inside the Resultat frame).
+    Parse raw dict to structured data (e.g., dates, URL, ID).
+    Logs failures and warnings using logger.
+    Returns parsed data dict on success, None on failure.
     """
-
-    base_url = f"https://resultat.ondata.se/{ondata_id}/"
-    # 1) grab the frameset page
-    r1 = requests.get(base_url)
-    r1.raise_for_status()
-    soup1 = BeautifulSoup(r1.content, "html.parser")
-
-    # 2) find the <frame name="Resultat"> and build its URL
-    result_frame = soup1.find("frame", {"name": "Resultat"})
-    if not result_frame or not result_frame.get("src"):
+    start_date = parse_date(raw_data["start_str"])
+    end_date = parse_date(raw_data["end_str"])
+    if not start_date or not end_date:
+        logger.failure(item_key, "Invalid dates")
         return None
-    result_src = result_frame["src"]
-    result_url = urljoin(base_url, result_src)
 
-    # 3) fetch the actual content page (note: it's iso-8859-1)
-    r2 = requests.get(result_url)
-    r2.raise_for_status()
-    r2.encoding = "iso-8859-1"
-    soup2 = BeautifulSoup(r2.text, "html.parser")
+    _ONCLICK_URL_RE     = re.compile(r"document\.location=(?:'|\")?([^'\"]+)(?:'|\")?")
+    _ONDATA_URL_RE      = re.compile(r"https://resultat\.ondata\.se/(\w+)/?$")
+    m                   = _ONCLICK_URL_RE.search(raw_data["onclick"])
+    full_url            = urljoin(SCRAPE_TOURNAMENTS_URL_ONDATA, m.group(1)) if m else None
+    m2                  = _ONDATA_URL_RE.search(full_url) if full_url else None
+    ondata_id           = m2.group(1) if m2 else None
+    longname            = _fetch_tournament_longname(ondata_id) if ondata_id else None
+    status              = "ENDED" if end_date < date.today() else "ONGOING" if start_date <= date.today() <= end_date else "UPCOMING"
 
-    # 4) pull <title>…</title> and strip it
-    title_tag = soup2.find("title")
-    return title_tag.text.strip() if title_tag else None
+    parsed_data = {
+        "tournament_id_ext":    ondata_id,
+        "longname":             longname,
+        "shortname":            raw_data["shortname"],
+        "startdate":            start_date,
+        "enddate":              end_date,
+        "city":                 raw_data["city"],
+        "arena":                raw_data["arena"],
+        "country_code":         raw_data["country_code"],
+        "url":                  full_url,
+        "status":               status,
+        "data_source_id":       1
+    }
+    return parsed_data
+
+def _fetch_tournament_longname(ondata_id: str) -> Optional[str]:
+    """
+    Fetch tournament longname from result frame title.
+    Returns None on failure.
+    """
+    base_url = f"https://resultat.ondata.se/{ondata_id}/"
+    try:
+        r1 = requests.get(base_url)
+        r1.raise_for_status()
+        soup1 = BeautifulSoup(r1.content, "html.parser")
+        result_frame = soup1.find("frame", {"name": "Resultat"})
+        if not result_frame or not result_frame.get("src"):
+            return None
+        result_url = urljoin(base_url, result_frame["src"])
+
+        r2 = requests.get(result_url)
+        r2.raise_for_status()
+        r2.encoding = "iso-8859-1"
+        soup2 = BeautifulSoup(r2.text, "html.parser")
+        title_tag = soup2.find("title")
+        return title_tag.text.strip() if title_tag else None
+    except Exception as e:
+        logging.error(f"Error fetching longname for {ondata_id}: {e}")
+        return None

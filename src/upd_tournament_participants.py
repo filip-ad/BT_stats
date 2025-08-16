@@ -4,25 +4,21 @@ import logging
 import requests
 import pdfplumber
 import re
-import unicodedata
 from io import BytesIO
 from datetime import datetime, date
 import time
-from urllib.parse import urljoin
-from typing import List, Dict
 from db import get_conn
-from utils import print_db_insert_results, sanitize_name, normalize_key
+from utils import print_db_insert_results, sanitize_name, normalize_key, parse_date
 from models.player_license import PlayerLicense
 from models.club import Club
 from models.tournament_class import TournamentClass
-from models.tournament import Tournament
 from config import SCRAPE_CLASS_PARTICIPANTS_MAX_CLASSES, SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT, SCRAPE_CLASS_PARTICIPANTS_ORDER
-from models.player_participant import PlayerParticipant
+from models.tournament_participant import TournamentParticipant
 from models.player import Player
 
 PDF_BASE = "https://resultat.ondata.se/ViewClassPDF.php"
 
-def upd_player_participants():
+def upd_tournament_participants():
     """
     Populate tournament_class_participant by downloading each class's 'stage=1' PDF.
     """
@@ -35,8 +31,17 @@ def upd_player_participants():
     # 1a) Load all classes
     classes = TournamentClass.cache_all(cursor)
 
+    # 🔎 Filter: only singles for now
+    classes = [tc for tc in classes if (tc.type_id == 1)]
+
+    if not classes:
+        logging.warning("No singles classes found (type='singles').")
+        print("⚠️  No singles classes found (type='singles'). Did you run upd_tournament_classes() to classify types?")
+        conn.close()
+        return
+
     # 1b) If config says “only this one external ID”, filter to it
-    if SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT is not None:
+    if SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT != 0:
         wanted = SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT
         classes = [tc for tc in classes if tc.tournament_class_id_ext == wanted]
         if not classes:
@@ -127,11 +132,12 @@ def upd_player_participants():
         if expected_count is not None and len(participants) != expected_count:
             missing = expected_count - len(participants)
             cursor.execute("""
-                INSERT OR IGNORE INTO player_participant_missing
-                  (tournament_class_id,
-                   tournament_class_id_ext,
-                   participant_url,
-                   nbr_of_missing_players)
+                INSERT OR IGNORE INTO player_participant_missing (
+                    tournament_class_id,
+                    tournament_class_id_ext,
+                    participant_url,
+                    nbr_of_missing_players
+                )
                 VALUES (?, ?, ?, ?)
             """, (
                 tc.tournament_class_id,
@@ -144,11 +150,13 @@ def upd_player_participants():
                 "recording in player_participant_missing"
             )
 
-        # normalize class_date
-        class_date = (
-            tc.date if isinstance(tc.date, date)
-            else datetime.fromisoformat(tc.date).date()
-        )
+        # # normalize class_date
+        # class_date = (
+        #     tc.date if isinstance(tc.date, date)
+        #     else datetime.fromisoformat(tc.date).date()
+        # )
+
+        class_date = parse_date(tc.date, context="upd_player_participants.py")
 
         # — DB insert & collect results —
         t5 = time.perf_counter()
@@ -292,10 +300,6 @@ def download_pdf(url: str, retries: int = 3, timeout: int = 30) -> bytes | None:
             break
     return None
 
-
-
-
-
 def extract_columns(page):
     """
     Split a page into left/right halves so we can catch two-column layouts.
@@ -326,7 +330,6 @@ def parse_players_pdf(
         r'^\s*(?P<tpid>\d{1,3})\s+(?P<name>[^,]+?)\s*,\s*(?P<club>\S.*)$',
         re.MULTILINE
     )    
-
 
     BOLD_RE = re.compile(r"(bold|black|heavy|demi|semibold|semi-bold|sb)\b", re.I)
 

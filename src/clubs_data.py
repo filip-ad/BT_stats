@@ -219,7 +219,8 @@ CLUB_ALIASES = [
 (948, 'Vikingstad Bordtennisklubb', 'long'),
 (99, 'Mölndals Bordtennissällskap', 'long'),
 (74, 'LinnePartille Pingisklubb', 'long'),
-(74, 'LinnePartille PK', 'short')
+(74, 'LinnePartille PK', 'short'),
+(5000, 'Islands Bordtennisförbund', 'long')
 
 ]
 
@@ -483,7 +484,6 @@ CLUB_EXT_IDS = [
 (800, 2745),
 (694, 2746),
 (575, 2747),
-(576, 6203),
 (430, 2748),
 (356, 2749),
 (695, 2750),
@@ -1970,7 +1970,7 @@ CLUB_ALIASES_COUNTRY_TEAMS = [
 
 CLUBS = [
 
-(9999, 'Unknown club', 'Unknown club', 'club', None, None, None, None, None, 0),
+(9999, 'Unknown club', 'Unknown club', 'club', None, None, None, None, None, None),
 (64, '3 V HIF', '3 V Handikappidrottsförening', 'club', None, None, None, None, None, 6),
 (410, 'Ådalslidens SK', 'Ådalslidens Sportklubb', 'club', None, None, None, None, None, 14),
 (751, 'Ädelfors IF', 'Ädelfors Idrottsförening', 'club', None, None, None, None, None, 18),

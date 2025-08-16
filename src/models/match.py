@@ -9,7 +9,7 @@ class Match:
     tournament_class_id:        Optional[int] = None    # XOR with fixture_id
     tournament_match_id_ext:    Optional[int] = None
     fixture_id:                 Optional[int] = None    # XOR with tournament_class_id
-    stage_code:                 Optional[str] = None    # 'GROUP','R16','...','LEAGUE'; optional for league
+    tournament_stage_id:        Optional[str] = None    
     group_id:                   Optional[int] = None
     best_of:                    Optional[int] = None
     date:                       Optional[str] = None
@@ -27,7 +27,7 @@ class Match:
             tournament_class_id         = d.get("tournament_class_id"),
             tournament_match_id_ext     = d.get("tournament_match_id_ext"),
             fixture_id                  = d.get("fixture_id"),
-            stage_code                  = d.get("stage_code"),
+            tournament_stage_id         = d.get("tournament_stage_id"),
             group_id                    = d.get("group_id"),
             best_of                     = d.get("best_of"),
             date                        = d.get("date"),
@@ -71,14 +71,11 @@ class Match:
             return "Exactly one of tournament_class_id or fixture_id must be set."
 
         # League default
-        if has_fx and not self.stage_code:
-            self.stage_code = "LEAGUE"
+        if has_fx and not self.tournament_stage_id:
+            self.tournament_stage_id = "LEAGUE"
 
-        if has_tc and not self.stage_code:
-            return "stage_code is required for tournament matches."
-
-        if self.stage_code != "GROUP" and self.group_id is not None:
-            return "group_id may only be set when stage_code='GROUP'."
+        if has_tc and not self.tournament_stage_id:
+            return "tournament_stage_id is required for tournament matches."
 
         if has_tc:
             if not self.sides_participants or self.sides_players:
@@ -90,12 +87,6 @@ class Match:
                 return "League match must use player sides only."
             if len(self.sides_players) < 2:
                 return "League match requires two player sides."
-
-        # Stage must exist
-        stage_id = TournamentStage.id_by_code(cursor, self.stage_code)
-        if stage_id is None:
-            return f"Unknown stage_code '{self.stage_code}'."
-        return None
 
     def save_to_db(
             self, 
@@ -109,14 +100,29 @@ class Match:
                 "code":     "MATCH_VALIDATION_FAILED",
                 "reason":   err
             }
-
-        stage_id = TournamentStage.id_by_code(cursor, self.stage_code)
+        
         try:
+            # ── Check if match already exists ──
+            # REPLACE WITH CACHE..
+            cursor.execute("""
+                SELECT match_id
+                FROM match
+                WHERE tournament_class_id = ?
+                AND tournament_match_id_ext = ?
+            """, (self.tournament_class_id, self.tournament_match_id_ext))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "status": "skipped",
+                    "match_id": row[0],
+                    "reason": "Match already exists"
+                }
+
             cursor.execute("""
                 INSERT INTO match (
                            tournament_class_id,
                            tournament_match_id_ext, 
-                           stage_id, 
+                           tournament_stage_id, 
                            group_id, 
                            best_of, 
                            date, 
@@ -126,7 +132,7 @@ class Match:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (self.tournament_class_id, 
                   self.tournament_match_id_ext, 
-                  stage_id, 
+                  self.tournament_stage_id, 
                   self.group_id, 
                   self.best_of, 
                   self.date, 
@@ -134,9 +140,7 @@ class Match:
                   self.notes
                   )
             )
-            self.match_id = cursor.lastrowid
-
-            
+            self.match_id = cursor.lastrowid        
 
             if self.tournament_class_id is not None:
                 for side, pid in self.sides_participants:
@@ -158,7 +162,11 @@ class Match:
                     VALUES (?, ?, ?, ?, ?)
                 """, (self.match_id, game_no, s1, s2, winner))
 
-            return {"status": "success", "match_id": self.match_id, "reason": f"Inserted {len(self.games)} games"}
+            return {
+                "status": "success",
+                "match_id": self.match_id,
+                "reason": f"Games in group added successfully"
+            }
         except Exception as e:
             logging.error(f"Error inserting match: {e}")
             return {"status": "failed", "reason": f"Insertion error: {e}"}
@@ -170,7 +178,7 @@ class Match:
                 SELECT m.match_id, m.tournament_class_id, m.tournament_match_id_ext, m.fixture_id, s.code, m.group_id,
                        m.best_of, m.date, m.score_summary, m.notes
                   FROM match m
-                  JOIN stage s ON s.stage_id = m.stage_id
+                  JOIN stage s ON s.tournament_stage_id = m.tournament_stage_id
                  WHERE m.match_id = ?
             """, (match_id,))
             row = cursor.fetchone()

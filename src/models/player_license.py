@@ -578,8 +578,13 @@ class PlayerLicense:
 
     @staticmethod
     def find_player_id(
-        cursor, licenses_cache, raw_name, club_id, tournament_date,
-        fallback_to_latest=True, fuzzy_threshold=0.85
+        cursor, 
+        licenses_cache, 
+        raw_name, 
+        club_id, 
+        tournament_date,
+        fallback_to_latest=True, 
+        fuzzy_threshold=0.85
     ):
         """
         1. Try each (lastname, firstname) split—strict cache lookup

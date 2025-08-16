@@ -2,14 +2,13 @@ import logging
 from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass
 from datetime import date
+from collections import defaultdict
 from models.club import Club
 from models.player import Player
-from models.player_license import PlayerLicense
-from models.player_transition import PlayerTransition
-from utils import normalize_key
+from utils import normalize_key, name_keys_for_lookup_all_splits
 
 @dataclass
-class PlayerParticipant:
+class TournamentParticipant:
     tournament_class_id:            Optional[int] = None
     tournament_participant_id_ext:  Optional[str] = None
     fullname_raw:                   Optional[str] = None
@@ -23,8 +22,8 @@ class PlayerParticipant:
     club_id:                        Optional[int] = None
 
     @staticmethod
-    def from_dict(data: dict) -> "PlayerParticipant":
-        return PlayerParticipant(
+    def from_dict(data: dict) -> "TournamentParticipant":
+        return TournamentParticipant(
             tournament_class_id=data["tournament_class_id"],
             tournament_participant_id_ext=data.get("tournament_participant_id_ext"),
             fullname_raw=data["fullname_raw"],
@@ -660,25 +659,48 @@ class PlayerParticipant:
     @staticmethod
     def cache_by_class_name_fast(cursor):
         """
-        Returns:
         class_id -> {
             "by_name_club": Dict[(name_key, club_id), participant_id],
-            "by_name_only": Dict[name_key, List[participant_id]]
+            "by_name_only": Dict[name_key, List[participant_id]],
+            "by_code":      Dict[str, participant_id],              # NEW
         }
         """
-        from utils import normalize_key
-        data = {}
+        data: dict[int, dict] = {}
+
         cursor.execute("""
-            SELECT pp.tournament_class_id,
+            SELECT
+                pp.tournament_class_id,
                 pp.participant_id,
+                pp.player_id,
                 pp.club_id,
-                COALESCE(TRIM(p.firstname || ' ' || p.lastname), p.fullname_raw) AS nm
+                COALESCE(NULLIF(TRIM(p.firstname || ' ' || p.lastname), ''), p.fullname_raw) AS display_name,
+                pp.tournament_participant_id_ext
             FROM player_participant pp
             JOIN player p ON p.player_id = pp.player_id
         """)
-        for class_id, pid, cid, nm in cursor.fetchall():
-            name_key = normalize_key(nm or "")
-            bucket = data.setdefault(class_id, {"by_name_club": {}, "by_name_only": {}})
-            bucket["by_name_club"][(name_key, cid)] = pid
-            bucket["by_name_only"].setdefault(name_key, []).append(pid)
+
+        for class_id, participant_id, player_id, club_id, display_name, code in cursor.fetchall():
+            bucket = data.setdefault(
+                class_id,
+                {"by_name_club": {}, "by_name_only": defaultdict(list), "by_code": {}}
+            )
+
+            # code index (raw + stripped) — no verification filters
+            if code:
+                bucket["by_code"][code] = participant_id
+                canon = code.lstrip("0") or "0"
+                bucket["by_code"].setdefault(canon, participant_id)
+
+            # name indexes (all splits)
+            base = (display_name or "").strip()
+            if base:
+                for k in name_keys_for_lookup_all_splits(base):
+                    bucket["by_name_club"][(k, club_id)] = participant_id
+                    lst = bucket["by_name_only"][k]
+                    if participant_id not in lst:
+                        lst.append(participant_id)
+
+        # normalize defaultdicts
+        for b in data.values():
+            b["by_name_only"] = dict(b["by_name_only"])
         return data

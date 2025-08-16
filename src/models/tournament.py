@@ -3,33 +3,32 @@
 from dataclasses import dataclass
 from datetime import date
 import datetime
-from typing import Optional
+from typing import Optional, Dict
 import logging
 import sqlite3
-from utils import parse_date
-from typing import Optional, Any, Dict, List
+from utils import parse_date, OperationLogger
 
 
 @dataclass
 class Tournament:
-    tournament_id: Optional[int] = None     # Canonical ID from tournament table
-    tournament_id_ext: Optional[str] = None # External ID from ondata.se
-    longname: str = None                    # Tournament name
-    shortname: str = None                   # Short name or abbreviation
-    startdate: Optional[date] = None        # Start date as a date object
-    enddate:   Optional[date] = None        # End date as a date object
-    city: str = None                        # City name
-    arena: str = None                       # Arena name
-    country_code: str = None                # Country code (e.g., 'SWE')
-    ondata_id: str = None                   # External ID from ondata.se
-    url: str = None                         # Full tournament URL
-    status: str = None                      # Status: 'ONGOING', 'UPCOMING', or 'ENDED'
-    data_source: str = "ondata"             # Data source, default is 'ondata'
+    tournament_id:      Optional[int] = None        # Canonical ID from tournament table
+    tournament_id_ext:  Optional[str] = None        # External ID from ondata.se
+    longname:           Optional[str] = None        # Full tournament name
+    shortname:          Optional[str] = None        # Short name or abbreviation
+    startdate:          Optional[date] = None       # Start date as a date object
+    enddate:            Optional[date] = None       # End date as a date object
+    city:               Optional[str] = None        # City name
+    arena:              Optional[str] = None        # Arena name
+    country_code:       Optional[str] = None        # Country code (e.g., 'SWE')
+    url:                Optional[str] = None        # Full tournament URL
+    status:             Optional[str] = None        # Status: 'ONGOING', 'UPCOMING', or 'ENDED'
+    data_source_id:     int = 1                     # Data source ID (default 1 for 'ondata')
 
     @staticmethod
-    def from_dict(data: dict):
+    def from_dict(data: dict) -> 'Tournament':
         """
-        Build a Tournament from a dict.
+        Factory method to create a Tournament instance from a dictionary.
+        Handles date parsing and defaults.
         """
         sd = data.get("start_date") or data.get("startdate")
         ed = data.get("end_date")   or data.get("enddate")
@@ -46,253 +45,168 @@ class Tournament:
             country_code        = data.get("country_code"),
             url                 = data.get("url"),
             status              = data.get("status"),
-            data_source         = data.get("data_source", "ondata")
+            data_source_id      = data.get("data_source_id", 1)
         )
 
-    @staticmethod
-    def get_by_id(cursor, tournament_id: int) -> Optional['Tournament']:
-        """Retrieve a Tournament instance by tournament_id, or None if not found."""
-        try:
-            cursor.execute("""
-                SELECT tournament_id, tournament_id_ext, longname, shortname, startdate, enddate, city, arena, country_code, url, status, data_source
-                FROM tournament
-                WHERE tournament_id = ?
-            """, (tournament_id,))
-            row = cursor.fetchone()
-            if row:
-                return Tournament.from_dict({
-                    "tournament_id":        row[0],
-                    "tournament_id_ext":    row[1],
-                    "longname":             row[2],
-                    "shortname":            row[3],
-                    "start_date":           row[4],
-                    "end_date":             row[5],
-                    "city":                 row[6],
-                    "arena":                row[7],
-                    "country_code":         row[8],
-                    "url":                  row[9],
-                    "status":               row[10],
-                    "data_source":          row[11],
-                })
-            return None
-        except Exception as e:
-            logging.error(f"Error retrieving tournament by tournament_id {tournament_id}: {e}")
-            return None
-
-    @staticmethod
-    def get_by_id_ext(cursor, tournament_id_ext: str) -> Optional["Tournament"]:
-        """Retrieve a Tournament instance by tournament_id_ext, or None if not found."""
-        try:
-            cursor.execute("""
-                SELECT tournament_id, tournament_id_ext, longname, shortname, startdate, enddate, city, arena, country_code, url, status, data_source
-                  FROM tournament
-                 WHERE tournament_id_ext = ?
-            """, (tournament_id_ext,))
-            row = cursor.fetchone()
-            if not row:
-                return None
-
-            # build directly, passing a dict into from_dict
-            data = {
-                "tournament_id":        row[0],
-                "tournament_id_ext":    row[1],
-                "longname":             row[2],
-                "shortname":            row[3],
-                "startdate":            row[4],
-                "enddate":              row[5],
-                "city":                 row[6],
-                "arena":                row[7],
-                "country_code":         row[8],
-                "url":                  row[9],
-                "status":               row[10],
-                "data_source":          row[11],
-            }
-            return Tournament.from_dict(data)
-
-        except Exception as e:
-            logging.error(f"Error retrieving tournament by ondata_id {tournament_id_ext}: {e}")
-            return None
-
-
-    def save_to_db(self, cursor):
+    def validate(
+            self, 
+            logger:     OperationLogger,
+            item_key:   Optional[str]
+        ) -> Dict[str, any]:
         """
-        Save the Tournament instance to the database, checking for duplicates.
-        If this tournament lacks a valid OnData ID or URL, we still proceed
-        but tag it with a warning (likely an upcoming tournament).
+        Validate Tournament fields, log to OperationalLogger.
+        Returns dict with status, reason, warnings (True equivalent is "success" status).
+        Called explicitly in pipeline after from_dict.
         """
 
-        # Prepare a warning if there’s no valid external URL
-        warnings = []
-        if not (self.tournament_id_ext and self.url):
-            warnings.append("No valid URL (likely an upcoming tournament)")
-
-        # Check required fields
-        if not (self.shortname and self.startdate and self.enddate):
-            return {
-                "status":   "failed",
-                "key":      self.shortname or "Unknown",
-                "reason":   "Missing one of required fields (shortname, startdate, enddate)"
-            }
-        
-        # Check for missing longname
+        # Warn
+        if not self.tournament_id_ext and not self.url:
+            logger.warning(item_key, "No valid external ID or URL (likely upcoming)")
         if not self.longname:
-            warnings.append("Missing tournament longname")
+            logger.warning(item_key, "Missing longname")
 
-        # Check for duplicate by tournament_id_ext
-        if Tournament.get_by_id_ext(cursor, self.tournament_id_ext):
-            logging.debug(f"Skipping duplicate tournament: {self.shortname} ({self.tournament_id_ext})")
-            return {
-                "status":       "skipped",
-                "key":          self.tournament_id_ext,
-                "reason":       "Tournament already exists",
-                "warnings":     warnings
-            }
-        
-        # Check for duplicate by shortname + startdate (for tournaments NOT STARTED without ext ID)
-        cursor.execute(
-            "SELECT tournament_id FROM tournament WHERE shortname = ? AND startdate = ?",
-            (self.shortname, self.startdate.isoformat())
-        )
-        if cursor.fetchone():
-            logging.warning(f"Skipping duplicate tournament (by name+date): {self.shortname} on {self.startdate}")
-            return {
-                "status":       "skipped",
-                "key":          f"{self.shortname}_{self.startdate.isoformat()}",
-                "reason":       "Tournament already exists",
-                "warnings":     warnings
-            }
+        # Fail
+        if not (self.shortname and self.startdate and self.enddate):
+            reason = "Missing required fields"
+            logger.failed(item_key, reason)
+            return {"status": "failed", "reason": reason}
 
+        return {
+            "status": "success", 
+            "reason": "Validated OK"}
+
+    # Warn
+    def upsert_to_db(
+            self, 
+            cursor: sqlite3.Cursor, 
+            logger: OperationLogger
+        ) -> None:
+        """
+        Upsert Tournament to DB: insert if not exists, update if duplicate based on UNIQUE constraints.
+        Logs results using the provided OperationLogger instance.
+        """
+        item_key = f"{self.shortname} ({self.startdate.isoformat() if self.startdate else 'None'})"
+
+        # Check for existing by (tournament_id_ext, data_source_id)
+        cursor.execute("""
+            SELECT 
+                tournament_id 
+            FROM tournament 
+            WHERE tournament_id_ext = ? AND data_source_id = ?
+        """, (self.tournament_id_ext, self.data_source_id))
+        existing_id = cursor.fetchone()
+
+        if existing_id:
+            try:
+                cursor.execute("""
+                    UPDATE tournament
+                    SET longname = ?, 
+                        shortname = ?, 
+                        startdate = ?, 
+                        enddate = ?,
+                        city = ?, 
+                        arena = ?, 
+                        country_code = ?, 
+                        url = ?, 
+                        status = ?
+                    WHERE tournament_id = ?
+                """, (
+                    self.longname, 
+                    self.shortname,
+                    self.startdate.isoformat()  if self.startdate   else None,
+                    self.enddate.isoformat()    if self.enddate     else None,
+                    self.city,
+                    self.arena, 
+                    self.country_code, 
+                    self.url, 
+                    self.status,
+                    existing_id[0]
+                ))
+                self.tournament_id = existing_id[0]
+                self.tournament_id_ext = self.tournament_id_ext
+                item_key = f"{self.shortname} ({self.startdate.isoformat() if self.startdate else 'None'}, id: {self.tournament_id}, ext_id: {self.tournament_id_ext})"
+                logger.success(item_key, "Tournament updated successfully")
+            except Exception as e:
+                print(f"Error updating tournament {self.shortname}: {e}")
+                logger.failure(item_key, str(e))
+            return
+
+        # Check for existing by (shortname, startdate) if no ext ID
+        cursor.execute("""
+            SELECT 
+                tournament_id 
+            FROM tournament 
+            WHERE shortname = ? AND startdate = ?
+        """, (self.shortname, self.startdate.isoformat() if self.startdate else None))
+        existing_id = cursor.fetchone()
+
+        if existing_id:
+            try:
+                cursor.execute("""
+                    UPDATE tournament
+                    SET longname = ?, 
+                        startdate = ?, 
+                        enddate = ?,
+                        city = ?, 
+                        arena = ?, 
+                        country_code = ?, 
+                        url = ?, 
+                        status = ?, 
+                        data_source_id = ?
+                    WHERE tournament_id = ?
+                """, (
+                    self.longname,
+                    self.startdate.isoformat() if self.startdate else None,
+                    self.enddate.isoformat() if self.enddate else None,
+                    self.city, 
+                    self.arena, 
+                    self.country_code, 
+                    self.url, 
+                    self.status, 
+                    self.data_source_id,
+                    existing_id[0]
+                ))
+                self.tournament_id = existing_id[0]
+                self.tournament_id_ext = self.tournament_id_ext
+                item_key = f"{self.shortname} ({self.startdate.isoformat() if self.startdate else 'None'}, id: {self.tournament_id}, ext_id: {self.tournament_id_ext})"
+                logger.success(item_key, "Tournament updated successfully")
+            except Exception as e:
+                print(f"Error updating tournament {self.shortname}: {e}")
+                logger.failure(item_key, str(e))
+            return
+
+        # Insert new row if no duplicates
         try:
             cursor.execute("""
-                INSERT INTO tournament ( 
+                INSERT INTO tournament (
                     tournament_id_ext, 
+                    longname,
                     shortname, 
-                    longname, 
                     startdate, 
-                    enddate, 
+                    enddate,
                     city, 
                     arena, 
                     country_code, 
                     url, 
                     status, 
-                    data_source
+                    data_source_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                self.tournament_id_ext,
+                self.tournament_id_ext, 
+                self.longname, 
                 self.shortname,
-                self.longname,
-                self.startdate,
-                self.enddate,
+                self.startdate.isoformat() if self.startdate else None,
+                self.enddate.isoformat() if self.enddate else None,
                 self.city, 
-                self.arena,
+                self.arena, 
                 self.country_code, 
                 self.url, 
-                self.status,
-                self.data_source
+                self.status, 
+                self.data_source_id
             ))
-            self.tournament_id = cursor.lastrowid
-            logging.debug(f"Inserted tournament into DB: {self.shortname}")
-            return {
-                "status":   "success",
-                "key":          f"{self.shortname} ({self.tournament_id})",
-                "reason":       "Tournament inserted successfully",
-                "warnings":     warnings
-            }
-        
-        except sqlite3.Error as e:
-            logging.error(f"Error inserting tournament {self.shortname}: {e}")
-            return {
-                "status":   "failed",
-                "key":      self.shortname,
-                "reason":   f"Insertion error: {e}"
-            }
-        
-    @staticmethod
-    def get_by_status(cursor, statuses: List[str] = ["ONGOING", "ENDED"]) -> List["Tournament"]:
-        """
-        Load all tournaments whose status is in the given list.
-        Returns a list of Tournament instances.
-        """
-        placeholder = ",".join("?" for _ in statuses)
-        sql = f"""
-            SELECT 
-                tournament_id, 
-                tournament_id_ext, 
-                shortname,
-                longname, 
-                startdate, 
-                enddate,
-                city, 
-                arena, 
-                country_code,
-                url, 
-                status, 
-                data_source
-              FROM tournament
-             WHERE status IN ({placeholder})
-        """
-        try:
-            cursor.execute(sql, statuses)
-            rows = cursor.fetchall()
-            result: List[Tournament] = []
-            for (tid, tid_ext, sn, ln, sd, ed, city, arena, ccode, url, status, src) in rows:
-                result.append(
-                    Tournament.from_dict({
-                        "tournament_id":        tid,
-                        "tournament_id_ext":    tid_ext,
-                        "shortname":            sn,
-                        "longname":             ln,
-                        "startdate":            sd,
-                        "enddate":              ed,
-                        "city":                 city,
-                        "arena":                arena,
-                        "country_code":         ccode,
-                        "url":                  url,
-                        "status":               status,
-                        "data_source":          src
-                    })
-                )
-            return result
-
+            self.tournament_id = existing_id[0]
+            self.tournament_id_ext = self.tournament_id_ext
+            item_key = f"{self.shortname} ({self.startdate.isoformat() if self.startdate else 'None'}, id: {self.tournament_id}, ext_id: {self.tournament_id_ext})"
         except Exception as e:
-            logging.error(f"Error in Tournament.get_by_status({statuses}): {e}")
-            return []
-        
-    @staticmethod
-    def cache_all(cursor):
-        """
-        Returns all Tournament rows as model instances.
-        """
-        cursor.execute("""
-            SELECT tournament_id, tournament_id_ext, longname, shortname,
-                startdate, enddate, city, arena, country_code, url, status, data_source
-            FROM tournament
-        """)
-        rows = cursor.fetchall()
-        tournaments = []
-        for tid, ext, ln, sn, sd, ed, city, arena, cc, url, status, ds in rows:
-            start = sd if isinstance(sd, date) else datetime.fromisoformat(sd).date()
-            end = ed if isinstance(ed, date) else datetime.fromisoformat(ed).date()
-            tournaments.append(Tournament(
-                tournament_id=tid,
-                tournament_id_ext=ext,
-                longname=ln,
-                shortname=sn,
-                startdate=start,
-                enddate=end,
-                city=city,
-                arena=arena,
-                country_code=cc,
-                url=url,
-                status=status,
-                data_source=ds
-            ))
-        return tournaments
-    
-    @staticmethod
-    def cache_by_id(cursor):
-        """
-        Returns a dict mapping tournament_id to Tournament instances.
-        """
-        items = Tournament.cache_all(cursor)
-        return {t.tournament_id: t for t in items}    
+            print(f"Error inserting tournament {self.shortname}: {e}")
+            logger.failure(item_key, str(e))

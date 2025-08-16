@@ -13,7 +13,7 @@ from config import (
 from models.club import Club
 from models.player import Player
 from models.tournament_class import TournamentClass
-from models.player_participant import PlayerParticipant
+from models.tournament_participant import TournamentParticipant
 
 RESULTS_URL_TMPL = "https://resultat.ondata.se/ViewClassPDF.php?classID={class_id}&stage=6"
 
@@ -29,7 +29,7 @@ def upd_player_positions():
     classes_by_ext = TournamentClass.cache_by_id_ext(cur)
 
     # ── 1) Load + filter classes (by external id) ──────────────────────────
-    if SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT is not None:
+    if SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT is not 0:
         tc = classes_by_ext.get(SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT)
         classes = [tc] if tc else []
     else:
@@ -116,7 +116,12 @@ def upd_player_positions():
                 "reason": reason,
                 "warnings": ""
             })
+            conn.cursor().execute('''
+                INSERT INTO debug_invalid_pdf_parse (pdf_link, reason, msg, key, script, function)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (url, "Probably structure_id 2 = groups only. Need to get position from Stage=4 here?", reason, f"Class id ext: {tc.tournament_class_id_ext}", "upd_player_positions", "_parse_positions"))
             conn.commit()  # commit the clear
+
             continue
 
         parsed_count = len(rows)        # expected = number of lines (ties allowed)

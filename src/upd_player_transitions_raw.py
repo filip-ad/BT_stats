@@ -190,7 +190,7 @@ def scrape_transitions(driver, cursor):
                     ))
 
                     if cursor.rowcount == 0:
-                        logging.warning(f"Transition for already exists, skipping insert - {season_label}/{season_id_ext} {firstname} {lastname} {date_born}, from {club_from} to {club_to} on {transition_date}")
+                        # logging.warning(f"Transition for already exists, skipping insert - {season_label}/{season_id_ext} {firstname} {lastname} {date_born}, from {club_from} to {club_to} on {transition_date}")
                         # print(f"⚠️  Transition for already exists, skipping insert - {season_label}/{season_id_ext} {firstname} {lastname} {date_born}, from {club_from} to {club_to} on {transition_date}")
                         season_inserted_skipped += 1
 
