@@ -112,6 +112,8 @@ def main():
 
             # If district exists and needs dropping (parent of club)
             # 'district'
+
+            'log_events'
         ])
 
         create_and_populate_static_tables(cursor)

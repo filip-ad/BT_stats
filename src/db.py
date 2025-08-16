@@ -1120,6 +1120,19 @@ def create_and_populate_static_tables(cursor):
 
         ############ DEBUG TABLES ######################
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS log_events (
+                row_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id              TEXT    NOT NULL,
+                function_name       TEXT,
+                item_key            TEXT,
+                status              TEXT    NOT NULL,
+                reason              TEXT,
+                message             TEXT,
+                row_created         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
+        
         # Create missing clubs table to be mapped later
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS club_missing (
@@ -1141,29 +1154,6 @@ def create_and_populate_static_tables(cursor):
             );
         ''')
 
-        # Create table for documenting missing group parsing information
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS debug_group_parse_missing (
-                tournament_class_id INTEGER NOT NULL,
-                group_name          TEXT,
-                raw_text            TEXT NOT NULL,    -- offending line
-                reason              TEXT,
-                row_created         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        ''')
-
-        # Create table for storing PDF links that could not be parsed
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS debug_invalid_pdf_parse (
-                pdf_link            TEXT NOT NULL,
-                reason              TEXT,
-                msg                 TEXT,
-                key                 TEXT,
-                script              TEXT,
-                function            TEXT,
-                row_created         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        ''')
     except sqlite3.Error as e:
         print(f"Error creating tables: {e}")
 

@@ -21,11 +21,12 @@ def upd_tournaments() -> None:
     # Set up logging
     # =============================================================================
     logger = OperationLogger(
-        verbosity=3, 
-        print_output=False, 
-        log_to_db=False, 
-        cursor=cursor)
-    
+        verbosity       = 2, 
+        print_output    = False, 
+        log_to_db       = True, 
+        cursor          = cursor
+        )
+
     try:
 
         try:
@@ -54,14 +55,12 @@ def upd_tournaments() -> None:
         ]
 
         # Loop through filtered tournaments
-        # Pipeline: parse -> validate -> create -> upsert    
         # =============================================================================
         for i, raw_data in enumerate(filtered_tournaments, 1):
 
             start_d = parse_date(raw_data["start_str"])
             item_key = f"{raw_data['shortname']} ({start_d})"
             print(f"ℹ️  Processing tournament [{i}/{len(filtered_tournaments)}] {raw_data['shortname']}")
-            logging.info(f"Processing tournament [{i}/{len(filtered_tournaments)}] {raw_data['shortname']}")
 
             # Parse tournaments
             # ============================================================================= 
@@ -76,7 +75,7 @@ def upd_tournaments() -> None:
             if val["status"] != "success":
                 continue
 
-            tournament.upsert_to_db(cursor, logger)
+            tournament.upsert_to_db(cursor, logger, item_key)
             
         logger.summarize()
 

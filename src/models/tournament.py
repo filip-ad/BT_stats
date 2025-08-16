@@ -75,17 +75,16 @@ class Tournament:
             "status": "success", 
             "reason": "Validated OK"}
 
-    # Warn
     def upsert_to_db(
             self, 
-            cursor: sqlite3.Cursor, 
-            logger: OperationLogger
+            cursor:     sqlite3.Cursor, 
+            logger:     OperationLogger,
+            item_key:   Optional[str]
         ) -> None:
         """
         Upsert Tournament to DB: insert if not exists, update if duplicate based on UNIQUE constraints.
         Logs results using the provided OperationLogger instance.
         """
-        item_key = f"{self.shortname} ({self.startdate.isoformat() if self.startdate else 'None'})"
 
         # Check for existing by (tournament_id_ext, data_source_id)
         cursor.execute("""
@@ -123,8 +122,6 @@ class Tournament:
                     existing_id[0]
                 ))
                 self.tournament_id = existing_id[0]
-                self.tournament_id_ext = self.tournament_id_ext
-                item_key = f"{self.shortname} ({self.startdate.isoformat() if self.startdate else 'None'}, id: {self.tournament_id}, ext_id: {self.tournament_id_ext})"
                 logger.success(item_key, "Tournament updated successfully")
             except Exception as e:
                 print(f"Error updating tournament {self.shortname}: {e}")
@@ -167,15 +164,12 @@ class Tournament:
                     existing_id[0]
                 ))
                 self.tournament_id = existing_id[0]
-                self.tournament_id_ext = self.tournament_id_ext
-                item_key = f"{self.shortname} ({self.startdate.isoformat() if self.startdate else 'None'}, id: {self.tournament_id}, ext_id: {self.tournament_id_ext})"
                 logger.success(item_key, "Tournament updated successfully")
             except Exception as e:
-                print(f"Error updating tournament {self.shortname}: {e}")
                 logger.failure(item_key, str(e))
             return
 
-        # Insert new row if no duplicates
+        # Insert new row if not exists
         try:
             cursor.execute("""
                 INSERT INTO tournament (
@@ -205,8 +199,6 @@ class Tournament:
                 self.data_source_id
             ))
             self.tournament_id = existing_id[0]
-            self.tournament_id_ext = self.tournament_id_ext
-            item_key = f"{self.shortname} ({self.startdate.isoformat() if self.startdate else 'None'}, id: {self.tournament_id}, ext_id: {self.tournament_id_ext})"
+            logger.success(item_key, "Tournament inserted successfully")
         except Exception as e:
-            print(f"Error inserting tournament {self.shortname}: {e}")
             logger.failure(item_key, str(e))
