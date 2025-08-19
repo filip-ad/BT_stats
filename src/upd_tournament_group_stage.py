@@ -7,7 +7,7 @@ from db import get_conn
 from utils import print_db_insert_results, normalize_key, name_keys_for_lookup_all_splits
 from config import (
     SCRAPE_CLASS_PARTICIPANTS_MAX_CLASSES,
-    SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT,
+    SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXTS,
     SCRAPE_CLASS_PARTICIPANTS_ORDER,
 )
 from models.club import Club

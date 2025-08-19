@@ -27,28 +27,159 @@ Improvements long term
 - Should be able to search the transtion and license RAW tables for players not found. Then I can resolve firstname and lastname, even though I dont have player_id_ext!
 
 
-ℹ️  Participant update complete in 4407.42s
-ℹ️  Total participants parsed: 451693/439951
-📊 Database Summary:
-   ✅ Success: 450632
-      • Participant added successfully (matching canonical player): 283403
-      • Participant added successfully (new unverified player): 26601
-      • Participant added successfully (existing unverified player): 140628
-   ❌ Failed: 553
-      • Ambiguous player candidates with valid licenses: 391
-      • Ambiguous player candidates with expired licenses: 135
-      • Ambiguous transition matches: 12
-      • Ambiguous substring + license matches: 12
-      • PDF parsing failed: No /Root object! - Is this really a PDF?: 3
-   ⏭️  Skipped: 511
-      • Participant already exists (unverified player): 504
-      • Participant already exists (matching canonical player): 7
-   ⚠️  Warning: 333634
-      • Player did not have a valid license in the club on the day of the tournament: 44817
-      • Matched via prior season license (expired before class_date): 4447
-      • Could not match with verified player, new unverified player inserted: 26601
-      • Matched via prior-season license (expired): 696
-      • Could not match with verified player, existing unverified player used: 141132
-      • Using 'Unknown club' as fallback: 109872
-      • Matched via name-substring against 3+ token candidate: 5793
-      • Club name matched by prefix: 276
+ℹ️  Participants update completed in 57.0 minutes and 33.45 seconds.
+
+📊 Operation Summary:
+   ✅ Success: 409113
+      • Participating player inserted successfully (match type: unverified): 147796
+      • Participating player inserted successfully (match type: unique_name): 212886
+      • Participating player inserted successfully (match type: expired_substring_license): 637
+      • Participating player inserted successfully (match type: license): 37977
+      • Participating player inserted successfully (match type: expired_license): 3924
+      • Participating player inserted successfully (match type: transition): 475
+      • Participating player inserted successfully (match type: substring_license): 5418
+   ❌ Failed: 3
+      • Exception during processing: No /Root object! - Is this really a PDF?: 3
+   ⏭️  Skipped: 0
+   ⚠️  Warnings: 311269
+      • Club not found. Using 'Unknown club (id: 9999)': 109075
+      • Created new unverified player: 9133
+      • Fallback to unverified player: 147796
+      • Player did not have a valid license in the club on the day of the tournament: 38619
+      • Matched via expired substring license: 637
+      • Matched via expired license: 3924
+      • Expected 12 participants, found 13.: 33
+      • Club name matched by prefix: 1330
+      • Expected 4 participants, found 5.: 67
+      • Expected 41 participants, found 40.: 2
+      • Expected 7 participants, found 8.: 23
+      • Expected 8 participants, found 9.: 36
+      • Expected 2 participants, found 3.: 49
+      • Expected 1 participants, found 2.: 5
+      • Expected 37 participants, found 38.: 8
+      • Expected 19 participants, found 20.: 15
+      • Expected 47 participants, found 48.: 4
+      • Expected 36 participants, found 37.: 4
+      • Expected 14 participants, found 15.: 25
+      • Expected 15 participants, found 16.: 15
+      • Expected 3 participants, found 4.: 21
+      • Expected 44 participants, found 42.: 1
+      • Expected 19 participants, found 18.: 2
+      • Expected 18 participants, found 19.: 11
+      • Expected 17 participants, found 18.: 13
+      • Expected 6 participants, found 7.: 36
+      • Expected 27 participants, found 28.: 11
+      • Expected 35 participants, found 36.: 6
+      • Expected 10 participants, found 11.: 16
+      • Expected 30 participants, found 29.: 2
+      • Expected 16 participants, found 17.: 14
+      • Expected 9 participants, found 10.: 16
+      • Expected 25 participants, found 26.: 10
+      • Expected 21 participants, found 22.: 13
+      • Expected 39 participants, found 40.: 1
+      • Expected 46 participants, found 47.: 3
+      • Expected 66 participants, found 67.: 1
+      • Expected 52 participants, found 53.: 5
+      • Expected 49 participants, found 50.: 2
+      • Expected 44 participants, found 45.: 6
+      • Expected 22 participants, found 23.: 8
+      • Expected 40 participants, found 41.: 4
+      • Expected 3 participants, found 2.: 4
+      • Expected 23 participants, found 20.: 1
+      • Expected 63 participants, found 64.: 1
+      • Expected 34 participants, found 35.: 5
+      • Expected 34 participants, found 32.: 1
+      • Expected 54 participants, found 52.: 1
+      • Expected 65 participants, found 66.: 2
+      • Expected 41 participants, found 42.: 4
+      • Expected 28 participants, found 29.: 4
+      • Expected 8 participants, found 10.: 6
+      • Expected 28 participants, found 27.: 1
+      • Expected 39 participants, found 37.: 2
+      • Expected 48 participants, found 49.: 4
+      • Expected 13 participants, found 14.: 13
+      • Expected 26 participants, found 27.: 10
+      • Expected 30 participants, found 31.: 2
+      • Expected 28 participants, found 30.: 3
+      • Expected 16 participants, found 18.: 9
+      • Expected 17 participants, found 19.: 2
+      • Expected 22 participants, found 24.: 3
+      • Expected 14 participants, found 16.: 2
+      • Expected 13 participants, found 15.: 4
+      • Expected 32 participants, found 31.: 4
+      • Expected 33 participants, found 30.: 1
+      • Expected 23 participants, found 22.: 3
+      • Expected 11 participants, found 12.: 14
+      • Expected 12 participants, found 11.: 1
+      • Expected 29 participants, found 30.: 4
+      • Expected 5 participants, found 6.: 20
+      • Expected 38 participants, found 39.: 3
+      • Expected 50 participants, found 51.: 1
+      • Expected 31 participants, found 32.: 3
+      • Expected 32 participants, found 33.: 5
+      • Expected 42 participants, found 43.: 7
+      • Expected 90 participants, found 86.: 1
+      • Expected 30 participants, found 28.: 1
+      • Expected 48 participants, found 46.: 1
+      • Expected 25 participants, found 24.: 1
+      • Expected 14 participants, found 28.: 1
+      • Expected 33 participants, found 34.: 4
+      • Expected 23 participants, found 24.: 9
+      • Expected 58 participants, found 59.: 1
+      • Expected 47 participants, found 44.: 1
+      • Expected 38 participants, found 37.: 1
+      • Expected 7 participants, found 6.: 3
+      • Expected 18 participants, found 17.: 1
+      • Expected 67 participants, found 66.: 1
+      • Expected 35 participants, found 34.: 1
+      • Expected 51 participants, found 50.: 2
+      • Expected 20 participants, found 21.: 9
+      • Expected 13 participants, found 12.: 2
+      • Expected 26 participants, found 25.: 1
+      • Expected 64 participants, found 62.: 2
+      • Expected 29 participants, found 28.: 2
+      • Expected 43 participants, found 42.: 2
+      • Expected 71 participants, found 70.: 1
+      • Expected 77 participants, found 76.: 1
+      • Expected 42 participants, found 40.: 1
+      • Expected 15 participants, found 17.: 4
+      • Expected 20 participants, found 22.: 1
+      • Expected 24 participants, found 25.: 5
+      • Expected 12 participants, found 14.: 10
+      • Expected 9 participants, found 11.: 6
+      • Expected 50 participants, found 48.: 1
+      • Expected 6 participants, found 4.: 1
+      • Expected 79 participants, found 74.: 1
+      • Expected 49 participants, found 46.: 1
+      • Expected 62 participants, found 58.: 1
+      • Expected 52 participants, found 48.: 1
+      • Expected 36 participants, found 35.: 1
+      • Expected 15 participants, found 14.: 2
+      • Expected 28 participants, found 24.: 1
+      • Expected 4 participants, found 3.: 1
+      • Expected 43 participants, found 44.: 3
+      • Expected 60 participants, found 59.: 1
+      • Expected 42 participants, found 41.: 1
+      • Expected 20 participants, found 19.: 1
+      • Expected 8 participants, found 7.: 1
+      • Expected 57 participants, found 58.: 1
+      • Expected 79 participants, found 80.: 1
+      • Expected 45 participants, found 46.: 1
+      • Expected 24 participants, found 23.: 1
+      • Expected 34 participants, found 33.: 1
+      • Expected 9 participants, found 8.: 1
+      • Expected 21 participants, found 20.: 1
+      • Expected 40 participants, found 39.: 1
+      • Expected 55 participants, found 52.: 1
+      • Expected 79 participants, found 78.: 1
+      • Expected 45 participants, found 42.: 1
+      • Expected 80 participants, found 79.: 1
+      • Expected 64 participants, found 65.: 1
+      • Expected 11 participants, found 10.: 2
+      • Expected 45 participants, found 44.: 1
+      • Expected 92 participants, found 93.: 1
+      • Expected 30 participants, found 32.: 1
+      • Expected 31 participants, found 33.: 1
+      • Expected 18 participants, found 20.: 1
+      • Expected 24 participants, found 26.: 2
+      • Expected 97 participants, found 94.: 1

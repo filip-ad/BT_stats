@@ -5,9 +5,11 @@ from typing import Dict, Optional, List
 import logging
 import re
 import unicodedata
+from models.cache_mixin import CacheMixin
+from utils import normalize_key
 
 @dataclass
-class Club:
+class Club(CacheMixin):
     club_id:       Optional[int]    = None     # PK in club
     shortname:     Optional[str]    = None     # club.shortname
     longname:      Optional[str]    = None     # club.longname
@@ -18,8 +20,8 @@ class Club:
     homepage:      Optional[str]    = None
     active:        Optional[int]    = 1
     district_id:   Optional[int]    = None
-    ext_id:        Optional[int]    = None     # from club_ext_id
     aliases:       List[dict]       = None     # {"alias": str, "alias_type": "short"|"long"}
+    id_exts:       List[dict]       = None     # {"id_ext": int, "source": str}
 
     def __post_init__(self):
         # Initialize aliases as empty list if None
@@ -45,20 +47,80 @@ class Club:
     def from_dict(data: dict):
         return Club(
             club_id=data.get("club_id"),
-            name=data.get("name"),
-            long_name=data.get("long_name"),
+            shortname=data.get("shortname"),
+            longname=data.get("longname"),
             city=data.get("city"),
             country_code=data.get("country_code"),
             district_id=data.get("district_id"),
             aliases=data.get("aliases", [])
         )
+    
+    @classmethod
+    def cache_name_map(
+        cls, 
+        cursor
+    ) -> Dict[str, 'Club']:
+        """
+        Build a normalized name to Club map using cached query, including shortname, longname, and all aliases.
+        """
+        # Fetch all club rows to create Club objects
+        sql_clubs = """
+            SELECT *
+            FROM club
+        """
+        club_rows = cls.cached_query(cursor, sql_clubs)
+        clubs_dict = {row['club_id']: Club.from_dict(row) for row in club_rows}
+
+        # Fetch all possible names (short, long, aliases)
+        sql_names = """
+            SELECT club_id, name
+            FROM (
+                SELECT club_id, shortname AS name FROM club WHERE shortname IS NOT NULL AND shortname != ''
+                UNION
+                SELECT club_id, longname AS name FROM club WHERE longname IS NOT NULL AND longname != ''
+                UNION
+                SELECT club_id, alias AS name FROM club_name_alias WHERE alias IS NOT NULL AND alias != ''
+            )
+        """
+        name_rows = cls.cached_query(cursor, sql_names)
+
+        club_map: Dict[str, Club] = {}
+        for row in name_rows:
+            norm_key = normalize_key(row['name'])
+            club = clubs_dict.get(row['club_id'])
+            if club:
+                if norm_key in club_map and club_map[norm_key].club_id != club.club_id:
+                    # Optional: log warning for conflicting keys
+                    pass
+                club_map[norm_key] = club
+
+        return club_map
+    
+    # @classmethod
+    # def cache_name_map(cls, cursor) -> Dict[str, "Club"]:
+    #     """
+    #     Returns a dict mapping every normalized variant
+    #     (shortname, longname, *and* every alias) → Club instance.
+    #     """
+    #     by_id = cls.cache_all(cursor)
+    #     lookup: Dict[str, Club] = {}
+    #     for c in by_id.values():
+    #         for variant in (c.shortname, c.longname):
+    #             if variant:
+    #                 lookup[cls._normalize(variant)] = c
+    #         for alias in c.aliases:
+    #             lookup[cls._normalize(alias["alias"])] = c
+    #     logging.info(f"Cached {len(lookup)} normalized name→Club entries")
+    #     return lookup
+    
+
 
     @staticmethod
-    def get_by_id_ext(cursor, ext_id: int) -> Optional["Club"]:
-        """Lookup a club by its external ID (in club_ext_id) and return the canonical Club."""
+    def get_by_id_ext(cursor, id_ext: int) -> Optional["Club"]:
+        """Lookup a club by its external ID (in club_id_ext) and return the canonical Club."""
         cursor.execute("""
-            SELECT club_id FROM club_ext_id WHERE club_id_ext = ?
-        """, (ext_id,))
+            SELECT club_id FROM club_id_ext WHERE club_id_ext = ?
+        """, (id_ext,))
         row = cursor.fetchone()
         if not row:
             return None
@@ -66,7 +128,7 @@ class Club:
 
     @staticmethod
     def get_by_id(cursor, club_id: int) -> Optional["Club"]:
-        """Load one Club by its canonical club_id (with ext_id and all name‐aliases)."""
+        """Load one Club by its canonical club_id (with id_ext and all name‐aliases)."""
         cursor.execute("""
             SELECT 
               c.club_id, c.shortname, c.longname, c.club_type,
@@ -74,7 +136,7 @@ class Club:
               c.active, c.district_id,
               e.club_id_ext
             FROM club c
-            LEFT JOIN club_ext_id e ON e.club_id = c.club_id
+            LEFT JOIN club_id_ext e ON e.club_id = c.club_id
             WHERE c.club_id = ?
         """, (club_id,))
         row = cursor.fetchone()
@@ -92,7 +154,7 @@ class Club:
             homepage     = row[7],
             active       = row[8],
             district_id  = row[9],
-            ext_id       = row[10],
+            id_exts      = [],
             aliases      = []
         )
 
@@ -110,9 +172,9 @@ class Club:
     def cache_all(cursor) -> Dict[int, "Club"]:
         """
         Returns a dict mapping canonical club_id → Club instance
-        (populates ext_id and name‐aliases in bulk).
+        (populates id_ext and name‐aliases in bulk).
         """
-        # 1) load all clubs + ext_id
+        # 1) load all clubs + id_ext
         cursor.execute("""
             SELECT 
               c.club_id, c.shortname, c.longname, c.club_type,
@@ -120,7 +182,7 @@ class Club:
               c.active, c.district_id,
               e.club_id_ext
             FROM club c
-            LEFT JOIN club_ext_id e ON e.club_id = c.club_id
+            LEFT JOIN club_id_ext e ON e.club_id = c.club_id
         """)
         clubs: Dict[int, Club] = {}
         for row in cursor.fetchall():
@@ -135,7 +197,7 @@ class Club:
                 homepage     = row[7],
                 active       = row[8],
                 district_id  = row[9],
-                ext_id       = row[10],
+                id_exts      = row[10],
                 aliases      = []
             )
 
@@ -153,7 +215,7 @@ class Club:
             else:
                 logging.warning(f"alias for unknown club_id {club_id}: {alias}")
 
-        logging.info(f"Cached {len(clubs)} clubs (with ext_id + aliases)")
+        logging.info(f"Cached {len(clubs)} clubs (with id_ext + aliases)")
         return clubs
     
     @staticmethod
@@ -165,7 +227,7 @@ class Club:
         clubs_by_id = Club.cache_all(cursor)    # Dict[int, Club]
 
         # then walk the alias table
-        cursor.execute("SELECT club_id, club_id_ext FROM club_ext_id")
+        cursor.execute("SELECT club_id, club_id_ext FROM club_id_ext")
         id_ext_map: Dict[int, Club] = {}
         for cid, ext in cursor.fetchall():
             club = clubs_by_id.get(cid)
@@ -175,22 +237,7 @@ class Club:
                 logging.warning(f"Alias for unknown club_id {cid}: ext={ext}")
         return id_ext_map    
 
-    @classmethod
-    def cache_name_map(cls, cursor) -> Dict[str, "Club"]:
-        """
-        Returns a dict mapping every normalized variant
-        (shortname, longname, *and* every alias) → Club instance.
-        """
-        by_id = cls.cache_all(cursor)
-        lookup: Dict[str, Club] = {}
-        for c in by_id.values():
-            for variant in (c.shortname, c.longname):
-                if variant:
-                    lookup[cls._normalize(variant)] = c
-            for alias in c.aliases:
-                lookup[cls._normalize(alias["alias"])] = c
-        logging.info(f"Cached {len(lookup)} normalized name→Club entries")
-        return lookup
+
     
     @classmethod
     def get_by_name(cls, cursor, raw_name: str) -> Optional["Club"]:

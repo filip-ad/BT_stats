@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Any
 from urllib.parse import urljoin, urlparse, parse_qs
 import requests
 from utils import parse_date, OperationLogger
-from config import SCRAPE_CLASSES_MAX_TOURNAMENTS, SCRAPE_TOURNAMENTS_CUTOFF_DATE
+from config import SCRAPE_CLASSES_MAX_TOURNAMENTS, SCRAPE_TOURNAMENTS_CUTOFF_DATE, SCRAPE_CLASSES_TOURNAMENT_ID_EXTS
 from db import get_conn
 
 from models.tournament_class import TournamentClass
@@ -50,32 +50,40 @@ def upd_tournament_classes():
 
         # Fetch tournaments by status and filter by cutoff date
         # =============================================================================
-        tournaments = Tournament.get_by_status(cursor, ["ONGOING", "ENDED"])
-        if not tournaments:
-            print("⚠️  No tournaments found in database.")
-            return
+        # Optional filter for specific tournament ext_ids (e.g., for testing), overriding cutoff if set
+        if SCRAPE_CLASSES_TOURNAMENT_ID_EXTS != 0 or SCRAPE_CLASSES_MAX_TOURNAMENTS is not None:
+            filtered_tournaments = Tournament.get_by_ext_ids(cursor, logger, SCRAPE_CLASSES_TOURNAMENT_ID_EXTS)
+            limit = SCRAPE_CLASSES_MAX_TOURNAMENTS or len(filtered_tournaments)
+            print(f"ℹ️  Filtered to {len(filtered_tournaments)} specific tournaments via SCRAPE_CLASSES_TOURNAMENT_ID_EXT (overriding cutoff).")
+        else:
+            tournaments = Tournament.get_by_status(cursor, ["ONGOING", "ENDED"])
+            if not tournaments:
+                print("⚠️  No tournaments found in database.")
+                return
 
-        filtered_tournaments = [
-            t for t in tournaments
-            if t.startdate and t.startdate >= cutoff_date
-        ]
-        if not filtered_tournaments:
-            print("⚠️  No tournaments after cutoff date.")
-            return
+            filtered_tournaments = [
+                t for t in tournaments
+                if t.startdate and t.startdate >= cutoff_date
+            ]
+            if not filtered_tournaments:
+                print("⚠️  No tournaments after cutoff date.")
+                return
+            limit = SCRAPE_CLASSES_MAX_TOURNAMENTS or len(filtered_tournaments)
+
         
-        limit = SCRAPE_CLASSES_MAX_TOURNAMENTS or len(filtered_tournaments)
         print(f"ℹ️  Found {len(filtered_tournaments)} tournaments after cutoff. Scraping classes for up to {limit} tournaments...")
 
         # Loop through filtered tournaments
         # =============================================================================
         for i, t in enumerate(filtered_tournaments[:limit], 1):
             item_key = f"{t.shortname} ({t.startdate})"
-            print(f"ℹ️  Processing tournament [{i}/{len(filtered_tournaments[:limit])}] {t.shortname}")
+            print(f"ℹ️  Processing tournament [{i}/{len(filtered_tournaments[:limit])}] {t.shortname} (id: {t.tournament_id}, ext_id: {t.tournament_id_ext})")
+            classes_processed += 1
 
             try:
                 # Scrape raw classes
                 # =============================================================================
-                raw_classes = scrape_raw_classes_for_tournament_ondata(t)
+                raw_classes = scrape_raw_classes_for_tournament_ondata(t, item_key, logger)
                 if not raw_classes:
                     logger.skipped(item_key, "No classes scraped")
                     continue
@@ -90,14 +98,12 @@ def upd_tournament_classes():
                     # Create and validate tournament class object
                     # =============================================================================
                     tournament_class = TournamentClass.from_dict(parsed_data)
-                    val = tournament_class.validate(logger, item_key)
-                    if val["status"] != "success":
-                        continue
+                    tournament_class.validate(logger, item_key)
 
                     # Upsert
                     # =============================================================================
                     tournament_class.upsert(cursor, logger, item_key)
-                    classes_processed += 1
+                    
 
             except Exception as e:
                 logger.failed(item_key, f"Exception during processing: {e}")
@@ -114,22 +120,40 @@ def upd_tournament_classes():
         conn.commit()
         conn.close()
 
-# ---------- Doubles detection (IDs only) ----------
-def detect_type_id(
-    shortname: str, 
-    longname: str
-) -> int:
-    
-    l = (longname or "").lower()
-    if any(k in l for k in {"double", "doubles", "dubbel", "dubble", "dobbel", "dobbelt"}):
-        return 2  # Doubles
+def detect_type_id(shortname: str, longname: str) -> int:
+    l  = (longname or "").lower()
     up = (shortname or "").upper()
-    if any(tag in re.split(r"[^A-Z]+", up) for tag in {"HD", "DD", "WD", "MD", "MXD"}):
-        return 2  # Doubles
-    return 1  # Singles
+    tokens = [t for t in re.split(r"[^A-ZÅÄÖ]+", up) if t]
+
+    # --- Team (4) ---
+    if (re.search(r"\b(herr(?:ar)?|dam(?:er)?)\s+lag\b", l)
+        or "herrlag" in l or "damlag" in l):
+        return 4
+    if any(t in {"HL", "DL", "HLAG", "DLAG", "LAG", "TEAM"} for t in tokens):
+        return 4
+    if re.search(r"\b[HD]L\d+\b", up) or re.search(r"\b[HD]LAG\d*\b", up):
+        return 4
+
+    # --- Doubles (2) ---
+    # prefix handles cases like "HDEliteYdr"
+    if up.startswith(("HD","DD","WD","MD","MXD","FD")):
+        return 2
+    if re.search(r"\b(doubles?|dubbel|dubble|dobbel|dobbelt|Familjedubbel)\b", l):
+        return 2
+    if any(tag in tokens for tag in {"HD","DD","WD","MD","MXD","FD"}):
+        return 2
+    
+    # --- Unknown/garbage starting with XD (9) ---
+    if up.startswith(("XB", "XG")):
+        return 9
+
+    # --- Default Singles (1) ---
+    return 1
 
 def scrape_raw_classes_for_tournament_ondata(
-    tournament: Tournament
+    tournament: Tournament,
+    item_key: str,
+    logger: OperationLogger
 ) -> List[Dict[str, Any]]: 
     """
     Scrape raw class data from tournament page.
@@ -174,12 +198,18 @@ def scrape_raw_classes_for_tournament_ondata(
         raise ValueError(f"Invalid start date for tournament {tournament.shortname} ({tournament.tournament_id})")
 
     for row in rows:
-        raw = _parse_raw_row(row, tournament.tournament_id, base_date)
+        raw = _parse_raw_row(row, tournament.tournament_id, base_date, item_key, logger)
         if raw:
             raw_classes.append(raw)
     return raw_classes
 
-def _parse_raw_row(row, tournament_id: int, base_date: datetime.date) -> Optional[Dict[str, Any]]:
+def _parse_raw_row(
+    row, 
+    tournament_id: int, 
+    base_date: datetime.date, 
+    item_key: str, 
+    logger: OperationLogger
+) -> Optional[Dict[str, Any]]:
     cols = row.find_all("td")
     if len(cols) < 4:
         return None
@@ -203,22 +233,29 @@ def _parse_raw_row(row, tournament_id: int, base_date: datetime.date) -> Optiona
     ext_id = int(qs["classID"][0]) if "classID" in qs and qs["classID"][0].isdigit() else None
     short = a.get_text(strip=True)
 
-    # Infer both ids here without extra HTTP calls
-    structure_id    = _infer_structure_id_from_row(row)
-    type_id         = detect_type_id(short, desc)
+    # Exclusion list by ext_id (known invalid classes without proper PDF:s)
+    EXCLUDED_EXT_IDS = {5345, 5171, 5167}
+    if ext_id in EXCLUDED_EXT_IDS:
+        logging.info(f"Skipping excluded class ext_id={ext_id} ({short}) due to known invalid PDF")
+        return None
 
+    # Infer both ids here without extra HTTP calls
+    type_id         = detect_type_id(short, desc)
+    structure_id    = _infer_structure_id_from_row(row)
+
+        
     return {
-        "tournament_class_id_ext": ext_id,
-        "tournament_id": tournament_id,
-        "tournament_class_type_id": type_id,
-        "tournament_class_structure_id": structure_id,
-        "date": class_date,
-        "longname": desc,
-        "shortname": short,
-        "gender": None,
-        "max_rank": None,
-        "max_age": None,
-        "url": None  # Add if scraping URL per class
+        "tournament_class_id_ext":          ext_id,
+        "tournament_id":                    tournament_id,
+        "tournament_class_type_id":         type_id,
+        "tournament_class_structure_id":    structure_id,
+        "date":                             class_date,
+        "longname":                         desc,
+        "shortname":                        short,
+        "gender":                           None,
+        "max_rank":                         None,
+        "max_age":                          None,
+        "url":                              None  # Add if scraping URL per class
     }
 
 def parse_raw_class(raw_data: Dict[str, Any], tournament_id: int) -> Optional[Dict[str, Any]]:
@@ -232,42 +269,20 @@ def parse_raw_class(raw_data: Dict[str, Any], tournament_id: int) -> Optional[Di
         return None
 
     parsed_data = {
-        "tournament_class_id_ext": raw_data.get("tournament_class_id_ext"),
-        "tournament_id": tournament_id,
-        "tournament_class_type_id": raw_data.get("tournament_class_type_id"),
-        "tournament_class_structure_id": raw_data.get("tournament_class_structure_id"),
-        "date": raw_data.get("date"),
-        "longname": raw_data.get("longname"),
-        "shortname": raw_data.get("shortname"),
-        "gender": raw_data.get("gender"),
-        "max_rank": raw_data.get("max_rank"),
-        "max_age": raw_data.get("max_age"),
-        "url": raw_data.get("url"),
-        "data_source_id": 1  # Default
+        "tournament_class_id_ext":          raw_data.get("tournament_class_id_ext"),
+        "tournament_id":                    tournament_id,
+        "tournament_class_type_id":         raw_data.get("tournament_class_type_id"),
+        "tournament_class_structure_id":    raw_data.get("tournament_class_structure_id"),
+        "date":                             raw_data.get("date"),
+        "longname":                         raw_data.get("longname"),
+        "shortname":                        raw_data.get("shortname"),
+        "gender":                           raw_data.get("gender"),
+        "max_rank":                         raw_data.get("max_rank"),
+        "max_age":                          raw_data.get("max_age"),
+        "url":                              raw_data.get("url"),
+        "data_source_id":                   1 
     }
     return parsed_data
-
-# Add validate method to TournamentClass (similar to Tournament)
-def validate(self, logger: OperationLogger, item_key: str) -> Dict[str, str]:
-    """
-    Validate TournamentClass fields, log to OperationLogger.
-    Returns dict with status and reason.
-    """
-    if not (self.shortname and self.date and self.tournament_id):
-        reason = "Missing required fields (shortname, date, tournament_id)"
-        logger.failed(item_key, reason)
-        return {"status": "failed", "reason": reason}
-
-    # Warnings (non-fatal)
-    if not self.tournament_class_id_ext:
-        logger.warning(item_key, "No valid external ID (likely upcoming)")
-    if not self.longname:
-        logger.warning(item_key, "Missing longname")
-
-    return {"status": "success", "reason": "Validated OK"}
-
-# Bind validate to TournamentClass
-TournamentClass.validate = validate
 
 def _infer_structure_id_from_row(row) -> Optional[int]:
     """
@@ -283,9 +298,15 @@ def _infer_structure_id_from_row(row) -> Optional[int]:
             qs = parse_qs(urlparse(a["href"]).query)
             st = qs.get("stage", [None])[0]
             if st and str(st).isdigit():
-                stages.add(int(st))
-        except Exception:
+                stage_num = int(st)
+                stages.add(stage_num)
+                logging.debug(f"Found stage {stage_num} in href: {a['href']}")
+        except Exception as e:
+            logging.warning(f"Error parsing href in row: {e}")
             continue
+
+    if not stages:
+        logging.warning(f"No stages found in row HTML: {row.prettify()}")
 
     has_groups = (3 in stages) or (4 in stages)
     has_ko     = (5 in stages)
@@ -296,4 +317,4 @@ def _infer_structure_id_from_row(row) -> Optional[int]:
         return 2 # STRUCT_GROUPS_ONLY
     if (not has_groups) and has_ko:
         return 3 # STRUCT_KO_ONLY
-    return None
+    return 9

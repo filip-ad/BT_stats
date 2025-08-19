@@ -1,19 +1,19 @@
 # src/models/tournament.py
 from __future__ import annotations  # <= postpone annotation evaluation (robust)
+
 from typing import List, Optional, Dict, Any, Sequence  # make sure this import exists
 from ast import List
 from dataclasses import dataclass
 from datetime import date
-import datetime
 from typing import Optional, Dict
-import logging
 import sqlite3
+from models.base import BaseModel
 from utils import parse_date, OperationLogger
 
 
 
 @dataclass
-class Tournament:
+class Tournament(BaseModel):
     tournament_id:          Optional[int] = None        # Canonical ID from tournament table
     tournament_id_ext:      Optional[str] = None        # External ID from ondata.se
     longname:               Optional[str] = None        # Full tournament name
@@ -93,6 +93,7 @@ class Tournament:
             "reason":   "Validated OK"
         }
 
+    # Rewrite this and get rid of the MAP....
     @classmethod
     def get_by_status(
         cls, 
@@ -109,6 +110,37 @@ class Tournament:
         columns = [col[0] for col in cursor.description]
         results = [dict(zip(columns, row)) for row in cursor.fetchall()]
         return [cls.from_dict(res) for res in results]
+    
+    # Used for testing in upd_tournament_classes
+    @staticmethod
+    def get_by_ext_ids(cursor, logger: OperationLogger, ext_ids: List[str]) -> List['Tournament']:
+        """
+        Fetch Tournament instances by a list of tournament_id_ext.
+        Returns list of matching tournaments.
+        """
+        if not ext_ids:
+            return []
+
+        placeholders = ','.join('?' for _ in ext_ids)
+        sql = f"""
+            SELECT * FROM tournament
+            WHERE tournament_id_ext IN ({placeholders})
+        """
+
+        print(sql)
+
+        cursor.execute(sql, ext_ids)
+        columns = [col[0] for col in cursor.description]
+        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        tournaments = [Tournament.from_dict(row) for row in rows]
+
+        print(tournaments)
+        
+        if len(tournaments) != len(ext_ids):
+            missing = set(ext_ids) - {t.tournament_id_ext for t in tournaments}
+            logger.warning("", f"Missing tournaments for ext_ids: {missing}")
+        
+        return tournaments
 
     def upsert(
             self, 

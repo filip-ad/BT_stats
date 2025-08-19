@@ -350,6 +350,9 @@ class OperationLogger:
                 output += f"      • {reason}: {count}\n"
         
         output += f"   ⚠️  Warnings: {total_warnings}\n"
+        if self.verbosity >= 1:
+            for reason, count in self.reasons["warning"].items():
+                output += f"      • {reason}: {count}\n"
 
         # Always print summary to console
         print(output)

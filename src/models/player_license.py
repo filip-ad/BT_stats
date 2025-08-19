@@ -1,15 +1,16 @@
 # src/models/player_license.py
 
-from datetime import datetime, date
+from datetime import date
 from dataclasses import dataclass
 import logging
 from typing import Optional, List, Tuple, Dict, Any, Set, Iterable
 from collections import defaultdict
-import difflib
 import sqlite3
+from models.cache_mixin import CacheMixin
+from utils import normalize_key
 
 @dataclass
-class PlayerLicense:
+class PlayerLicense(CacheMixin):
     player_id:    int
     club_id:      int
     season_id:    int
@@ -29,6 +30,68 @@ class PlayerLicense:
             valid_to=data["valid_to"],
             row_id=data.get("row_id")
         )
+    
+    @classmethod
+    def cache_name_club_map(cls, cursor) -> Dict[Tuple[str, str, int], List[Dict[str, Any]]]:
+        """
+        Build a (first_name_norm, last_name_norm, club_id) to list of license dicts map using cached query.
+        Note: Returns list of dicts per key for licenses, as there might be multiple per name/club.
+        """
+        sql = """
+            SELECT 
+                pl.player_id,
+                pl.club_id,
+                pl.valid_from,
+                pl.valid_to,
+                pl.license_id,
+                pl.season_id,
+                p.firstname,
+                p.lastname
+            FROM player_license pl
+            JOIN player p ON pl.player_id = p.player_id
+        """
+        rows = cls.cached_query(cursor, sql)
+
+        license_map: Dict[Tuple[str, str, int], List[Dict[str, Any]]] = {}
+        for row in rows:
+            fn_norm = normalize_key(row['firstname'])
+            ln_norm = normalize_key(row['lastname'])
+            key = (fn_norm, ln_norm, row['club_id'])
+            license_map.setdefault(key, []).append({
+                "player_id": row['player_id'],
+                "club_id": row['club_id'],
+                "license_number": row['license_id'],
+                "valid_from": row['valid_from'],
+                "valid_to": row['valid_to']
+            })
+        return license_map
+    
+    # @staticmethod
+    # def cache_name_club_map(cursor):
+    #     """
+    #     Returns dict keyed by firstname, lastname and club_id
+    #     Value = list of dicts with player_id and license validity periods
+    #     """
+    #     cursor.execute("""
+    #         SELECT 
+    #                 p.player_id,    -- player ID
+    #                 p.firstname,    -- player's first name
+    #                 p.lastname,     -- player's last name
+    #                 pl.club_id,     -- club ID
+    #                 pl.valid_from,  -- license valid from date
+    #                 pl.valid_to     -- license valid to date
+    #         FROM player p
+    #         JOIN player_license pl ON p.player_id = pl.player_id
+    #     """)
+    #     cache = {}
+    #     for player_id, firstname, lastname, club_id, valid_from, valid_to in cursor.fetchall():
+    #         key = (firstname, lastname, club_id)
+    #         cache.setdefault(key, []).append({
+    #             "player_id": player_id,
+    #             "valid_from": valid_from,
+    #             "valid_to": valid_to
+    #         })
+    #     return cache
 
     @classmethod
     def cache_all(cls, cursor) -> Dict[int, Set[Tuple[int, int]]]:
@@ -513,32 +576,7 @@ class PlayerLicense:
                 "reason": f"Database error: {str(e)}"
             }
 
-    @staticmethod
-    def cache_name_club_map(cursor):
-        """
-        Returns dict keyed by firstname, lastname and club_id
-        Value = list of dicts with player_id and license validity periods
-        """
-        cursor.execute("""
-            SELECT 
-                    p.player_id,    -- player ID
-                    p.firstname,    -- player's first name
-                    p.lastname,     -- player's last name
-                    pl.club_id,     -- club ID
-                    pl.valid_from,  -- license valid from date
-                    pl.valid_to     -- license valid to date
-            FROM player p
-            JOIN player_license pl ON p.player_id = pl.player_id
-        """)
-        cache = {}
-        for player_id, firstname, lastname, club_id, valid_from, valid_to in cursor.fetchall():
-            key = (firstname, lastname, club_id)
-            cache.setdefault(key, []).append({
-                "player_id": player_id,
-                "valid_from": valid_from,
-                "valid_to": valid_to
-            })
-        return cache
+
 
     @staticmethod
     def cache_find_by_name_club_date(licenses_cache, firstname, lastname, club_id, tournament_date, fallback_to_latest=False):

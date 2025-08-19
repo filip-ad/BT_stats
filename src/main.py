@@ -23,7 +23,7 @@ from upd_tournament_classes import upd_tournament_classes
 from upd_participants import upd_participants
 from upd_player_positions import upd_player_positions
 from upd_tournament_group_stage import upd_tournament_group_stage
-from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes, create_triggers, create_views
+from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes, create_triggers, create_views, compact_sqlite, execute_custom_sql
 
 
 def main():
@@ -35,6 +35,8 @@ def main():
 
         ### DB stuff
         ################################################################################################        
+
+        # compact_sqlite()
         
         # Get the connection and cursor
         conn, cursor = get_conn()
@@ -60,10 +62,10 @@ def main():
             # 'player_ranking_group'
             # 'ranking_group'
             # 'player_ranking', 
-            # 'player_license'
+            # 'player_license',
             # 'player_license_raw',
             # 'player_transition_raw'
-            # 'player_transition'
+            # 'player_transition',
             # 'player_ranking_raw'
 
             # Debugging tables (no FKs assumed)
@@ -88,8 +90,11 @@ def main():
             # 'participant',
 
             # Tournament core
-            'tournament_class'
+            # 'tournament_class'
+            # 'tournament_participant'
             # 'tournament',
+            # 'participant_player',
+            # 'participant',
 
             # Fixture (if exists)
             # 'fixture',
@@ -98,8 +103,8 @@ def main():
             
             # 'club_ext_id',   # References club
             # 'club_name_alias',  # References club
+            # 'club'
 
-            # 'club',
             # 'player_alias',  # References player
             # 'player',
             
@@ -121,6 +126,9 @@ def main():
         create_indexes(cursor)
         create_triggers(cursor)
         create_views(cursor)
+
+        execute_custom_sql(cursor)
+        
 
         conn.commit()
         conn.close()
@@ -149,9 +157,9 @@ def main():
 
         # # Get tournaments
         # upd_tournaments()
-        upd_tournament_classes()
+        # upd_tournament_classes()
 
-        # upd_participants()
+        upd_participants()
         # upd_player_positions()
         # upd_tournament_group_stage()
 

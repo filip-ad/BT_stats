@@ -6,9 +6,10 @@ import logging
 from collections import defaultdict
 
 from utils import normalize_key, sanitize_name
+from models.cache_mixin import CacheMixin
 
 @dataclass
-class Player:
+class Player(CacheMixin):
     player_id:      Optional[int]   = None
     firstname:      Optional[str]   = None
     lastname:       Optional[str]   = None
@@ -51,6 +52,75 @@ class Player:
             aliases=data.get("aliases", [])
         )
     
+    @classmethod
+    def cache_name_map(cls, cursor) -> Dict[str, List[int]]:
+        """
+        Build a normalized full name to list of player_ids map using cached query.
+        Note: List because names might not be unique.
+        """
+        sql = """
+            SELECT player_id, firstname, lastname
+            FROM player
+            WHERE is_verified = 1  -- Assuming verified players only for this map
+        """
+        rows = cls.cached_query(cursor, sql)
+
+        name_map: Dict[str, List[int]] = {}
+        for row in rows:
+            full_norm = normalize_key(f"{row['firstname']} {row['lastname']}")
+            name_map.setdefault(full_norm, []).append(row['player_id'])
+        return name_map
+    
+    # @staticmethod
+    # def cache_name_map(
+    #     cursor
+    # ) -> Dict[str, List[int]]:
+    #     """
+    #     Build a map from normalized "firstname lastname" → list of player_ids.
+    #     Includes both canonical names and aliases.
+
+    #     normalize_key("Hamrén Öberg") -> "hamren oberg"
+    #     """
+    #     name_map: Dict[str, List[int]] = defaultdict(list)
+
+    #     # 1) Base names from player table
+    #     cursor.execute("SELECT player_id, firstname, lastname FROM player")
+    #     for pid, fn, ln in cursor.fetchall():
+    #         full = f"{fn or ''} {ln or ''}".strip()
+    #         key = normalize_key(full)
+    #         name_map[key].append(pid)
+
+
+    #     # 2) Add aliases
+    #     cursor.execute("SELECT DISTINCT player_id, firstname, lastname FROM player_alias")
+    #     for pid, fn, ln in cursor.fetchall():
+    #         full = f"{fn or ''} {ln or ''}".strip()
+    #         key = normalize_key(full)
+    #         if pid not in name_map[key]:
+    #             name_map[key].append(pid)
+
+    #     logging.info(f"Cached {len(name_map)} unique name keys (players+aliases)")
+    #     return name_map    
+
+    @classmethod
+    def cache_unverified_name_map(cls, cursor) -> Dict[str, int]:
+        """
+        Build a clean full name to player_id map for unverified players using cached query.
+        Assumes names are unique for unverified.
+        """
+        sql = """
+            SELECT player_id, firstname, lastname
+            FROM player
+            WHERE is_verified = 0  -- Unverified players
+        """
+        rows = cls.cached_query(cursor, sql)
+
+        unverified_map: Dict[str, int] = {}
+        for row in rows:
+            clean_name = " ".join(f"{row['firstname']} {row['lastname']}".strip().split())
+            unverified_map[clean_name] = row['player_id']
+        return unverified_map    
+
     def save_to_db(
             self, 
             cursor, 
@@ -77,6 +147,23 @@ class Player:
                 }
             # Optionally derive firstname/lastname from fullname_raw if desired, but avoid unreliable parsing
             # For now, allow NULL/None for firstname/lastname in raw cases
+
+        # Additional type validation to prevent binding errors
+        if not isinstance(self.fullname_raw, (str, type(None))):
+            logging.error(f"Invalid fullname_raw type: {type(self.fullname_raw)}, value: {self.fullname_raw}")
+            return {
+                "status": "failed",
+                "player": f"{self.firstname or ''} {self.lastname or ''}",
+                "reason": f"Invalid type for fullname_raw: expected str or None, got {type(self.fullname_raw)}"
+            }
+        
+        if not isinstance(self.year_born, (int, type(None))):
+            logging.error(f"Invalid year_born type: {type(self.year_born)}, value: {self.year_born}")
+            return {
+                "status": "failed",
+                "player": f"{self.firstname or ''} {self.lastname or ''}",
+                "reason": f"Invalid type for year_born: expected int or None, got {type(self.year_born)}"
+            }
 
         try:
             if player_id_ext is not None:
@@ -123,6 +210,80 @@ class Player:
                 "player": self.fullname_raw or f"{self.firstname} {self.lastname}",
                 "reason": f"Insertion error: {e}"
             }
+            
+    
+    # def save_to_db(
+    #         self, 
+    #         cursor, 
+    #         player_id_ext: Optional[int] = None, 
+    #         source_system: Optional[str] = None
+    #     ) -> dict:
+    #     self.sanitize()
+
+    #     # For non-verified (raw) players, require fullname_raw; for verified, require firstname and lastname
+    #     if self.is_verified:
+    #         required_fields = [self.firstname, self.lastname]
+    #         if not all(required_fields):
+    #             return {
+    #                 "status": "failed",
+    #                 "player": f"{self.firstname or ''} {self.lastname or ''}",
+    #                 "reason": "Missing required fields for verified player (firstname and lastname)"
+    #             }
+    #     else:
+    #         if not self.fullname_raw:
+    #             return {
+    #                 "status": "failed",
+    #                 "player": self.fullname_raw or "Unknown",
+    #                 "reason": "Missing required field for non-verified player (fullname_raw)"
+    #             }
+    #         # Optionally derive firstname/lastname from fullname_raw if desired, but avoid unreliable parsing
+    #         # For now, allow NULL/None for firstname/lastname in raw cases
+
+    #     try:
+    #         if player_id_ext is not None:
+    #             # Check if alias already exists (for licensed with external)
+    #             cursor.execute("SELECT player_id FROM player_alias WHERE player_id_ext = ?", (player_id_ext,))
+    #             existing = cursor.fetchone()
+    #             if existing:
+    #                 # logging.warning(f"Skipping duplicate player alias: {self.firstname} {self.lastname} ({player_id_ext})")
+    #                 return {
+    #                     "status": "skipped",
+    #                     "player": f"{self.firstname} {self.lastname}",
+    #                     "reason": "Player alias already exists"
+    #                 }
+    #             player_id_ext_val = player_id_ext
+    #         else:
+    #             # For raw players, allow NULL external
+    #             player_id_ext_val = None
+
+    #         # Insert new canonical player (allow NULL for firstname/lastname if raw)
+    #         cursor.execute("""
+    #             INSERT INTO player (firstname, lastname, year_born, fullname_raw, is_verified)
+    #             VALUES (?, ?, ?, ?, ?)
+    #         """, (self.firstname or None, self.lastname or None, self.year_born, self.fullname_raw, self.is_verified))
+    #         self.player_id = cursor.lastrowid
+
+    #         # Insert alias (external optional; use canonical values where possible)
+    #         alias_first = self.firstname or None
+    #         alias_last = self.lastname or None
+    #         alias_full = self.fullname_raw or ""
+    #         cursor.execute("""
+    #             INSERT INTO player_alias (player_id, player_id_ext, firstname, lastname, year_born, fullname_raw, source_system)
+    #             VALUES (?, ?, ?, ?, ?, ?, ?)
+    #         """, (self.player_id, player_id_ext_val, alias_first, alias_last, self.year_born, alias_full, source_system))
+
+    #         return {
+    #             "status": "success",
+    #             "player": self.fullname_raw or f"{self.firstname} {self.lastname}",
+    #             "reason": "Inserted new canonical player and alias"
+    #         }
+
+    #     except Exception as e:
+    #         return {
+    #             "status": "failed",
+    #             "player": self.fullname_raw or f"{self.firstname} {self.lastname}",
+    #             "reason": f"Insertion error: {e}"
+    #         }
 
     def add_alias(self,
                   cursor,
@@ -256,35 +417,7 @@ class Player:
         logging.info(f"Cached {len(name_year_map)} name/year keys")
         return name_year_map
     
-    @staticmethod
-    def cache_name_map(
-        cursor
-    ) -> Dict[str, List[int]]:
-        """
-        Build a map from normalized "firstname lastname" → list of player_ids.
-        Includes both canonical names and aliases.
 
-        normalize_key("Hamrén Öberg") -> "hamren oberg"
-        """
-        name_map: Dict[str, List[int]] = defaultdict(list)
-
-        # 1) Base names from player table
-        cursor.execute("SELECT player_id, firstname, lastname FROM player")
-        for pid, fn, ln in cursor.fetchall():
-            full = f"{fn or ''} {ln or ''}".strip()
-            key = normalize_key(full)
-            name_map[key].append(pid)
-
-        # 2) Add aliases
-        cursor.execute("SELECT DISTINCT player_id, firstname, lastname FROM player_alias")
-        for pid, fn, ln in cursor.fetchall():
-            full = f"{fn or ''} {ln or ''}".strip()
-            key = normalize_key(full)
-            if pid not in name_map[key]:
-                name_map[key].append(pid)
-
-        logging.info(f"Cached {len(name_map)} unique name keys (players+aliases)")
-        return name_map    
     
     @staticmethod
     def cache_id_ext_map(
@@ -521,3 +654,36 @@ class Player:
         except Exception as e:
             logging.error(f"Error merging player {other_player_id} into {self.player_id}: {e}")
             return {"status": "failed", "reason": f"Merge error: {e}"}
+        
+    @staticmethod
+    def insert_unverified(
+        cursor,
+        fullname_raw: str,
+        year_born: Optional[int] = None,
+        player_id_ext: Optional[int] = None,
+        source_system: Optional[str] = None
+    ) -> Optional[int]:
+        """
+        Insert a new unverified player using fullname_raw and return the new player_id.
+        """
+        player = Player(
+            fullname_raw=fullname_raw,
+            year_born=year_born,
+            is_verified=False
+        )
+        res = player.save_to_db(
+            cursor,
+            player_id_ext=player_id_ext,
+            source_system=source_system
+        )
+
+        # Accept common shapes from save_to_db()
+        if isinstance(res, int):
+            return res
+        if isinstance(res, dict):
+            for k in ("player_id", "id", "rowid", "new_id", "lastrowid"):
+                if k in res and isinstance(res[k], int):
+                    return res[k]
+        # As a last resort, try to read from the instance if it sets player_id
+        pid = getattr(player, "player_id", None)
+        return int(pid) if isinstance(pid, int) else None

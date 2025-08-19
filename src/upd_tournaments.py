@@ -147,20 +147,28 @@ def scrape_raw_tournaments_ondata(
     return raw_tournaments
 
 def parse_raw_tournament(
-        raw_data: Dict[str, Any], 
-        logger: OperationLogger,
-        item_key: str
+        raw_data:   Dict[str, Any], 
+        logger:     OperationLogger,
+        item_key:   str
     ) -> Optional[Dict[str, Any]]:
     """
     Parse raw dict to structured data (e.g., dates, URL, ID).
     Logs failures and warnings using logger.
     Returns parsed data dict on success, None on failure.
     """
+
     start_date  = parse_date(raw_data["start_str"])
     end_date    = parse_date(raw_data["end_str"])
     if not start_date or not end_date:
-        logger.failure(item_key, "Invalid dates")
+        logger.failed(item_key, "Invalid dates")
         return None
+
+    if not (start_date and end_date):
+        logger.warning(item_key, "Invalid dates for status calc")
+        # Debug temp
+        logging.info(item_key, "Invalid dates for status calc")
+
+    status = 6 if not (start_date and end_date) else 3 if end_date < date.today() else 2 if start_date <= date.today() <= end_date else 1
 
     _ONCLICK_URL_RE     = re.compile(r"document\.location=(?:'|\")?([^'\"]+)(?:'|\")?")
     _ONDATA_URL_RE      = re.compile(r"https://resultat\.ondata\.se/(\w+)/?$")

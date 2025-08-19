@@ -7,7 +7,7 @@ from db import get_conn
 from utils import print_db_insert_results
 from config import (
     SCRAPE_CLASS_PARTICIPANTS_MAX_CLASSES,
-    SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT,
+    SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXTS,
     SCRAPE_CLASS_PARTICIPANTS_ORDER,
 )
 from models.club import Club
@@ -29,8 +29,8 @@ def upd_player_positions():
     classes_by_ext = TournamentClass.cache_by_id_ext(cur)
 
     # ── 1) Load + filter classes (by external id) ──────────────────────────
-    if SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT is not 0:
-        tc = classes_by_ext.get(SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT)
+    if SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXTS is not 0:
+        tc = classes_by_ext.get(SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXTS)
         classes = [tc] if tc else []
     else:
         classes = list(classes_by_ext.values())

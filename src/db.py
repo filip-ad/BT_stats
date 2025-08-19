@@ -33,6 +33,18 @@ def get_conn():
         print(f"❌ Database connection failed: {e}")
         raise
 
+def compact_sqlite():
+    print("ℹ️  Compacting SQLite database...")
+    try:
+        con = sqlite3.connect(DB_NAME)
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        con.execute("VACUUM;")  # rebuilds/shrinks the same file
+        con.close()
+    except sqlite3.Error as e:
+        print(f"❌ Error during database compaction: {e}")
+        raise
+
+
 def _register_sqlite_date_time_adapters() -> None:
     global _ADAPTERS_REGISTERED
     if _ADAPTERS_REGISTERED:
@@ -335,6 +347,7 @@ def create_tables(cursor):
                 country_code                        TEXT,
                 url                                 TEXT,
                 tournament_status_id                INTEGER,
+                is_valid                            BOOLEAN DEFAULT 1,
                 data_source_id                      INTEGER DEFAULT 1,
                 row_created                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -361,13 +374,15 @@ def create_tables(cursor):
                 max_age                                     INTEGER,
                 url                                         TEXT,
                 data_source_id                              INTEGER DEFAULT 1,
+                is_valid                                    BOOLEAN DEFAULT 1,
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (tournament_id)                 REFERENCES tournament(tournament_id)    ON DELETE CASCADE,
                 FOREIGN KEY (tournament_class_type_id)      REFERENCES tournament_class_type(tournament_class_type_id),
                 FOREIGN KEY (tournament_class_structure_id) REFERENCES tournament_class_structure(tournament_class_structure_id),
                 FOREIGN KEY (data_source_id)                REFERENCES data_source(data_source_id),
-                UNIQUE      (tournament_class_id_ext, data_source_id)
+                UNIQUE      (tournament_class_id_ext, data_source_id),
+                UNIQUE      (tournament_id, shortname, date)
             )
         ''')
 
@@ -750,7 +765,8 @@ def create_and_populate_static_tables(cursor):
 
         data_sources = [
             (1, 'ondata',          'https://resultat.ondata.se/'),
-            (2, 'PingisArenan',    'https://sbtfott.stupaevents.com/')
+            (2, 'PingisArenan',    'https://sbtfott.stupaevents.com/'),
+            (3, 'Profixio',        'https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_public.php')
         ]
 
         cursor.executemany('''
@@ -977,7 +993,9 @@ def create_and_populate_static_tables(cursor):
         tournament_class_types = [
             (1, 'Singles'),
             (2, 'Doubles'),
-            (3, 'Mixed doubles')
+            (3, 'Mixed doubles'),
+            (4, 'Team'),
+            (9, 'Unknown')
         ]
 
         cursor.executemany('''
@@ -997,7 +1015,8 @@ def create_and_populate_static_tables(cursor):
         tournament_class_structure = [
             (1, 'Groups_and_KO'),
             (2, 'Groups_only'),
-            (3, 'KO_only')
+            (3, 'KO_only'),
+            (9, 'Unknown')
         ]
 
         cursor.executemany('''
@@ -1103,46 +1122,70 @@ def create_and_populate_static_tables(cursor):
         # Create clubs table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS club (
-                club_id         INTEGER     PRIMARY KEY,
-                shortname       TEXT,
-                longname        TEXT,
-                club_type       TEXT        DEFAULT 'club', -- Might add national team later
-                city            TEXT,
-                country_code    TEXT,
-                remarks         TEXT,
-                homepage        TEXT,
-                active          INTEGER     DEFAULT 1 CHECK (active IN (0, 1)),
-                district_id     INTEGER,
-                row_created     TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+                club_id                     INTEGER     PRIMARY KEY,
+                shortname                   TEXT,
+                longname                    TEXT,
+                club_type                   INTEGER     DEFAULT 1,
+                city                        TEXT,
+                country_code                TEXT,
+                remarks                     TEXT,
+                homepage                    TEXT,
+                active                      INTEGER     DEFAULT 1 CHECK (active IN (0, 1)),
+                district_id                 INTEGER,
+                row_created                 TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (district_id)   REFERENCES district(district_id),
+                FOREIGN KEY (club_type)     REFERENCES club_type(club_type_id),
                 UNIQUE (shortname),
-                UNIQUE (longname),
-                FOREIGN KEY (district_id) REFERENCES district(district_id)
+                UNIQUE (longname)
+
             );
         ''')
 
         # Create club ext id mappings table
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS club_ext_id (
-                club_id         INTEGER,
-                club_id_ext     INTEGER     NOT NULL    PRIMARY KEY,
-                row_created     TIMESTAMP   DEFAULT     CURRENT_TIMESTAMP,
-                UNIQUE (club_id_ext),
-                FOREIGN KEY (club_id) REFERENCES club(club_id)
+            CREATE TABLE IF NOT EXISTS club_id_ext (
+                club_id                     INTEGER,
+                club_id_ext                 INTEGER     NOT NULL    PRIMARY KEY,
+                data_source                 INTEGER     DEFAULT 3,
+                row_created                 TIMESTAMP   DEFAULT     CURRENT_TIMESTAMP,
+                FOREIGN KEY (club_id)       REFERENCES club(club_id)        ON DELETE CASCADE,
+                FOREIGN KEY (data_source)   REFERENCES data_source(data_source_id),
+                UNIQUE      (club_id_ext, data_source)
             )
         ''')
         
         # Create club name alias table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS club_name_alias (
-                club_id         INTEGER     NOT NULL,
-                alias           TEXT        NOT NULL,
-                alias_type      TEXT        NOT NULL       CHECK(alias_type IN ('short','long')),
-                row_created     TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (club_id, alias, alias_type),
-                FOREIGN KEY (club_id) REFERENCES club(club_id)
+                club_id                 INTEGER     NOT NULL,
+                alias                   TEXT        NOT NULL,
+                alias_type              TEXT        NOT NULL    CHECK(alias_type IN ('short','long')),
+                row_created             TIMESTAMP   DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (club_id)   REFERENCES club(club_id)        ON DELETE CASCADE,
+                UNIQUE (club_id, alias, alias_type)
+
             )
         ''')
 
+        # Create club type table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS club_type (
+                club_type_id     INTEGER PRIMARY KEY,
+                description      TEXT,
+                row_created      TIMESTAMP   DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        club_types = [
+            (1, 'Club'),
+            (2, 'National Association'),
+            (3, 'National Team')
+        ]
+
+        cursor.executemany('''
+            INSERT OR IGNORE INTO club_type (club_type_id, description)
+            VALUES (?, ?)
+        ''', club_types)
 
         ############ DEBUG TABLES ######################
 
@@ -1198,8 +1241,6 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_structure_id ON tournament_class(tournament_class_structure_id)",
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_id_ext ON tournament_class(tournament_class_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_date ON tournament_class(date)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_class_ext_source ON tournament_class (tournament_class_id_ext, data_source_id)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_tournament_class_fallback ON tournament_class (tournament_id, shortname, date)",
 
         # Participant (replaced tournament_participant)
         "CREATE INDEX IF NOT EXISTS idx_participant_tournament_class_id ON participant(tournament_class_id)",
@@ -1425,11 +1466,10 @@ def create_views(cursor):
             """
         ),
         (
-            "vw_tournament_classes_overview_lkp_status",
+            "vw_tourn_class_overview",
             """
-            CREATE VIEW IF NOT EXISTS vw_tournament_classes_overview AS
+            CREATE VIEW IF NOT EXISTS vw_tourn_class_overview AS
             SELECT
-
                 t.shortname  AS tournament_shortname,
                 tc.longname  AS class_longname,
                 tc.shortname AS class_shortname,
@@ -1442,7 +1482,10 @@ def create_views(cursor):
                 tc.tournament_class_id,
                 tc.tournament_class_id_ext,
                 t.tournament_id,
-                t.tournament_id_ext
+                t.tournament_id_ext,
+                tc.is_valid,
+                tc.row_created,
+                tc.row_updated
             FROM tournament_class tc
             JOIN tournament t
             ON t.tournament_id = tc.tournament_id
@@ -1454,14 +1497,57 @@ def create_views(cursor):
             ON ts.tournament_status_id = t.tournament_status_id
             ORDER BY t.tournament_id, tc.tournament_class_id DESC;
             """
+        ),
+        (
+            "vw_tournament_class_participants",
+            """
+            CREATE VIEW IF NOT EXISTS vw_tournament_class_participants AS
+            SELECT
+                t.tournament_id,
+                t.tournament_id_ext,
+                tc.tournament_class_id,
+                tc.tournament_class_id_ext,
+                t.longname AS tournament_name,
+                tc.shortname AS class_name,
+                COALESCE(pl.firstname || ' ' || pl.lastname, pl.fullname_raw) AS player_name,
+                c.shortname,
+                pp.participant_player_id,
+                pp.player_id,
+                p.participant_id,
+				pp.participant_player_id_ext,
+                p.tournament_class_seed            AS seed,
+                p.tournament_class_final_position  AS final_position,
+                tc.date,
+                pp.club_id,
+                c.shortname AS club_name,
+                t.url AS tournament_url
+            FROM participant p
+            JOIN tournament_class tc ON tc.tournament_class_id = p.tournament_class_id
+            JOIN tournament t        ON t.tournament_id        = tc.tournament_id
+            JOIN participant_player pp ON pp.participant_id    = p.participant_id
+            LEFT JOIN player pl ON pl.player_id = pp.player_id
+            LEFT JOIN club   c  ON c.club_id    = pp.club_id
+            ORDER BY
+                tc.tournament_class_id,
+                p.participant_id,
+                pp.participant_player_id;        
+        """
         )
     ]
 
     try:
         for name, create_sql in views:
-            cursor.execute("DROP VIEW IF EXISTS vw_tournament_classes_overview_lkp_status")
+            cursor.execute("DROP VIEW IF EXISTS vw_tournament_classes_overview")
             cursor.execute(f"DROP VIEW IF EXISTS {name};")
             cursor.execute(create_sql)
             
     except sqlite3.Error as e:
         print(f"Error creating views: {e}")
+
+
+def execute_custom_sql(cursor):
+    cursor.execute('''
+        DELETE FROM TOURNAMENT_CLASS WHERE tournament_class_id_ext = '29604'
+    ''')
+
+
