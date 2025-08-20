@@ -84,19 +84,19 @@ class TournamentClass(BaseModel):
         classes = []
         for row in rows:
             data = {
-                'tournament_class_id': row[0],
-                'tournament_class_id_ext': row[1],
-                'tournament_id': row[2],
-                'tournament_class_type_id': row[3],
-                'tournament_class_structure_id': row[4],
-                'date': row[5],
-                'longname': row[6],
-                'shortname': row[7],
-                'gender': row[8],
-                'max_rank': row[9],
-                'max_age': row[10],
-                'url': row[11],
-                'data_source_id': row[12]
+                'tournament_class_id':              row[0],
+                'tournament_class_id_ext':          row[1],
+                'tournament_id':                    row[2],
+                'tournament_class_type_id':         row[3],
+                'tournament_class_structure_id':    row[4],
+                'date':                             row[5],
+                'longname':                         row[6],
+                'shortname':                        row[7],
+                'gender':                           row[8],
+                'max_rank':                         row[9],
+                'max_age':                          row[10],
+                'url':                              row[11],
+                'data_source_id':                   row[12]
             }
             classes.append(TournamentClass.from_dict(data))
         
@@ -225,12 +225,13 @@ class TournamentClass(BaseModel):
 
         # 1) Try primary key (ext + data source)
         primary_id = None
-        if self.tournament_class_id_ext:
+        if self.tournament_class_id_ext and self.data_source_id:
             cursor.execute(
                 "SELECT tournament_class_id FROM tournament_class "
                 "WHERE tournament_class_id_ext = ? AND data_source_id = ?;",
                 (self.tournament_class_id_ext, self.data_source_id)
             )
+            
             row = cursor.fetchone()
             if row:
                 primary_id = row[0]
@@ -245,6 +246,7 @@ class TournamentClass(BaseModel):
         row = cursor.fetchone()
         if row:
             fallback_id = row[0]
+
 
         # 3) Conflict: they point to different rows
         if primary_id and fallback_id and primary_id != fallback_id:
@@ -284,7 +286,7 @@ class TournamentClass(BaseModel):
                 (*vals, target_id)
             )
             self.tournament_class_id = cursor.fetchone()[0]
-            basis = "id_ext+data_source" if primary_id else "fallback"
+            basis = "id_ext+data_source" if primary_id else "fallback: tournament_id, shortname, date"
             logger.success(item_key, f"Tournament class successfully updated ({basis})")
             return
 
@@ -303,6 +305,10 @@ class TournamentClass(BaseModel):
             )
             self.tournament_class_id = cursor.fetchone()[0]
             logger.success(item_key, f"Tournament class created (id {self.tournament_class_id} {self.shortname} {self.date})")
+
+            # debug
+            logging.info(f"Created: {self}")
+
             return
         except sqlite3.IntegrityError:
             # Rare race: row appeared between our checks and INSERT.

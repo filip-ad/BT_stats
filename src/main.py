@@ -123,7 +123,7 @@ def main():
         create_triggers(cursor)
         create_views(cursor)
 
-        execute_custom_sql(cursor)
+        # execute_custom_sql(cursor)
         
 
         conn.commit()
