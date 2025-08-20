@@ -127,7 +127,7 @@ class Tournament(BaseModel):
             WHERE tournament_id_ext IN ({placeholders})
         """
 
-        print(sql)
+        # print(sql)
 
         cursor.execute(sql, ext_ids)
         columns = [col[0] for col in cursor.description]

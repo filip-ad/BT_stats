@@ -225,3 +225,258 @@ Player/Context: Youth 11 (id: 27957, ext_id: 29931), Club Raw: DT Hostert-Folsch
 Player/Context: Youth 13 (id: 27958, ext_id: 29932), Club Raw: Maardu LTK
 Player/Context: Youth 15 (id: 27959, ext_id: 29934), Club Raw: Pärnu Vint-90
 Player/Context: Youth 15 (id: 27959, ext_id: 29934), Club Raw: Maardu LTK
+Player/Context: Friday 1 (id: 27927, ext_id: 29961), Club Raw: Brøndby
+Player/Context: Friday 1 (id: 27927, ext_id: 29961), Club Raw: Brøndby
+Player/Context: Friday 1 (id: 27927, ext_id: 29961), Club Raw: Grantham
+Player/Context: Friday 1 (id: 27927, ext_id: 29961), Club Raw: Grantham
+Player/Context: Friday 1 (id: 27927, ext_id: 29961), Club Raw: Grantham
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Grantham
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Grantham
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Dienvidkurzemes S.S
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Brøndby
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Allerød Bordtennisklub
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Allerød Bordtennisklub
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Allerød Bordtennisklub
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Dienvidkurzemes S.S
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: WTB Hamburg
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: LTK Kalev
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Club Novakartana
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Allerød Bordtennisklub
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Allerød Bordtennisklub
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Dienvidkurzemes S.S
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Brøndby
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: WTB Hamburg
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: KuPTS
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Team Egedal BTK
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Team Egedal BTK
+Player/Context: Friday 4 (id: 27930, ext_id: 29964), Club Raw: Allerød Bordtennisklub
+Player/Context: Friday 4 (id: 27930, ext_id: 29964), Club Raw: Maardu LTK
+Player/Context: Friday 4 (id: 27930, ext_id: 29964), Club Raw: KuPTS
+Player/Context: Friday 4 (id: 27930, ext_id: 29964), Club Raw: Brøndby
+Player/Context: Friday 4 (id: 27930, ext_id: 29964), Club Raw: Pärnu Vint-90
+Player/Context: Friday 4 (id: 27930, ext_id: 29964), Club Raw: Team Egedal BTK
+Player/Context: Friday 4 (id: 27930, ext_id: 29964), Club Raw: Maardu LTK
+Player/Context: Friday 4 (id: 27930, ext_id: 29964), Club Raw: Team Egedal BTK
+Player/Context: Friday 4 (id: 27930, ext_id: 29964), Club Raw: Team Egedal BTK
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: DT Hostert-Folschette
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: Dienvidkurzemes S.S
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: Maardu LTK
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: Brøndby
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: Team Egedal BTK
+Player/Context: Friday 6 (id: 27932, ext_id: 29966), Club Raw: Dienvidkurzemes S.S
+Player/Context: Friday 6 (id: 27932, ext_id: 29966), Club Raw: Team Nordschle
+Player/Context: Friday 6 (id: 27932, ext_id: 29966), Club Raw: WTB Hamburg
+Player/Context: Friday 6 (id: 27932, ext_id: 29966), Club Raw: Brøndby
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Gribskov Bordtennis
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Team Egedal BTK
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Team Nordschleswig - DK
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Gribskov Bordtennis
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: DT Hostert-Folschette
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Gribskov Bordtennis
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: WTB Hamburg
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Dienvidkurzemes S.S
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: WTB Hamburg
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: WTB Hamburg
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: TTC Schwerin - DE
+Player/Context: Friday 8 (id: 27934, ext_id: 29968), Club Raw: Gribskov Bordtennis
+Player/Context: Friday 8 (id: 27934, ext_id: 29968), Club Raw: Tupy
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Club Novakartana
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Dienvidkurzemes S.S
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Gribskov Bordtennis
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: DT Hostert-Folschette
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Team Nordschle
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Gribskov Bordtennis
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Maardu LTK
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Grantham
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Grantham
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: KuPTS
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Pärnu Vint-90
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: KuPTS
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Dienvidkurzemes S.S
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Allerød Bordtennisklub
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Grantham
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Allerød Bordtennisklub
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Maardu LTK
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Dienvidkurzemes S.S
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: KuPTS
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: LTK Kalev
+Player/Context: OS 2250 (id: 27938, ext_id: 29918), Club Raw: Grantham
+Player/Context: OS 2250 (id: 27938, ext_id: 29918), Club Raw: DT Hostert-Folschette
+Player/Context: OS 2250 (id: 27938, ext_id: 29918), Club Raw: Allerød Bordtennisklub
+Player/Context: WOS (id: 27939, ext_id: 29919), Club Raw: Grantham
+Player/Context: WOS (id: 27939, ext_id: 29919), Club Raw: Allerød Bordtennisklub
+Player/Context: WOS (id: 27939, ext_id: 29919), Club Raw: Allerød Bordtennisklub
+Player/Context: WOS (id: 27939, ext_id: 29919), Club Raw: WTB Hamburg
+Player/Context: Girls 16 (id: 27941, ext_id: 29921), Club Raw: WTB Hamburg
+Player/Context: Girls 16 (id: 27941, ext_id: 29921), Club Raw: Maardu LTK
+Player/Context: Girls 16 (id: 27941, ext_id: 29921), Club Raw: Dienvidkurzemes S.S
+Player/Context: Girls 16 (id: 27941, ext_id: 29921), Club Raw: Dienvidkurzemes S.S
+Player/Context: Girls 16 (id: 27941, ext_id: 29921), Club Raw: Dienvidkurzemes S.S
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: Maardu LTK
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: DT Hostert-Folschette
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: Team Nordschle
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Grantham
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Dienvidkurzemes S.S
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Dienvidkurzemes S.S
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: KuPTS
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Pärnu Vint-90
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Dienvidkurzemes S.S
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: KuPTS
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Maardu LTK
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: KuPTS
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Club Novakartana
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: DT Hostert-Folschette
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: Grantham
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: Dienvidkurzemes S.S
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: LTK Kalev
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: Grantham
+Player/Context: OS 2000 (id: 27945, ext_id: 29925), Club Raw: Grantham
+Player/Context: OS 2000 (id: 27945, ext_id: 29925), Club Raw: WTB Hamburg
+Player/Context: OS 2000 (id: 27945, ext_id: 29925), Club Raw: WTB Hamburg
+Player/Context: Girls 14 (id: 27946, ext_id: 29926), Club Raw: Dienvidkurzemes S.S
+Player/Context: Girls 14 (id: 27946, ext_id: 29926), Club Raw: WTB Hamburg
+Player/Context: Girls 14 (id: 27946, ext_id: 29926), Club Raw: Dienvidkurzemes S.S
+Player/Context: Girls 14 (id: 27946, ext_id: 29926), Club Raw: WTB Hamburg
+Player/Context: Girls 18 (id: 27947, ext_id: 29927), Club Raw: Grantham
+Player/Context: Girls 18 (id: 27947, ext_id: 29927), Club Raw: Maardu LTK
+Player/Context: Girls 18 (id: 27947, ext_id: 29927), Club Raw: Dienvidkurzemes S.S
+Player/Context: OS DIV 2 (id: 27949, ext_id: 29971), Club Raw: KuPTS
+Player/Context: OS DIV 2 (id: 27949, ext_id: 29971), Club Raw: WTB Hamburg
+Player/Context: OS DIV 2 (id: 27949, ext_id: 29971), Club Raw: WTB Hamburg
+Player/Context: OS DIV 3 (id: 27950, ext_id: 29972), Club Raw: KuPTS
+Player/Context: OS DIV 3 (id: 27950, ext_id: 29972), Club Raw: KuPTS
+Player/Context: OS DIV 4 (id: 27951, ext_id: 29973), Club Raw: DT Hostert-Folschette
+Player/Context: OS DIV 5 (id: 27952, ext_id: 29974), Club Raw: WTB Hamburg
+Player/Context: OS DIV 6 (id: 27953, ext_id: 29975), Club Raw: DT Hostert-Folschette
+Player/Context: Girls 15 (id: 27954, ext_id: 29909), Club Raw: WTB Hamburg
+Player/Context: Girls 15 (id: 27954, ext_id: 29909), Club Raw: WTB Hamburg
+Player/Context: Girls 15 (id: 27954, ext_id: 29909), Club Raw: WTB Hamburg
+Player/Context: Girls 15~B (id: 27955, ext_id: 29976), Club Raw: WTB Hamburg
+Player/Context: Youth 11 (id: 27957, ext_id: 29931), Club Raw: DT Hostert-Folschette
+Player/Context: Youth 13 (id: 27958, ext_id: 29932), Club Raw: Maardu LTK
+Player/Context: Youth 15 (id: 27959, ext_id: 29934), Club Raw: Pärnu Vint-90
+Player/Context: Youth 15 (id: 27959, ext_id: 29934), Club Raw: Maardu LTK
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Team Nordschleswig - DK
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Team Nordschleswig - DK
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Team Nordschleswig - DK
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Team Nordschleswig - DK
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE
+Player/Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 5 (id: 27931, ext_id: 29965), Club Raw: PSV Flensburg - DE
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: Team Nordschleswig - DK
+Player/Context: Friday 7 (id: 27933, ext_id: 29967), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 14 (id: 27936, ext_id: 29916), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: Team Nordschleswig - DK
+Player/Context: Boys 12 (id: 27942, ext_id: 29922), Club Raw: TTC Schwerin - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: PSV Flensburg - DE
+Player/Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE

@@ -12,7 +12,7 @@ LICENSES_URL                            = "https://www.profixio.com/fx/ranking_s
 SCRAPE_RANKINGS_NBR_OF_RUNS             = 1         # How many rankings runs to scrape, 0 for all runs
 SCRAPE_RANKINGS_ORDER                   = "newest"  # Order of ranking runs to scrape, "oldest" or "newest"
 
-SCRAPE_TRANSITIONS_NBR_OF_SEASONS       = 0         # Amount of seasons to iterate for each club, always starting with the oldest, 0 for all seasons
+SCRAPE_TRANSITIONS_NBR_OF_SEASONS       = 1         # Amount of seasons to iterate for each club, always starting with the oldest, 0 for all seasons
 SCRAPE_TRANSITIONS_ORDER                = "newest"  # Order of seasons to scrape, "oldest" or "newest"
 
 SCRAPE_TOURNAMENTS_CUTOFF_DATE          = "2025-07-01"  # Date format: YYYY-MM-DD

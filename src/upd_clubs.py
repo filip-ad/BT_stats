@@ -95,12 +95,14 @@ def upd_clubs(dry_run: bool = False) -> None:
                         "club_id": club_id,
                         "reason": f"{category.capitalize()} already existed"
                     })
+                    logging.info(f"{category.capitalize()} {shortname} already existed for club_id={club_id}")
             except Exception as e:
                 db_results.append({
                     "status": "failed",
                     "club_id": club_id,
                     "reason": f"{category.capitalize()} insert error: {e}"
                 })
+                print(f"❌ Error inserting {category} for club_id={club_id}: {e}")
 
     _insert_clubs(CLUBS, "canonical clubs")
     _insert_clubs(CLUBS_COUNTRY_TEAMS, "country teams")
@@ -144,12 +146,14 @@ def upd_clubs(dry_run: bool = False) -> None:
                         "club_id": club_id,
                         "reason": f"{label} already existed"
                     })
+                    # logging.info(f"{label} {alias_text} type {alias_type} already existed for club_id={club_id}")
             except Exception as e:
                 db_results.append({
                     "status": "failed",
                     "club_id": club_id,
                     "reason": f"{label} insert error: {e}"
                 })
+                print(f"❌ Error inserting {label} for club_id={club_id}: {e}")
         ignored = attempted - inserted
         # print(f"ℹ️  {label}: attempted={attempted}, inserted={inserted}, ignored={ignored}")
         # logging.info(f"{label}: attempted={attempted}, inserted={inserted}, ignored={ignored}")
@@ -187,6 +191,7 @@ def upd_clubs(dry_run: bool = False) -> None:
                     "club_id": club_id,
                     "reason": "External ID already existed"
                 })
+                # logging.info(f"External ID already existed for club_id={club_id}")
         except Exception as e:
             db_results.append({
                 "status": "failed",
