@@ -106,99 +106,250 @@ class TournamentClass(BaseModel):
         
         return classes
 
+    # def upsert(
+    #         self, 
+    #         cursor, 
+    #         logger: OperationLogger, 
+    #         item_key: str):
+    #     """
+    #     Upsert tournament class to DB, log results.
+    #     Handles unique constraint on (tournament_class_id_ext, data_source_id) or fallback (tournament_id, shortname, date).
+    #     """
+    #     values = (
+    #         self.tournament_class_id_ext, self.tournament_id, self.tournament_class_type_id,
+    #         self.tournament_class_structure_id, self.date, self.longname, self.shortname,
+    #         self.gender, self.max_rank, self.max_age, self.url, self.data_source_id, self.is_valid
+    #     )
+    
+    #     if self.tournament_class_id_ext:
+            
+    #         # Check if exists (logging purposes)
+    #         cursor.execute("SELECT tournament_class_id FROM tournament_class WHERE tournament_class_id_ext = ? AND data_source_id = ?;", (self.tournament_class_id_ext, self.data_source_id))
+    #         existing = cursor.fetchone()
+    #         is_update = existing is not None
+
+    #         # Primary upsert on (tournament_class_id_ext, data_source_id)
+    #         query_primary = """
+    #             INSERT INTO tournament_class (
+    #                 tournament_class_id_ext, tournament_id, tournament_class_type_id, tournament_class_structure_id,
+    #             date, longname, shortname, gender, max_rank, max_age, url, data_source_id, is_valid
+    #         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    #         ON CONFLICT (tournament_class_id_ext, data_source_id) DO UPDATE SET
+    #             tournament_id                   = EXCLUDED.tournament_id,
+    #             tournament_class_type_id        = EXCLUDED.tournament_class_type_id,
+    #             tournament_class_structure_id   = EXCLUDED.tournament_class_structure_id,
+    #             date                            = EXCLUDED.date,
+    #             longname                        = EXCLUDED.longname,
+    #             shortname                       = EXCLUDED.shortname,
+    #             gender                          = EXCLUDED.gender,
+    #             max_rank                        = EXCLUDED.max_rank,
+    #             max_age                         = EXCLUDED.max_age,
+    #             url                             = EXCLUDED.url,
+    #             data_source_id                  = EXCLUDED.data_source_id,
+    #             is_valid                        = EXCLUDED.is_valid,
+    #             row_updated                     = CURRENT_TIMESTAMP
+    #         RETURNING tournament_class_id;
+    #     """
+
+    #     try:
+    #         cursor.execute(query_primary, values)
+    #         row = cursor.fetchone()
+    #         if row:
+    #             self.tournament_class_id = row[0]
+    #             action = "updated" if is_update else "created"
+    #             logger.success(item_key, f"Tournament class {action} (primary: tournament_class_id_ext, data_source_id)")
+    #             return
+    #     except sqlite3.IntegrityError:
+    #         # Fallback if primary conflict or missing ext_id
+    #         logger.warning(item_key, "Fallback upsert due to missing or conflicting tournament_class_id_ext, data_source_id")
+            
+    #     # Fallback check if exists
+    #     cursor.execute("SELECT tournament_class_id FROM tournament_class WHERE tournament_id = ? AND shortname = ? AND date = ?;", (self.tournament_id, self.shortname, self.date))
+    #     existing = cursor.fetchone()
+    #     is_update = existing is not None
+
+    #     # Fallback upsert on (tournament_id, shortname, date)
+    #     query_fallback = """
+    #         INSERT INTO tournament_class (
+    #             tournament_class_id_ext, tournament_id, tournament_class_type_id, tournament_class_structure_id,
+    #             date, longname, shortname, gender, max_rank, max_age, url, data_source_id, is_valid
+    #         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    #         ON CONFLICT (tournament_id, shortname, date) DO UPDATE SET
+    #             tournament_class_id_ext         = EXCLUDED.tournament_class_id_ext,
+    #             tournament_class_type_id        = EXCLUDED.tournament_class_type_id,
+    #             tournament_class_structure_id   = EXCLUDED.tournament_class_structure_id,
+    #             longname                        = EXCLUDED.longname,
+    #             gender                          = EXCLUDED.gender,
+    #             max_rank                        = EXCLUDED.max_rank,
+    #             max_age                         = EXCLUDED.max_age,
+    #             url                             = EXCLUDED.url,
+    #             data_source_id                  = EXCLUDED.data_source_id,
+    #             is_valid                        = EXCLUDED.is_valid,
+    #             row_updated                     = CURRENT_TIMESTAMP
+    #         RETURNING tournament_class_id;
+    #     """
+    #     try:
+    #         cursor.execute(query_fallback, values)
+    #         row = cursor.fetchone()
+    #         if row:
+    #             self.tournament_class_id = row[0]
+    #             logger.success(item_key, "Tournament class upserted successfully (fallback on tournament_id, shortname, date)")
+    #             return
+    #     except sqlite3.IntegrityError as e:
+    #         logger.failed(item_key, f"Integrity error during upsert: {e}")
+    #     except Exception as e:
+    #         logger.failed(item_key, f"Unexpected error during upsert: {e}")
+
+
+
     def upsert(
             self, 
             cursor, 
             logger: OperationLogger, 
-            item_key: str):
+            item_key: str
+        ):
         """
-        Upsert tournament class to DB, log results.
-        Handles unique constraint on (tournament_class_id_ext, data_source_id) or fallback (tournament_id, shortname, date).
+        Deterministic upsert for tournament_class.
+
+        Rules:
+        1) Prefer matching by (tournament_class_id_ext, data_source_id)
+        2) Else match by (tournament_id, shortname, date)
+        3) If a match is found -> UPDATE; else -> INSERT
+        4) If both match different rows -> log failure (manual merge)
         """
-        values = (
+        vals = (
             self.tournament_class_id_ext, self.tournament_id, self.tournament_class_type_id,
             self.tournament_class_structure_id, self.date, self.longname, self.shortname,
             self.gender, self.max_rank, self.max_age, self.url, self.data_source_id, self.is_valid
         )
-    
+
+        # 1) Try primary key (ext + data source)
+        primary_id = None
         if self.tournament_class_id_ext:
-            
-            # Check if exists (logging purposes)
-            cursor.execute("SELECT tournament_class_id FROM tournament_class WHERE tournament_class_id_ext = ? AND data_source_id = ?;", (self.tournament_class_id_ext, self.data_source_id))
-            existing = cursor.fetchone()
-            is_update = existing is not None
+            cursor.execute(
+                "SELECT tournament_class_id FROM tournament_class "
+                "WHERE tournament_class_id_ext = ? AND data_source_id = ?;",
+                (self.tournament_class_id_ext, self.data_source_id)
+            )
+            row = cursor.fetchone()
+            if row:
+                primary_id = row[0]
 
-            # Primary upsert on (tournament_class_id_ext, data_source_id)
-            query_primary = """
+        # 2) Try fallback key (tournament_id, shortname, date)
+        fallback_id = None
+        cursor.execute(
+            "SELECT tournament_class_id FROM tournament_class "
+            "WHERE tournament_id = ? AND shortname = ? AND date = ?;",
+            (self.tournament_id, self.shortname, self.date)
+        )
+        row = cursor.fetchone()
+        if row:
+            fallback_id = row[0]
+
+        # 3) Conflict: they point to different rows
+        if primary_id and fallback_id and primary_id != fallback_id:
+            logger.failed(
+                item_key,
+                (f"Conflicting classes: ext={self.tournament_class_id_ext}/ds={self.data_source_id} → id {primary_id}, "
+                f"(tournament_id, shortname, date)=({self.tournament_id}, {self.shortname}, {self.date}) → id {fallback_id}. "
+                "Manual merge required.")
+            )
+            self.tournament_class_id = primary_id  # pick a stable id to proceed with in memory
+            return
+
+        target_id = primary_id or fallback_id
+
+        if target_id:
+            # UPDATE existing row (attach ext/ds if missing, update other fields)
+            cursor.execute(
+                """
+                UPDATE tournament_class
+                SET tournament_class_id_ext       = COALESCE(?, tournament_class_id_ext),
+                    tournament_id                 = ?,
+                    tournament_class_type_id      = ?,
+                    tournament_class_structure_id = ?,
+                    date                          = ?,
+                    longname                      = ?,
+                    shortname                     = ?,
+                    gender                        = ?,
+                    max_rank                      = ?,
+                    max_age                       = ?,
+                    url                           = ?,
+                    data_source_id                = COALESCE(?, data_source_id),
+                    is_valid                      = ?,
+                    row_updated                   = CURRENT_TIMESTAMP
+                WHERE tournament_class_id = ?
+                RETURNING tournament_class_id;
+                """,
+                (*vals, target_id)
+            )
+            self.tournament_class_id = cursor.fetchone()[0]
+            basis = "id_ext+data_source" if primary_id else "fallback"
+            logger.success(item_key, f"Tournament class successfully updated ({basis})")
+            return
+
+        # INSERT new row
+        try:
+            cursor.execute(
+                """
                 INSERT INTO tournament_class (
-                    tournament_class_id_ext, tournament_id, tournament_class_type_id, tournament_class_structure_id,
-                date, longname, shortname, gender, max_rank, max_age, url, data_source_id, is_valid
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (tournament_class_id_ext, data_source_id) DO UPDATE SET
-                tournament_id                   = EXCLUDED.tournament_id,
-                tournament_class_type_id        = EXCLUDED.tournament_class_type_id,
-                tournament_class_structure_id   = EXCLUDED.tournament_class_structure_id,
-                date                            = EXCLUDED.date,
-                longname                        = EXCLUDED.longname,
-                shortname                       = EXCLUDED.shortname,
-                gender                          = EXCLUDED.gender,
-                max_rank                        = EXCLUDED.max_rank,
-                max_age                         = EXCLUDED.max_age,
-                url                             = EXCLUDED.url,
-                data_source_id                  = EXCLUDED.data_source_id,
-                is_valid                        = EXCLUDED.is_valid,
-                row_updated                     = CURRENT_TIMESTAMP
-            RETURNING tournament_class_id;
-        """
-
-        try:
-            cursor.execute(query_primary, values)
-            row = cursor.fetchone()
-            if row:
-                self.tournament_class_id = row[0]
-                action = "updated" if is_update else "created"
-                logger.success(item_key, f"Tournament class {action} (primary: tournament_class_id_ext, data_source_id)")
-                return
+                    tournament_class_id_ext, tournament_id, tournament_class_type_id,
+                    tournament_class_structure_id, date, longname, shortname, gender,
+                    max_rank, max_age, url, data_source_id, is_valid
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING tournament_class_id;
+                """,
+                vals
+            )
+            self.tournament_class_id = cursor.fetchone()[0]
+            logger.success(item_key, f"Tournament class created (id {self.tournament_class_id} {self.shortname} {self.date})")
+            return
         except sqlite3.IntegrityError:
-            # Fallback if primary conflict or missing ext_id
-            logger.warning(item_key, "Fallback upsert due to missing or conflicting tournament_class_id_ext, data_source_id")
-            
-        # Fallback check if exists
-        cursor.execute("SELECT tournament_class_id FROM tournament_class WHERE tournament_id = ? AND shortname = ? AND date = ?;", (self.tournament_id, self.shortname, self.date))
-        existing = cursor.fetchone()
-        is_update = existing is not None
-
-        # Fallback upsert on (tournament_id, shortname, date)
-        query_fallback = """
-            INSERT INTO tournament_class (
-                tournament_class_id_ext, tournament_id, tournament_class_type_id, tournament_class_structure_id,
-                date, longname, shortname, gender, max_rank, max_age, url, data_source_id, is_valid
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (tournament_id, shortname, date) DO UPDATE SET
-                tournament_class_id_ext         = EXCLUDED.tournament_class_id_ext,
-                tournament_class_type_id        = EXCLUDED.tournament_class_type_id,
-                tournament_class_structure_id   = EXCLUDED.tournament_class_structure_id,
-                longname                        = EXCLUDED.longname,
-                gender                          = EXCLUDED.gender,
-                max_rank                        = EXCLUDED.max_rank,
-                max_age                         = EXCLUDED.max_age,
-                url                             = EXCLUDED.url,
-                data_source_id                  = EXCLUDED.data_source_id,
-                is_valid                        = EXCLUDED.is_valid,
-                row_updated                     = CURRENT_TIMESTAMP
-            RETURNING tournament_class_id;
-        """
-        try:
-            cursor.execute(query_fallback, values)
+            # Rare race: row appeared between our checks and INSERT.
+            # Retry as UPDATE against whichever key now resolves.
+            cursor.execute(
+                "SELECT tournament_class_id FROM tournament_class "
+                "WHERE tournament_class_id_ext = ? AND data_source_id = ?;",
+                (self.tournament_class_id_ext, self.data_source_id)
+            )
             row = cursor.fetchone()
+            if not row:
+                cursor.execute(
+                    "SELECT tournament_class_id FROM tournament_class "
+                    "WHERE tournament_id = ? AND shortname = ? AND date = ?;",
+                    (self.tournament_id, self.shortname, self.date)
+                )
+                row = cursor.fetchone()
+
             if row:
-                self.tournament_class_id = row[0]
-                logger.success(item_key, "Tournament class upserted successfully (fallback on tournament_id, shortname, date)")
+                target_id = row[0]
+                cursor.execute(
+                    """
+                    UPDATE tournament_class
+                    SET tournament_class_id_ext       = COALESCE(?, tournament_class_id_ext),
+                        tournament_id                 = ?,
+                        tournament_class_type_id      = ?,
+                        tournament_class_structure_id = ?,
+                        date                          = ?,
+                        longname                      = ?,
+                        shortname                     = ?,
+                        gender                        = ?,
+                        max_rank                      = ?,
+                        max_age                       = ?,
+                        url                           = ?,
+                        data_source_id                = COALESCE(?, data_source_id),
+                        is_valid                      = ?,
+                        row_updated                   = CURRENT_TIMESTAMP
+                    WHERE tournament_class_id = ?
+                    RETURNING tournament_class_id;
+                    """,
+                    (*vals, target_id)
+                )
+                self.tournament_class_id = cursor.fetchone()[0]
+                logger.success(item_key, f"Tournament class updated after race")
                 return
-        except sqlite3.IntegrityError as e:
-            logger.failed(item_key, f"Integrity error during upsert: {e}")
-        except Exception as e:
-            logger.failed(item_key, f"Unexpected error during upsert: {e}")
+            raise
+
 
     def validate(
         self, 

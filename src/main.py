@@ -43,12 +43,9 @@ def main():
 
         # Drop existing tables to ensure a clean slate
         drop_tables(cursor, [
-            # 'club',
-            # 'club_name_alias'
-            # 'club_ext_id',
-            # 'club_missing'
+
+           
             # 'player_participant_missing',
-            # 'club_missing',
             # 'club_name_prefix_match'
             # 'club_name_prefix_match'
             # 'player',
@@ -79,31 +76,30 @@ def main():
             # 'match_id_ext',
             # 'match_side',
             # 'match_competition',
+            # 'match_side_player', # references club
 
             # Group and standing
             # 'tournament_class_group_member',
             # 'tournament_class_group_standing',
 
             # Participant-related
-            # 'participant_player',  # References player and club
             # 'tournament_class_group',
-            # 'participant',
 
             # Tournament core
             # 'tournament_class'
-            # 'tournament_participant'
             # 'tournament',
-            # 'participant_player',
-            # 'participant',
+            # 'participant_player',   # reference to club
+            # 'participant',          
 
             # Fixture (if exists)
             # 'fixture',
 
             # Player and club extensions (dependents)
             
-            # 'club_ext_id',   # References club
+            #  # 'club_missing'
+            # 'club_id_ext',   # References club
             # 'club_name_alias',  # References club
-            # 'club'
+            # 'club',
 
             # 'player_alias',  # References player
             # 'player',
@@ -118,7 +114,7 @@ def main():
             # If district exists and needs dropping (parent of club)
             # 'district'
 
-            # 'log_events'
+            'log_events'
         ])
 
         create_and_populate_static_tables(cursor)
@@ -157,9 +153,9 @@ def main():
 
         # # Get tournaments
         # upd_tournaments()
-        # upd_tournament_classes()
+        upd_tournament_classes()
 
-        upd_participants()
+        # upd_participants()
         # upd_player_positions()
         # upd_tournament_group_stage()
 

@@ -23,7 +23,7 @@ def upd_tournaments() -> None:
     logger = OperationLogger(
         verbosity       = 2, 
         print_output    = False, 
-        log_to_db       = True, 
+        log_to_db       = False, 
         cursor          = cursor
         )
 
