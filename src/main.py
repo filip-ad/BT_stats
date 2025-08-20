@@ -146,13 +146,13 @@ def main():
 
 
         # upd_player_ranking_groups()
-        upd_player_licenses()
-        upd_player_transitions()
+        # upd_player_licenses()
+        # upd_player_transitions()
 
         ################################################################################################
 
         # # Get tournaments
-        upd_tournaments()
+        # upd_tournaments()
         upd_tournament_classes()
 
         # upd_participants()
