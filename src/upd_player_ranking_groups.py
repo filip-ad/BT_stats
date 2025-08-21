@@ -27,10 +27,17 @@ def upd_player_ranking_groups():
         initial_count = cursor.fetchone()[0]
         logging.info(f"Initial rows in player_ranking_group: {initial_count}")
 
+        # CHANGE: Added data_source_id constant to align with player_id_ext table structure
+        data_source_id = 3
+
         # Load ext to player_id mapping using existing Player cache function
-        # cache returns Dict[str, Player] since player_id_ext is TEXT
+        # CHANGE: Updated to use tuple (player_id_ext, data_source_id) as key, since cache_id_ext_map returns Dict[Tuple[str, int], Player]
         cache = Player.cache_id_ext_map(cursor)
-        ext_to_player_map: Dict[str, int] = {ext: player.player_id for ext, player in cache.items()}
+        ext_to_player_map: Dict[str, int] = {
+            ext: player.player_id 
+            for (ext, ds_id), player in cache.items() 
+            if ds_id == data_source_id
+        }  # Only include mappings for data_source_id=3
 
         # Load ranking_group mapping: class_short -> ranking_group_id
         cursor.execute("SELECT class_short, ranking_group_id FROM ranking_group")
