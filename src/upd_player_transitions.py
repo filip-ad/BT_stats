@@ -10,7 +10,7 @@ from models.season import Season
 from models.club import Club
 from models.player import Player
 from models.player_transition import PlayerTransition
-from utils import print_db_insert_results, parse_date, sanitize_name
+from utils import normalize_key, print_db_insert_results, parse_date, sanitize_name
 
 def upd_player_transitions():
     conn, cursor = get_conn()
@@ -92,8 +92,13 @@ def upd_player_transitions():
                 continue
 
             # resolve clubs
-            club_from_obj   = club_name_cache.get(Club._normalize(club_from))
-            club_to_obj     = club_name_cache.get(Club._normalize(club_to))
+            # club_from_obj   = club_name_cache.get(Club._normalize(club_from))
+            # club_to_obj     = club_name_cache.get(Club._normalize(club_to))
+
+            # CHANGE: Replaced Club._normalize with normalize_key to ensure consistency with the normalization used in Club.cache_name_map. 
+            # This fixes potential mismatches in club resolution when looking up by name or alias, as the cache keys are built with normalize_key.
+            club_from_obj   = club_name_cache.get(normalize_key(club_from))
+            club_to_obj     = club_name_cache.get(normalize_key(club_to))
 
             if not club_from_obj or not club_to_obj:
                 logging.warning(f"Could not resolve club_from '{club_from}' or club_to '{club_to}' for row_id {row_id}. Player name {firstname} {lastname}, year_born {year_born}")
