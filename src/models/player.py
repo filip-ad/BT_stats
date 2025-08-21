@@ -69,38 +69,7 @@ class Player(CacheMixin):
         for row in rows:
             full_norm = normalize_key(f"{row['firstname']} {row['lastname']}")
             name_map.setdefault(full_norm, []).append(row['player_id'])
-        return name_map
-    
-    # @staticmethod
-    # def cache_name_map(
-    #     cursor
-    # ) -> Dict[str, List[int]]:
-    #     """
-    #     Build a map from normalized "firstname lastname" → list of player_ids.
-    #     Includes both canonical names and aliases.
-
-    #     normalize_key("Hamrén Öberg") -> "hamren oberg"
-    #     """
-    #     name_map: Dict[str, List[int]] = defaultdict(list)
-
-    #     # 1) Base names from player table
-    #     cursor.execute("SELECT player_id, firstname, lastname FROM player")
-    #     for pid, fn, ln in cursor.fetchall():
-    #         full = f"{fn or ''} {ln or ''}".strip()
-    #         key = normalize_key(full)
-    #         name_map[key].append(pid)
-
-
-    #     # 2) Add aliases
-    #     cursor.execute("SELECT DISTINCT player_id, firstname, lastname FROM player_alias")
-    #     for pid, fn, ln in cursor.fetchall():
-    #         full = f"{fn or ''} {ln or ''}".strip()
-    #         key = normalize_key(full)
-    #         if pid not in name_map[key]:
-    #             name_map[key].append(pid)
-
-    #     logging.info(f"Cached {len(name_map)} unique name keys (players+aliases)")
-    #     return name_map    
+        return name_map 
 
     @classmethod
     def cache_unverified_name_map(cls, cursor) -> Dict[str, int]:
@@ -210,80 +179,6 @@ class Player(CacheMixin):
                 "player": self.fullname_raw or f"{self.firstname} {self.lastname}",
                 "reason": f"Insertion error: {e}"
             }
-            
-    
-    # def save_to_db(
-    #         self, 
-    #         cursor, 
-    #         player_id_ext: Optional[int] = None, 
-    #         source_system: Optional[str] = None
-    #     ) -> dict:
-    #     self.sanitize()
-
-    #     # For non-verified (raw) players, require fullname_raw; for verified, require firstname and lastname
-    #     if self.is_verified:
-    #         required_fields = [self.firstname, self.lastname]
-    #         if not all(required_fields):
-    #             return {
-    #                 "status": "failed",
-    #                 "player": f"{self.firstname or ''} {self.lastname or ''}",
-    #                 "reason": "Missing required fields for verified player (firstname and lastname)"
-    #             }
-    #     else:
-    #         if not self.fullname_raw:
-    #             return {
-    #                 "status": "failed",
-    #                 "player": self.fullname_raw or "Unknown",
-    #                 "reason": "Missing required field for non-verified player (fullname_raw)"
-    #             }
-    #         # Optionally derive firstname/lastname from fullname_raw if desired, but avoid unreliable parsing
-    #         # For now, allow NULL/None for firstname/lastname in raw cases
-
-    #     try:
-    #         if player_id_ext is not None:
-    #             # Check if alias already exists (for licensed with external)
-    #             cursor.execute("SELECT player_id FROM player_alias WHERE player_id_ext = ?", (player_id_ext,))
-    #             existing = cursor.fetchone()
-    #             if existing:
-    #                 # logging.warning(f"Skipping duplicate player alias: {self.firstname} {self.lastname} ({player_id_ext})")
-    #                 return {
-    #                     "status": "skipped",
-    #                     "player": f"{self.firstname} {self.lastname}",
-    #                     "reason": "Player alias already exists"
-    #                 }
-    #             player_id_ext_val = player_id_ext
-    #         else:
-    #             # For raw players, allow NULL external
-    #             player_id_ext_val = None
-
-    #         # Insert new canonical player (allow NULL for firstname/lastname if raw)
-    #         cursor.execute("""
-    #             INSERT INTO player (firstname, lastname, year_born, fullname_raw, is_verified)
-    #             VALUES (?, ?, ?, ?, ?)
-    #         """, (self.firstname or None, self.lastname or None, self.year_born, self.fullname_raw, self.is_verified))
-    #         self.player_id = cursor.lastrowid
-
-    #         # Insert alias (external optional; use canonical values where possible)
-    #         alias_first = self.firstname or None
-    #         alias_last = self.lastname or None
-    #         alias_full = self.fullname_raw or ""
-    #         cursor.execute("""
-    #             INSERT INTO player_alias (player_id, player_id_ext, firstname, lastname, year_born, fullname_raw, source_system)
-    #             VALUES (?, ?, ?, ?, ?, ?, ?)
-    #         """, (self.player_id, player_id_ext_val, alias_first, alias_last, self.year_born, alias_full, source_system))
-
-    #         return {
-    #             "status": "success",
-    #             "player": self.fullname_raw or f"{self.firstname} {self.lastname}",
-    #             "reason": "Inserted new canonical player and alias"
-    #         }
-
-    #     except Exception as e:
-    #         return {
-    #             "status": "failed",
-    #             "player": self.fullname_raw or f"{self.firstname} {self.lastname}",
-    #             "reason": f"Insertion error: {e}"
-    #         }
 
     def add_alias(self,
                   cursor,
@@ -441,26 +336,7 @@ class Player(CacheMixin):
         except Exception as e:
             logging.error(f"Error building cache_id_ext_map: {e}")
             return {}
-        
-    # @staticmethod
-    # def cache_unverified_name_map(cursor) -> Dict[str, int]:
-    #     """
-    #     Build a map from normalized fullname_raw → player_id for unverified players.
-    #     Only includes players where is_verified = FALSE and fullname_raw is not NULL/empty.
-    #     """
-    #     unverified_map: Dict[str, int] = {}
-    #     cursor.execute("""
-    #         SELECT player_id, fullname_raw 
-    #         FROM player 
-    #         WHERE is_verified = FALSE AND fullname_raw IS NOT NULL AND fullname_raw != ''
-    #     """)
-    #     for pid, fr in cursor.fetchall():
-    #         clean = " ".join(fr.strip().split())  # Clean as in fallback_unverified
-    #         key = normalize_key(clean)  # Or just use clean if no normalize needed
-    #         if key not in unverified_map:  # Avoid duplicates, though unlikely
-    #             unverified_map[key] = pid
-    #     logging.info(f"Cached {len(unverified_map)} unverified player names")
-    #     return unverified_map        
+
 
     @staticmethod
     def cache_unverified_name_map(cursor) -> Dict[str, int]:

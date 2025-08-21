@@ -6,9 +6,9 @@ import time
 from db import get_conn
 from utils import print_db_insert_results
 from config import (
-    SCRAPE_CLASS_PARTICIPANTS_MAX_CLASSES,
-    SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXTS,
-    SCRAPE_CLASS_PARTICIPANTS_ORDER,
+    SCRAPE_PARTICIPANTS_MAX_CLASSES,
+    SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+    SCRAPE_PARTICIPANTS_ORDER,
 )
 from models.club import Club
 from models.player import Player
@@ -29,20 +29,20 @@ def upd_player_positions():
     classes_by_ext = TournamentClass.cache_by_id_ext(cur)
 
     # ── 1) Load + filter classes (by external id) ──────────────────────────
-    if SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXTS is not 0:
-        tc = classes_by_ext.get(SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXTS)
+    if SCRAPE_PARTICIPANTS_CLASS_ID_EXTS is not 0:
+        tc = classes_by_ext.get(SCRAPE_PARTICIPANTS_CLASS_ID_EXTS)
         classes = [tc] if tc else []
     else:
         classes = list(classes_by_ext.values())
 
-    order = (SCRAPE_CLASS_PARTICIPANTS_ORDER or "").lower()
+    order = (SCRAPE_PARTICIPANTS_ORDER or "").lower()
     if order == "newest":
         classes.sort(key=lambda tc: tc.date or datetime.date.min, reverse=True)
     elif order == "oldest":
         classes.sort(key=lambda tc: tc.date or datetime.date.min)
 
-    if SCRAPE_CLASS_PARTICIPANTS_MAX_CLASSES and SCRAPE_CLASS_PARTICIPANTS_MAX_CLASSES > 0:
-        classes = classes[:SCRAPE_CLASS_PARTICIPANTS_MAX_CLASSES]
+    if SCRAPE_PARTICIPANTS_MAX_CLASSES and SCRAPE_PARTICIPANTS_MAX_CLASSES > 0:
+        classes = classes[:SCRAPE_PARTICIPANTS_MAX_CLASSES]
 
     logging.info(f"ℹ️  Updating tournament class positions for {len(classes)} classes...")
     print(f"ℹ️  Updating tournament class positions for {len(classes)} classes...")

@@ -48,9 +48,8 @@ def upd_tournament_classes():
         start_time = time.time()
         classes_processed = 0
 
-        # Fetch tournaments by status and filter by cutoff date
+        # Fetch tournaments by status and filter by cutoff date and list of tournament ext_ids
         # =============================================================================
-        # Optional filter for specific tournament ext_ids (e.g., for testing), overriding cutoff if set
         if SCRAPE_CLASSES_TOURNAMENT_ID_EXTS != 0 or SCRAPE_CLASSES_MAX_TOURNAMENTS is not None:
             filtered_tournaments = Tournament.get_by_ext_ids(cursor, logger, SCRAPE_CLASSES_TOURNAMENT_ID_EXTS)
             limit = SCRAPE_CLASSES_MAX_TOURNAMENTS or len(filtered_tournaments)

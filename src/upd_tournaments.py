@@ -41,8 +41,8 @@ def upd_tournaments() -> None:
 
         # Scrape all tournaments
         # =============================================================================
-        raw_tournaments = scrape_raw_tournaments_ondata(logger)
-        if not raw_tournaments:
+        raw_tournaments_ondata = scrape_raw_tournaments_ondata(logger)
+        if not raw_tournaments_ondata:
             logging.warning("No raw data scraped")
             print("⚠️  No raw data scraped")
             return
@@ -50,7 +50,7 @@ def upd_tournaments() -> None:
         # Filter by cutoff date
         # =============================================================================
         filtered_tournaments = [
-            t for t in raw_tournaments
+            t for t in raw_tournaments_ondata
             if (start_date := parse_date(t["start_str"])) and start_date >= cutoff_date
         ]
 

@@ -481,14 +481,14 @@ def create_tables(cursor):
         # Create match side
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS match_side (
-                match_side_id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                match_id                    INTEGER NOT NULL,
-                side                        INTEGER NOT NULL CHECK(side IN (1,2)),
-                participant_id              INTEGER NOT NULL,
-                row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (match_id)      REFERENCES match(match_id) ON DELETE CASCADE,
-                FOREIGN KEY (participant_id) REFERENCES participant(participant_id)     ON DELETE CASCADE,
+                match_side_id                           INTEGER PRIMARY KEY AUTOINCREMENT,
+                match_id                                INTEGER NOT NULL,
+                side                                    INTEGER NOT NULL CHECK(side IN (1,2)),
+                participant_id                          INTEGER NOT NULL,
+                row_created                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (match_id)                  REFERENCES match(match_id) ON DELETE CASCADE,
+                FOREIGN KEY (participant_id)            REFERENCES participant(participant_id)     ON DELETE CASCADE,
                 UNIQUE (match_id, side)
             );
         ''')
@@ -1532,6 +1532,16 @@ def create_views(cursor):
                 p.participant_id,
                 pp.participant_player_id;        
         """
+        ),
+        (
+            "vw_foreign_keys",
+            '''
+            CREATE VIEW IF NOT EXISTS vw_foreign_keys AS
+                SELECT m.name AS table_name, p.*
+            FROM sqlite_master AS m
+            JOIN pragma_foreign_key_list(m.name) AS p
+            WHERE m.type = 'table';
+            '''
         )
     ]
 

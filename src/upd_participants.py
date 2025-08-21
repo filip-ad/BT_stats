@@ -5,12 +5,12 @@ import requests
 import pdfplumber
 import re
 from io import BytesIO
-from datetime import date
+from datetime import date, datetime
 import time
 from typing import Any, List, Dict, Optional, Tuple
 from db import get_conn
 from utils import parse_date, OperationLogger, normalize_key
-from config import SCRAPE_TOURNAMENTS_CUTOFF_DATE, SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXTS
+from config import SCRAPE_TOURNAMENTS_CUTOFF_DATE, SCRAPE_PARTICIPANTS_CLASS_ID_EXTS, SCRAPE_PARTICIPANTS_ORDER
 from models.tournament_class import TournamentClass
 from models.club import Club
 from models.player_license import PlayerLicense
@@ -46,10 +46,11 @@ def upd_participants():
             print(f"❌ Invalid cutoff date format: {ve}")
             return
 
-        # Fetch classes (singles only for now, filtered by cutoff)
+        # Fetch classes (singles only for now, filtered by cutoff or by list of class id ext)
+        # Also checks tournament.is_valid = 1 making sure the class structure is known so we know how to parse
         # =============================================================================
-        if SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXTS != 0:
-            classes = TournamentClass.get_by_ext_ids(cursor, SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXTS)
+        if SCRAPE_PARTICIPANTS_CLASS_ID_EXTS != 0:
+            classes = TournamentClass.get_by_ext_ids(cursor, SCRAPE_PARTICIPANTS_CLASS_ID_EXTS)
             print(f"ℹ️  Filtered to {len(classes)} specific classes via SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT (overriding cutoff).")
         else:
             classes = TournamentClass.get_valid_singles_after_cutoff(cursor, cutoff_date)
@@ -57,6 +58,12 @@ def upd_participants():
                 logger.skipped("global", "No singles classes after cutoff date")
                 print("⚠️  No singles classes after cutoff date.")
                 return
+            
+        order = (SCRAPE_PARTICIPANTS_ORDER or "").lower()
+        if order == "newest":
+            classes.sort(key=lambda tc: tc.date or datetime.date.min, reverse=True)
+        elif order == "oldest":
+            classes.sort(key=lambda tc: tc.date or datetime.date.min)
             
         logging.info(f"Scraping participants for {len(classes)} valid only singles classes with cutoff date: {cutoff_date}")
         print(f"ℹ️  Scraping participants for {len(classes)} valid only singles classes, cutoff: {cutoff_date}")
@@ -103,7 +110,7 @@ def upd_participants():
                 icon = "✅" if (expected_count is not None and expected_count == found) else ("❌ " if expected_count is not None else "❌ ")
 
                 msg = (
-                    f"{icon} [{i}/{len(classes)}] Parsed class {tc.shortname} "
+                    f"{icon} [{i}/{len(classes)}] Parsed class {tc.shortname} {tc.date}"
                     f"(id: {tc.tournament_class_id}, ext_id: {tc.tournament_class_id_ext}, tid: {tc.tournament_id}). "
                     f"Expected {expected_count if expected_count is not None else '—'}, "
                     f"found {found}, seeded: {seeded_count}, deleted: {deleted} old participants."

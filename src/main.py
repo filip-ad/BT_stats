@@ -43,78 +43,70 @@ def main():
 
         # Drop existing tables to ensure a clean slate
         drop_tables(cursor, [
-
-           
-            # 'player_participant_missing',
-            # 'club_name_prefix_match'
-            # 'club_name_prefix_match'
-            # 'player',
-            # 'player_alias'
-            
-            # 'license',
-            # 'season'
-            # 'tournament',
-            # 'tournament_class'
-            # 'player_participant'
-            # 'player_ranking_group'
-            # 'ranking_group'
-            # 'player_ranking', 
-            # 'player_license',
-            # 'player_license_raw',
-            # 'player_transition_raw'
-            # 'player_transition',
-            # 'player_ranking_raw'
-
-            # Debugging tables (no FKs assumed)
-            # 'player_participant_missing_positions',
-            # 'player_participant_missing',
-            # 'debug_invalid_pdf_parse',
-            # 'debug_group_parse_missing',
-
-            # Game and match-related (leaves)
-            # 'game',
-            # 'match_id_ext',
-            # 'match_side',
-            # 'match_competition',
-            # 'match_side_player', # references club
-
-            # Group and standing
-            # 'tournament_class_group_member',
-            # 'tournament_class_group_standing',
-
-            # Participant-related
-            # 'tournament_class_group',
-
-            # Tournament core
-            # 'tournament_class'
-            # 'tournament',
-            # 'participant_player',   # reference to club
-            # 'participant',          
-
-            # Fixture (if exists)
+    
+            # # League / series (not done, nor used yet)
+            # 'league',
+            # 'series',                             # FK league
             # 'fixture',
 
-            # Player and club extensions (dependents)
+            # # Lookup tables
+            # 'data_source',
+            # 'ranking_group',
+            # 'season',
+            # 'license',
+            # 'district',
+            # 'tournament_status',                  # FK tournament
+            # 'tournament_class_stage',             # FK tournament_class
+            # 'tournament_class_type',              # FK tournament_class
+            # 'tournament_class_structure',         # FK tournament_class
+            # 'competition_type',                   # FK match
+            # 'club_type',                          # FK club
+
+
+            # # Raw tables
+            # 'player_license_raw',
+            # 'player_transition_raw',
+            # 'player_ranking_raw',
+
+            # # License, ranking, transitions
+            # 'player_license',                     # FK player (validated), club, season, license
+            # 'player_ranking',                     # FK player (validated)
+            # 'player_ranking_group',               # FK player (validated), ranking_group
+            # 'player_transition',                  # FK player, club
+
+            # # Game and match-related
+            # 'match_competition',                  # match, competition_type, tournament_class, fixture, tournament_class_stage, tournament_class_group 
+            # 'match_side',                         # match, participant
+            # 'game',                               # match
+            # 'match_id_ext',                       # match
+            # 'match_side_player',                  # references club
+            # 'match'
             
+            # # Tournament participants
+            # 'participant',                        # FK tournament_class
+            # 'participant_player',                 # FK participant, player, club
+
+            # # Group and standing
+            # 'tournament_class_group',             # FK tournament_class
+            # 'tournament_class_group_member',      # FK tournament_class_group, participant
+            # 'tournament_class_group_standing',    # FK tournament_class_group, participant
+
+            # # Tournament core
+            # 'tournament_class',                   # FK tournament, tournament_class_type, tournament_class_structure, data_source
+            # 'tournament',                         # FK data_source, tournament_status
+
             #  # 'club_missing'
-            # 'club_id_ext',   # References club
-            # 'club_name_alias',  # References club
+            # 'club_id_ext',                        # References club
+            # 'club_name_alias',                    # References club
             # 'club',
 
-            # 'player_alias',  # References player
+            # 'player_alias',                       # References player
             # 'player',
-            
-            # Lookup/static tables (no dependents)
-            # 'tournament_class_type',
-            # 'tournament_class_structure',
-            # 'competition_type',
-            # 'data_source',
-            # 'tournament_class_stage',
 
-            # If district exists and needs dropping (parent of club)
-            # 'district'
-
-            'log_events'
+            # # Debugging tables (no FKs assumed)
+            # 'club_missing',                       # FK club
+            # 'club_name_prefix_match',             # FK club
+            # log_tables
         ])
 
         create_and_populate_static_tables(cursor)
@@ -153,9 +145,9 @@ def main():
 
         # # Get tournaments
         # upd_tournaments()
-        upd_tournament_classes()
+        # upd_tournament_classes()
 
-        # upd_participants()
+        upd_participants()
         # upd_player_positions()
         # upd_tournament_group_stage()
 
