@@ -95,13 +95,14 @@ def main():
             # 'tournament_class',                   # FK tournament, tournament_class_type, tournament_class_structure, data_source
             # 'tournament',                         # FK data_source, tournament_status
 
-            #  # 'club_missing'
+            # # Club
             # 'club_id_ext',                        # References club
             # 'club_name_alias',                    # References club
             # 'club',
 
-            # 'player_alias',                       # References player
-            # 'player',
+            # # Player
+            # 'player_id_ext',                       # References player
+            # 'player'
 
             # # Debugging tables (no FKs assumed)
             # 'club_missing',                       # FK club
@@ -137,9 +138,10 @@ def main():
         # upd_players_verified()
 
 
-        # upd_player_ranking_groups()
+
         # upd_player_licenses()
-        # upd_player_transitions()
+        upd_player_transitions()
+        # upd_player_ranking_groups()
 
         ################################################################################################
 
@@ -147,7 +149,7 @@ def main():
         # upd_tournaments()
         # upd_tournament_classes()
 
-        upd_participants()
+        # upd_participants()
         # upd_player_positions()
         # upd_tournament_group_stage()
 

@@ -577,27 +577,26 @@ def create_tables(cursor):
                 firstname                   TEXT,
                 lastname                    TEXT,
                 year_born                   INTEGER,
+                date_born                   TEXT CHECK (date_born GLOB '____-__-__'),
                 fullname_raw                TEXT,
                 is_verified                 BOOLEAN DEFAULT FALSE,
                 row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (fullname_raw)
             )
         ''')
 
-        # Create player alias table, currently used only for mapping multiple external ID:s to same player_id
+        # Create player id ext table
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS player_alias (
-                player_alias_id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                player_id                   INTEGER NOT NULL,
-                player_id_ext               TEXT,
-                firstname                   TEXT,
-                lastname                    TEXT,
-                year_born                   INTEGER,
-                fullname_raw                TEXT,
-                source_system               TEXT,
-                row_created TIMESTAMP       DEFAULT CURRENT_TIMESTAMP,        
-                FOREIGN KEY (player_id)     REFERENCES player(player_id),    
-                UNIQUE      (player_id_ext)      
+            CREATE TABLE IF NOT EXISTS player_id_ext (
+                player_id                       INTEGER NOT NULL,
+                player_id_ext                   TEXT,
+                data_source_id                  INTEGER,
+                row_created TIMESTAMP           DEFAULT CURRENT_TIMESTAMP,   
+                row_updated TIMESTAMP           DEFAULT CURRENT_TIMESTAMP,   
+                FOREIGN KEY (player_id)         REFERENCES player(player_id)        ON DELETE CASCADE,    
+                FOREIGN KEY (data_source_id)    REFERENCES data_source(data_source_id),
+                UNIQUE      (player_id_ext, data_source_id)      
             ) 
         ''')
 

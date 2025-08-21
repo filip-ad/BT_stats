@@ -460,11 +460,11 @@ class PlayerLicense(CacheMixin):
                             "reason":f"Valid from {lic.valid_from} outside {sd}–{ed}"
                         })
                         continue
-                if lic.valid_from == ed:
-                    results.append({"status":"skipped",
-                                    "row_id":lic.row_id,
-                                    "reason":"Valid from date equals season end date"})
-                    continue
+                # if lic.valid_from == ed:
+                #     results.append({"status":"skipped",
+                #                     "row_id":lic.row_id,
+                #                     "reason":"Valid from date equals season end date"})
+                #     continue
 
                 # Overlap check
                 if ov_key in overlapping_licenses:
@@ -626,8 +626,8 @@ class PlayerLicense(CacheMixin):
     ):
         """
         1. Try each (lastname, firstname) split—strict cache lookup
-        2. Try each split against player_alias table
-        3. Fuzzy match among licensed players in the club
+        2. Fuzzy match among licensed players in the club
+        # CHANGE: Removed step 2 (Exact alias lookup) from the description, as aliases are now merged into ext_ids and handled upstream in Player class caches. This simplifies the method and avoids redundant DB queries.
         """
         parts = raw_name.split()
         candidates = []
@@ -648,24 +648,25 @@ class PlayerLicense(CacheMixin):
                 logging.info(f"Matched strict/fallback: '{raw_name}' → fn='{fn}', ln='{ln}'")
                 return pid
 
-        # 2 Exact alias lookup
-        for ln, fn in candidates:
-            cursor.execute("""
-                SELECT pa.player_id, p.firstname, p.lastname
-                  FROM player_alias pa
-                  JOIN player       p ON pa.player_id = p.player_id
-                 WHERE pa.firstname = ? AND pa.lastname = ?
-            """, (fn, ln))
-            row = cursor.fetchone()
-            if row:
-                alias_pid, alias_fn, alias_ln = row
-                pid = PlayerLicense.cache_find_by_name_club_date(
-                    licenses_cache, alias_fn, alias_ln, club_id, tournament_date,
-                    fallback_to_latest=fallback_to_latest
-                )
-                if pid:
-                    logging.info(f"Matched alias: '{raw_name}' → '{alias_fn} {alias_ln}'")
-                    return pid
+        # CHANGE: Removed the entire block for "2 Exact alias lookup". Original code had:
+        # for ln, fn in candidates:
+        #     cursor.execute("""
+        #         SELECT pa.player_id, p.firstname, p.lastname
+        #           FROM player_alias pa
+        #           JOIN player       p ON pa.player_id = p.player_id
+        #          WHERE pa.firstname = ? AND pa.lastname = ?
+        #     """, (fn, ln))
+        #     row = cursor.fetchone()
+        #     if row:
+        #         alias_pid, alias_fn, alias_ln = row
+        #         pid = PlayerLicense.cache_find_by_name_club_date(
+        #             licenses_cache, alias_fn, alias_ln, club_id, tournament_date,
+        #             fallback_to_latest=fallback_to_latest
+        #         )
+        #         if pid:
+        #             logging.info(f"Matched alias: '{raw_name}' → '{alias_fn} {alias_ln}'")
+        #             return pid
+        # RATIONALE: With the merge of player_alias into player_id_ext, alias resolution is now part of the Player class (e.g., via cache_id_ext_map and cache_name_year_map). Lookups here should rely on the pre-cached Player data, not query player_alias (which no longer exists). This prevents errors and improves performance.
 
         # # 3 Fuzzy fallback among all players licensed at this club
         # cursor.execute("""

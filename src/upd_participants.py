@@ -71,8 +71,8 @@ def upd_participants():
         # Build lookup caches exactly once
         club_map                    = Club.cache_name_map(cursor)
         license_name_club_map       = PlayerLicense.cache_name_club_map(cursor)
-        player_name_map             = Player.cache_name_map(cursor)
-        player_unverified_name_map  = Player.cache_unverified_name_map(cursor)
+        player_name_map             = Player.cache_name_map_verified(cursor)
+        player_unverified_name_map  = Player.cache_name_map_unverified(cursor)
 
         for i, tc in enumerate(classes, 1):
             item_key = f"{tc.shortname} (id: {tc.tournament_class_id}, ext_id: {tc.tournament_class_id_ext})"

@@ -9,11 +9,20 @@ from models.season import Season
 from models.club import Club
 from models.player import Player
 from models.license import License
-from utils import parse_date, print_db_insert_results
+from utils import parse_date, print_db_insert_results, OperationLogger
 
 def upd_player_licenses():
     conn, cursor = get_conn()
     db_results = []
+
+    # Set up logging
+    # =============================================================================
+    logger = OperationLogger(
+        verbosity       = 2, 
+        print_output    = False, 
+        log_to_db       = True, 
+        cursor          = cursor
+        )
 
     try:
         logging.info("Updating player licenses...")
@@ -79,11 +88,11 @@ def upd_player_licenses():
         player_cache_misses = 0
         club_cache_misses = 0
         license_cache_misses = 0
-        batch = []
         licenses = []
         
+        data_source_id = 3
+        
         for row in rows:
-            row_start = time.time()
             (row_id, season_id_ext, label, club_name, club_id_ext, player_id_ext, firstname, lastname, year_born, license_info_raw) = row
 
             # Process license_info_raw
@@ -156,16 +165,16 @@ def upd_player_licenses():
 
             # Skip if valid_from equals season end date
             if valid_from == season.end_date:
-                logging.warning(f"Player {firstname} {lastname} (ext_id: {player_id_ext}, id: {player_id}) skipped because valid_from ({valid_from}) equals season end date, row_id {row_id}")
-                db_results.append({
-                    "status": "skipped",
-                    "row_id": row_id,
-                    "reason": "Valid from date equals season end date"
-                })
-                continue
+                logging.warning(f"Player {firstname} {lastname} {club_name} (ext_id: {player_id_ext}, id: {player_id}) skipped because valid_from ({valid_from}) equals season end date, row_id {row_id}")
+                # db_results.append({
+                #     "status": "skipped",
+                #     "row_id": row_id,
+                #     "reason": "Valid from date equals season end date"
+                # })
+                # continue
 
             # Map player using player_id_ext
-            player = player_id_ext_map.get(player_id_ext)
+            player = player_id_ext_map.get((player_id_ext, data_source_id))
             if not player:
                 player_cache_misses += 1
                 logging.debug(f"No player in cache for player_id_ext {player_id_ext}, row_id {row_id}")
@@ -173,7 +182,7 @@ def upd_player_licenses():
             else:
                 player_id = player.player_id
 
-            # Map club using club_name
+            # Map club using club_id_ext
             club = club_id_ext_map.get(club_id_ext)
             if not club:
                 # Fallback to club_name if club_id_ext is not found
@@ -200,7 +209,7 @@ def upd_player_licenses():
                 db_results.append({
                     "status": "skipped",
                     "row_id": row_id,
-                    "reason": "Duplicate after alias resolution in this batch"
+                    "reason": "Duplicate within in this batch"
                 })
                 continue
             seen_final_keys.add(final_key)    
@@ -250,4 +259,3 @@ def upd_player_licenses():
         conn.commit()
         conn.close()
         logging.info("-------------------------------------------------------------------")
-

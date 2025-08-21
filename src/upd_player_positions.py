@@ -49,7 +49,7 @@ def upd_player_positions():
 
     # ── 2) Build static caches once ────────────────────────────────────────
     club_map              = Club.cache_name_map(cur)
-    player_name_map       = Player.cache_name_map(cur)            # verified + aliases
+    player_name_map       = Player.cache_name_map_verified(cur)            # verified + aliases
     unverified_name_map   = Player.cache_unverified_name_map(cur) # fullname_raw for unverified
     part_by_class_player  = PlayerParticipant.cache_by_class_id_player(cur)  # class → {player_id: (participant_id, club_id)}
 

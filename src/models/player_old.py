@@ -17,11 +17,11 @@ class Player(CacheMixin):
     date_born:      Optional[str]   = None  # YYYY-MM-DD format
     fullname_raw:   Optional[str]   = None
     is_verified:    bool            = False
-    ext_ids:        List[dict]      = None  # player_id -> [{player_id_ext: str, data_source_id: int}]
+    ext_ids:        List[dict]      = None  # player_id -> [{player_id_ext, firstname, lastname, year_born}]
 
     def __post_init__(self):
         '''
-        Initialize ext_ids.
+        Initialize player aliases.
         '''
         if self.ext_ids is None:
             self.ext_ids = []
@@ -44,7 +44,7 @@ class Player(CacheMixin):
         Create a Player instance from a dictionary.
         Sanitize firstname and lastname.
         '''
-        player = Player(
+        return Player(
             player_id=data.get("player_id"),
             firstname=data.get("firstname"),
             lastname=data.get("lastname"),
@@ -53,9 +53,7 @@ class Player(CacheMixin):
             fullname_raw=data.get("fullname_raw"),
             is_verified=data.get("is_verified", False),
             ext_ids=data.get("ext_ids", [])
-        )
-        player.sanitize()
-        return player
+        ).sanitize()
 
     @classmethod
     def cache_name_map_verified(cls, cursor) -> Dict[str, List[int]]:
@@ -77,29 +75,29 @@ class Player(CacheMixin):
         return name_map 
 
     @classmethod
-    def cache_name_map_unverified(cls, cursor) -> Dict[str, int]:
+    def cache_unverified_name_map(cls, cursor) -> Dict[str, int]:
         """
         Build a clean full name to player_id map for unverified players using cached query.
         Assumes names are unique for unverified.
         """
         sql = """
-            SELECT player_id, fullname_raw
+            SELECT player_id, firstname, lastname
             FROM player
-            WHERE is_verified = 0 AND fullname_raw IS NOT NULL AND fullname_raw != ''  -- Unverified players
+            WHERE is_verified = 0  -- Unverified players
         """
         rows = cls.cached_query(cursor, sql)
 
         unverified_map: Dict[str, int] = {}
         for row in rows:
-            clean_name = " ".join(row['fullname_raw'].strip().split())
+            clean_name = " ".join(f"{row['firstname']} {row['lastname']}".strip().split())
             unverified_map[clean_name] = row['player_id']
         return unverified_map    
 
     def save_to_db(
             self, 
             cursor, 
-            player_id_ext: Optional[str] = None, 
-            data_source_id: Optional[int] = None
+            player_id_ext: Optional[int] = None, 
+            source_system: Optional[str] = None
         ) -> dict:
         self.sanitize()
 
@@ -139,54 +137,43 @@ class Player(CacheMixin):
                 "reason": f"Invalid type for year_born: expected int or None, got {type(self.year_born)}"
             }
 
-        if not isinstance(self.date_born, (str, type(None))):
-            logging.error(f"Invalid date_born type: {type(self.date_born)}, value: {self.date_born}")
-            return {
-                "status": "failed",
-                "player": f"{self.firstname or ''} {self.lastname or ''}",
-                "reason": f"Invalid type for date_born: expected str or None, got {type(self.date_born)}"
-            }
-
         try:
             if player_id_ext is not None:
-                if data_source_id is None:
-                    return {
-                        "status": "failed",
-                        "player": f"{self.firstname} {self.lastname}",
-                        "reason": "data_source_id required when player_id_ext is provided"
-                    }
-                # Check if ext_id already exists
-                cursor.execute(
-                    "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
-                    (player_id_ext, data_source_id)
-                )
+                # Check if alias already exists (for licensed with external)
+                cursor.execute("SELECT player_id FROM player_alias WHERE player_id_ext = ?", (player_id_ext,))
                 existing = cursor.fetchone()
                 if existing:
+                    # logging.warning(f"Skipping duplicate player alias: {self.firstname} {self.lastname} ({player_id_ext})")
                     return {
                         "status": "skipped",
                         "player": f"{self.firstname} {self.lastname}",
-                        "reason": "Player ext_id already exists",
-                        "player_id": existing[0]
+                        "reason": "Player alias already exists"
                     }
+                player_id_ext_val = player_id_ext
+            else:
+                # For raw players, allow NULL external
+                player_id_ext_val = None
 
-            # Insert new player (allow NULL for firstname/lastname if raw)
+            # Insert new canonical player (allow NULL for firstname/lastname if raw)
             cursor.execute("""
-                INSERT INTO player (firstname, lastname, year_born, date_born, fullname_raw, is_verified)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (self.firstname or None, self.lastname or None, self.year_born, self.date_born, self.fullname_raw, self.is_verified))
+                INSERT INTO player (firstname, lastname, year_born, fullname_raw, is_verified)
+                VALUES (?, ?, ?, ?, ?)
+            """, (self.firstname or None, self.lastname or None, self.year_born, self.fullname_raw, self.is_verified))
             self.player_id = cursor.lastrowid
 
-            if player_id_ext is not None:
-                cursor.execute("""
-                    INSERT INTO player_id_ext (player_id, player_id_ext, data_source_id)
-                    VALUES (?, ?, ?)
-                """, (self.player_id, player_id_ext, data_source_id))
+            # Insert alias (external optional; use canonical values where possible)
+            alias_first = self.firstname or None
+            alias_last = self.lastname or None
+            alias_full = self.fullname_raw or ""
+            cursor.execute("""
+                INSERT INTO player_alias (player_id, player_id_ext, firstname, lastname, year_born, fullname_raw, source_system)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (self.player_id, player_id_ext_val, alias_first, alias_last, self.year_born, alias_full, source_system))
 
             return {
                 "status": "success",
                 "player": self.fullname_raw or f"{self.firstname} {self.lastname}",
-                "reason": "Inserted new player",
-                "player_id": self.player_id
+                "reason": "Inserted new canonical player and alias"
             }
 
         except Exception as e:
@@ -201,35 +188,30 @@ class Player(CacheMixin):
         cursor
     ) -> Dict[int, 'Player']:
         """Load all Player rows into a map: player_id → Player instance."""
-        cursor.execute("SELECT player_id, firstname, lastname, year_born, date_born, fullname_raw, is_verified FROM player")
+        cursor.execute("SELECT player_id, firstname, lastname, year_born, fullname_raw, is_verified FROM player")
         players: Dict[int, Player] = {}
-        for row in cursor.fetchall():
-            p = Player(
-                player_id=row[0],
-                firstname=row[1],
-                lastname=row[2],
-                year_born=row[3],
-                date_born=row[4],
-                fullname_raw=row[5],
-                is_verified=bool(row[6]),
-                ext_ids=[]
-            )
-            players[p.player_id] = p
-        # fetch ext_ids
+        for pid, fn, ln, yb, fr, iv in cursor.fetchall():
+            p = Player(pid, fn, ln, yb, fr, iv, [])
+            players[pid] = p
+        # fetch aliases and attach
         cursor.execute(
-            "SELECT player_id, player_id_ext, data_source_id FROM player_id_ext"
+            "SELECT player_id, player_id_ext, firstname, lastname, year_born, fullname_raw, source_system FROM player_alias"
         )
-        for pid, pid_ext, ds_id in cursor.fetchall():
+        for pid, pid_ext, fn, ln, yb, fr, ss in cursor.fetchall():
             if pid in players:
-                players[pid].ext_ids.append({
+                players[pid].aliases.append({
                     'player_id_ext': pid_ext,
-                    'data_source_id': ds_id
+                    'firstname': fn,
+                    'lastname': ln,
+                    'year_born': yb,
+                    'fullname_raw': fr,
+                    'source_system': ss
                 })
             else:
-                logging.warning(f"Ext_id for unknown player_id {pid}: ext={pid_ext}")
-        logging.info(f"Loaded {len(players)} players with ext_ids")
+                logging.warning(f"Alias for unknown player_id {pid}: ext={pid_ext}")
+        logging.info(f"Loaded {len(players)} players with aliases")
         return players
-
+    
     @staticmethod
     def cache_name_year_map(
         cursor
@@ -242,18 +224,18 @@ class Player(CacheMixin):
         # 1) Load all Player objects into a dict by player_id
         players_by_id = Player.cache_all(cursor)
 
-        # 2) Query rows from player
+        # 2) Query DISTINCT alias rows
         cursor.execute("""
-            SELECT player_id, COALESCE(firstname, ''), COALESCE(lastname, ''), year_born, fullname_raw
-            FROM player
+            SELECT DISTINCT COALESCE(firstname, ''), COALESCE(lastname, ''), year_born, player_id, fullname_raw
+              FROM player_alias
         """)
         rows = cursor.fetchall()
 
         # 3) Build intermediate mapping: key → { player_id: Player, ... }
         temp_map: Dict[Tuple[str,str,int], Dict[int, 'Player']] = defaultdict(dict)
-        for pid, fn, ln, yb, fr in rows:
+        for fn, ln, yb, pid, fr in rows:
             if pid not in players_by_id:
-                logging.warning(f"Row references missing player_id {pid}")
+                logging.warning(f"Alias references missing player_id {pid}")
                 continue
 
             # If no first/last, use a key based on fullname_raw
@@ -277,30 +259,51 @@ class Player(CacheMixin):
         logging.info(f"Cached {len(name_year_map)} name/year keys")
         return name_year_map
     
+    
     @staticmethod
     def cache_id_ext_map(
         cursor
-    ) -> Dict[Tuple[str, int], "Player"]:
+    ) -> Dict[int, "Player"]:
         """
-        Build a mapping from (player_id_ext, data_source_id) to Player objects.
-        Uses cache_all() to load players with their ext_ids, then iterates
-        over each player’s ext_ids and inserts an entry for each unique (player_id_ext, data_source_id).
+        Build a mapping from external player IDs (player_id_ext) to Player objects.
+        Uses cache_all() to load players with their aliases, then iterates
+        over each player’s aliases and inserts an entry for each player_id_ext.
         Skips NULL externals.
         """
         try:
             players = Player.cache_all(cursor)
-            id_ext_map: Dict[Tuple[str, int], Player] = {}
+            id_ext_map: Dict[int, Player] = {}
             for player in players.values():
-                for ext in player.ext_ids:
-                    pid_ext = ext.get('player_id_ext')
-                    ds_id = ext.get('data_source_id')
-                    if pid_ext is not None and ds_id is not None:
-                        id_ext_map[(pid_ext, ds_id)] = player
+                for alias in player.aliases:
+                    pid_ext = alias.get('player_id_ext')
+                    if pid_ext is not None:
+                        id_ext_map[pid_ext] = player
             return id_ext_map
         except Exception as e:
             logging.error(f"Error building cache_id_ext_map: {e}")
             return {}
 
+
+    @staticmethod
+    def cache_unverified_name_map(cursor) -> Dict[str, int]:
+        """
+        Build a map from cleaned fullname_raw → player_id for unverified players.
+        Only includes players where is_verified = FALSE and fullname_raw is not NULL/empty.
+        Cleaning removes extra spaces but preserves case/accents for "rawness."
+        """
+        unverified_map: Dict[str, int] = {}
+        cursor.execute("""
+            SELECT player_id, fullname_raw 
+            FROM player 
+            WHERE is_verified = FALSE AND fullname_raw IS NOT NULL AND fullname_raw != ''
+        """)
+        for pid, fr in cursor.fetchall():
+            clean = " ".join(fr.strip().split())  # Minimal clean: trim extra spaces
+            if clean not in unverified_map:  # Avoid duplicates
+                unverified_map[clean] = pid
+        logging.info(f"Cached {len(unverified_map)} unverified player names")
+        return unverified_map       
+    
     @staticmethod
     def search_by_name_and_year(
         cursor, 
@@ -309,7 +312,7 @@ class Player(CacheMixin):
         year_born: Optional[int]
     ) -> List['Player']:
         """
-        Fallback DB search on player table. 
+        Fallback DB search on player & player_alias. 
         Handles cases where first/last are NULL by using fullname_raw.
         """
         try:
@@ -320,16 +323,16 @@ class Player(CacheMixin):
             where_clauses = []
 
             if fn:
-                where_clauses.append("(firstname = ? OR (firstname IS NULL AND fullname_raw LIKE ?))")
+                where_clauses.append("(pa.firstname = ? OR (pa.firstname IS NULL AND pa.fullname_raw LIKE ?))")
                 params.extend([fn, f"%{fn}%"])
             if ln:
-                where_clauses.append("(lastname = ? OR (lastname IS NULL AND fullname_raw LIKE ?))")
+                where_clauses.append("(pa.lastname = ? OR (pa.lastname IS NULL AND pa.fullname_raw LIKE ?))")
                 params.extend([ln, f"%{ln}%"])
             if yb is not None:
-                where_clauses.append("year_born = ?")
+                where_clauses.append("pa.year_born = ?")
                 params.append(yb)
             else:
-                where_clauses.append("(year_born IS NULL OR year_born = 0)")
+                where_clauses.append("(pa.year_born IS NULL OR pa.year_born = 0)")
 
             if not where_clauses:
                 return []
@@ -337,35 +340,25 @@ class Player(CacheMixin):
             where_sql = " AND ".join(where_clauses)
             cursor.execute(
                 f"""
-                SELECT player_id, firstname, lastname, year_born, date_born, fullname_raw, is_verified
-                FROM player
+                SELECT DISTINCT p.player_id, p.firstname, p.lastname, p.year_born, p.fullname_raw, p.is_verified
+                FROM player p
+                JOIN player_alias pa ON p.player_id = pa.player_id
                 WHERE {where_sql}
                 """,
                 params
             )
             found = []
-            for row in cursor.fetchall():
-                pid = row[0]
-                p = Player(
-                    player_id=pid,
-                    firstname=row[1],
-                    lastname=row[2],
-                    year_born=row[3],
-                    date_born=row[4],
-                    fullname_raw=row[5],
-                    is_verified=bool(row[6]),
-                    ext_ids=[]
-                )
-                # collect ext_ids
+            for pid, fn2, ln2, yb2, fr2, iv2 in cursor.fetchall():
+                # collect aliases
                 cursor.execute(
-                    "SELECT player_id_ext, data_source_id FROM player_id_ext WHERE player_id = ?",
+                    "SELECT player_id_ext, firstname, lastname, year_born, fullname_raw, source_system FROM player_alias WHERE player_id = ?",
                     (pid,)
                 )
-                p.ext_ids = [
-                    {'player_id_ext': r[0], 'data_source_id': r[1]}
+                aliases = [
+                    {'player_id_ext': r[0], 'firstname': r[1], 'lastname': r[2], 'year_born': r[3], 'fullname_raw': r[4], 'source_system': r[5]}
                     for r in cursor.fetchall()
                 ]
-                found.append(p)
+                found.append(Player(pid, fn2, ln2, yb2, fr2, iv2, aliases))
             return found
         except Exception as e:
             logging.error(f"Error in search_by_name_and_year: {e}")
@@ -375,18 +368,17 @@ class Player(CacheMixin):
     @staticmethod
     def get_by_id_ext(
         cursor, 
-        player_id_ext: str,
-        data_source_id: int
+        player_id_ext: int
     ) -> Optional['Player']:
         try:
-            # Get canonical player_id from player_id_ext
-            cursor.execute("SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?", (player_id_ext, data_source_id))
+            # Get canonical player_id from alias
+            cursor.execute("SELECT player_id FROM player_alias WHERE player_id_ext = ?", (player_id_ext,))
             row = cursor.fetchone()
             if not row:
                 return None
             return Player.get_by_id(cursor, row[0])
         except Exception as e:
-            logging.error(f"Error retrieving player by player_id_ext {player_id_ext} and data_source_id {data_source_id}: {e}")
+            logging.error(f"Error retrieving player by player_id_ext {player_id_ext}: {e}")
             return None
 
     @staticmethod
@@ -397,18 +389,18 @@ class Player(CacheMixin):
         try:
             # Fetch canonical player
             cursor.execute("""
-                SELECT player_id, firstname, lastname, year_born, date_born, fullname_raw, is_verified FROM player WHERE player_id = ?
+                SELECT player_id, firstname, lastname, year_born, fullname_raw, is_verified FROM player WHERE player_id = ?
             """, (player_id,))
             row = cursor.fetchone()
             if not row:
                 return None
 
-            # Fetch ext_ids
+            # Fetch aliases
             cursor.execute("""
-                SELECT player_id_ext, data_source_id FROM player_id_ext WHERE player_id = ?
+                SELECT player_id_ext, firstname, lastname, year_born, fullname_raw, source_system FROM player_alias WHERE player_id = ?
             """, (player_id,))
-            ext_ids = [
-                {"player_id_ext": r[0], "data_source_id": r[1]}
+            aliases = [
+                {"player_id_ext": r[0], "firstname": r[1], "lastname": r[2], "year_born": r[3], "fullname_raw": r[4], "source_system": r[5]}
                 for r in cursor.fetchall()
             ]
 
@@ -417,10 +409,9 @@ class Player(CacheMixin):
                 firstname=row[1],
                 lastname=row[2],
                 year_born=row[3],
-                date_born=row[4],
-                fullname_raw=row[5],
-                is_verified=bool(row[6]),
-                ext_ids=ext_ids
+                fullname_raw=row[4],
+                is_verified=bool(row[5]),
+                aliases=aliases
             )
         except Exception as e:
             logging.error(f"Error retrieving player by ID {player_id}: {e}")
@@ -432,8 +423,8 @@ class Player(CacheMixin):
         cursor,
         fullname_raw: str,
         year_born: Optional[int] = None,
-        player_id_ext: Optional[str] = None,
-        data_source_id: Optional[int] = None
+        player_id_ext: Optional[int] = None,
+        source_system: Optional[str] = None
     ) -> Optional[int]:
         """
         Insert a new unverified player using fullname_raw and return the new player_id.
@@ -446,9 +437,16 @@ class Player(CacheMixin):
         res = player.save_to_db(
             cursor,
             player_id_ext=player_id_ext,
-            data_source_id=data_source_id
+            source_system=source_system
         )
 
-        if res["status"] in ("success", "skipped") and "player_id" in res:
-            return res["player_id"]
-        return None
+        # Accept common shapes from save_to_db()
+        if isinstance(res, int):
+            return res
+        if isinstance(res, dict):
+            for k in ("player_id", "id", "rowid", "new_id", "lastrowid"):
+                if k in res and isinstance(res[k], int):
+                    return res[k]
+        # As a last resort, try to read from the instance if it sets player_id
+        pid = getattr(player, "player_id", None)
+        return int(pid) if isinstance(pid, int) else None
