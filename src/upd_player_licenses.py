@@ -137,6 +137,13 @@ def upd_player_licenses():
                 logger.failed(item_key, f"Valid from date is outside the season range")
                 continue
 
+<<<<<<< HEAD
+            # Skip if valid_from equals season end date
+            if valid_from == season.end_date:
+                logging.warning(f"Player {firstname} {lastname} {club_name} (ext_id: {player_id_ext}, id: {player_id}) skipped because valid_from ({valid_from}) equals season end date, row_id {row_id}")
+
+=======
+>>>>>>> dfbb58977579c213753fb2cf6e59bd4e083f1afb
             # Map player using player_id_ext
             player = player_id_ext_map.get((player_id_ext, data_source_id))
             if not player:
