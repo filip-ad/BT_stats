@@ -69,7 +69,7 @@ def main():
             # 'player_ranking_raw',
 
             # # License, ranking, transitions
-            # 'player_license',                     # FK player (validated), club, season, license
+            # 'player_license',                      # FK player (validated), club, season, license
             # 'player_ranking',                     # FK player (validated)
             # 'player_ranking_group',               # FK player (validated), ranking_group
             # 'player_transition',                  # FK player, club
@@ -107,7 +107,7 @@ def main():
             # # Debugging tables (no FKs assumed)
             # 'club_missing',                       # FK club
             # 'club_name_prefix_match',             # FK club
-            # log_tables
+            'log_tables'
         ])
 
         create_and_populate_static_tables(cursor)

@@ -3,9 +3,6 @@
 from dataclasses import dataclass
 from typing import Optional, List
 import logging
-from models.player import Player
-from models.season import Season
-from models.club import Club
 
 @dataclass
 class PlayerTransition:
@@ -50,46 +47,18 @@ class PlayerTransition:
             logging.error(f"Error retrieving transitions by player_id {player_id}: {e}")
             return []
 
-    def save_to_db(self, cursor):
+    def save_to_db(self, cursor, logger):
+
+        item_key = f"Player ID {self.player_id}, Season ID {self.season_id}"
 
         # Validate required fields
         if not all([self.season_id, self.player_id, self.club_id_from, self.club_id_to, self.transition_date]):
+            logger.failed(item_key, "Missing required fields")
             return {
                 "status": "failed",
                 "player": f"Player ID {self.player_id}",
                 "reason": "Missing required fields"
             }
-
-        # # Validate season_id, player_id, club_id_from, club_id_to
-        # season = Season.get_by_id(cursor, self.season_id)
-        # player = Player.get_by_id(cursor, self.player_id)
-        # club_from = Club.get_by_id(cursor, self.club_id_from)
-        # club_to = Club.get_by_id(cursor, self.club_id_to)
-
-        # if not season:
-        #     return {
-        #         "status": "failed",
-        #         "player": f"Player ID {self.player_id}",
-        #         "reason": f"Invalid season_id {self.season_id}"
-        #     }
-        # if not player:
-        #     return {
-        #         "status": "failed",
-        #         "player": f"Player ID {self.player_id}",
-        #         "reason": f"Invalid player_id {self.player_id}"
-        #     }
-        # if not club_from:
-        #     return {
-        #         "status": "failed",
-        #         "player": f"Player ID {self.player_id}",
-        #         "reason": f"Invalid club_id_from {self.club_id_from}"
-        #     }
-        # if not club_to:
-        #     return {
-        #         "status": "failed",
-        #         "player": f"Player ID {self.player_id}",
-        #         "reason": f"Invalid club_id_to {self.club_id_to}"
-        #     }
 
         # Insert into player_transition
         try:
@@ -99,19 +68,20 @@ class PlayerTransition:
             """, (self.season_id, self.player_id, self.club_id_from, self.club_id_to, self.transition_date))
             
             if cursor.rowcount == 0:
-                logging.debug(f"Transition already exists for player_id {self.player_id} in season {self.season_id}")
+                logger.skipped(item_key, "Transition already exists")
                 return {
                     "status": "skipped",
                     "player": f"Player ID {self.player_id}",
                     "reason": "Transition already exists"
                 }
+            logger.success(item_key, "Transition inserted successfully")
             return {
                 "status": "success",
                 "player": f"Player ID {self.player_id}",
                 "reason": "Transition inserted successfully"
             }
         except Exception as e:
-            logging.error(f"Error inserting transition for player_id {self.player_id}: {e}")
+            logger.failed(item_key, f"Insertion error: {e}")
             return {
                 "status": "failed",
                 "player": f"Player ID {self.player_id}",

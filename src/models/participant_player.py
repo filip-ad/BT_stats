@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 import sqlite3
 from .base import BaseModel
-from utils import OperationLogger
 
 @dataclass
 class ParticipantPlayer(BaseModel):
@@ -13,17 +12,6 @@ class ParticipantPlayer(BaseModel):
     participant_id:                 int = None
     player_id:                      int = None
     club_id:                        Optional[int] = None
-
-    # @staticmethod
-    # def from_dict(d: Dict[str, Any]) -> "ParticipantPlayer":
-    #     """Instantiate from a dict (keys matching column names)."""
-    #     return ParticipantPlayer(
-    #         participant_player_id       = d.get("participant_player_id"),
-    #         participant_player_id_ext   = d.get("participant_player_id_ext"),
-    #         participant_id              = d["participant_id"],
-    #         player_id                   = d["player_id"],
-    #         club_id                     = d.get("club_id"),
-    #     )
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "ParticipantPlayer":
