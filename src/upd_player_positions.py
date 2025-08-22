@@ -1,10 +1,13 @@
-# src/upd_player_participant_positions.py
-
-import io, re, logging, datetime, requests, pdfplumber
+import io
+import re
 import time
+from typing import List, Tuple
+import requests
+import pdfplumber
+import logging
 
 from db import get_conn
-from utils import print_db_insert_results
+from utils import OperationLogger
 from config import (
     SCRAPE_PARTICIPANTS_MAX_CLASSES,
     SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
@@ -17,195 +20,150 @@ from models.participant import Participant
 
 RESULTS_URL_TMPL = "https://resultat.ondata.se/ViewClassPDF.php?classID={class_id}&stage=6"
 
-_PLACERING_HDR_RE  = re.compile(r"^\s*(placering|placeringar|plassering|plasseringer|sijoitus|sijoitukset|position|positions?|placement|placements?|results?|ranking)\s*$", re.IGNORECASE)
+_PLACERING_HDR_RE = re.compile(r"^\s*(placering|placeringar|plassering|plasseringer|sijoitus|sijoitukset|position|positions?|placement|placements?|results?|ranking)\s*$", re.IGNORECASE)
 _PLACERING_LINE_RE = re.compile(r"^\s*(\d+)\s+(.+?)\s*,\s*(.+?)\s*$")
 
 def upd_player_positions():
-    
-    conn, cur = get_conn()
+    conn, cursor = get_conn()
     t0 = time.perf_counter()
+    logger = OperationLogger(
+        verbosity       = 2, 
+        print_output    = False, 
+        log_to_db       = True, 
+        cursor          = cursor
+    )
 
-    # 1) classes via cache_by_id_ext (fast single-class path)
-    classes_by_ext = TournamentClass.cache_by_id_ext(cur)
-
-    # ── 1) Load + filter classes (by external id) ──────────────────────────
-    if SCRAPE_PARTICIPANTS_CLASS_ID_EXTS is not 0:
-        tc = classes_by_ext.get(SCRAPE_PARTICIPANTS_CLASS_ID_EXTS)
-        classes = [tc] if tc else []
-    else:
-        classes = list(classes_by_ext.values())
-
-    order = (SCRAPE_PARTICIPANTS_ORDER or "").lower()
-    if order == "newest":
-        classes.sort(key=lambda tc: tc.date or datetime.date.min, reverse=True)
-    elif order == "oldest":
-        classes.sort(key=lambda tc: tc.date or datetime.date.min)
-
-    if SCRAPE_PARTICIPANTS_MAX_CLASSES and SCRAPE_PARTICIPANTS_MAX_CLASSES > 0:
-        classes = classes[:SCRAPE_PARTICIPANTS_MAX_CLASSES]
-
-    logging.info(f"ℹ️  Updating tournament class positions for {len(classes)} classes...")
+    # 1) Load and filter classes
+    classes = TournamentClass.get_filtered_classes(
+        cursor,
+        class_id_ext=SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+        max_classes=SCRAPE_PARTICIPANTS_MAX_CLASSES,
+        order=SCRAPE_PARTICIPANTS_ORDER
+    )
+    logging.info(f"Updating tournament class positions for {len(classes)} classes...")
     print(f"ℹ️  Updating tournament class positions for {len(classes)} classes...")
 
-    # ── 2) Build static caches once ────────────────────────────────────────
-    club_map              = Club.cache_name_map(cur)
-    player_name_map       = Player.cache_name_map_verified(cur)            # verified + aliases
-    unverified_name_map   = Player.cache_unverified_name_map(cur) # fullname_raw for unverified
-    part_by_class_player  = PlayerParticipant.cache_by_class_id_player(cur)  # class → {player_id: (participant_id, club_id)}
+    # 2) Build static caches
+    club_map                = Club.cache_name_map(cursor)
+    player_name_map         = Player.cache_name_map_verified(cursor)
+    unverified_name_map     = Player.cache_name_map_unverified(cursor)
+    part_by_class_player    = Participant.cache_by_class_player(cursor)
 
-    # ── 3) Process classes ────────────────────────────────────────────────
+    # 3) Process classes
     total_parsed = total_updated = total_skipped = 0
-    db_results = []  # for print_db_insert_results()
-    warnings = []
-
     for idx, tc in enumerate(classes, 1):
-        label = f"{tc.shortname or tc.longname or tc.tournament_class_id} (ext:{tc.tournament_class_id_ext})"
-        # logging.info(f"[{idx}/{len(classes)}] Class {label}  date={tc.date}")
-        # print(f"ℹ️  [{idx}/{len(classes)}] Class {label}  date={tc.date}")
+
+        item_key = f"Class id ext: {tc.tournament_class_id_ext}"
+
+        label = f"{tc.shortname or tc.longname or tc.tournament_class_id}, {tc.date} (ext:{tc.tournament_class_id_ext})"
+
 
         if not tc or not tc.tournament_class_id_ext:
-            logging.warning(f"  ↳ Skipping: Missing class {tc} or external class_id {tc.tournament_class_id_ext}")
-            db_results.append({
-                "status": "skipped", 
-                "reason": "Missing class or external class_id", 
-                "warnings": ""
-            })
+            logger.skipped(item_key, f"Skipping: Missing class or external class_id")
             continue
 
         class_part_by_player = part_by_class_player.get(tc.tournament_class_id, {})
         if not class_part_by_player:
-            logging.warning(f"  ↳ Skipping: No participants in class_id={tc.tournament_class_id}")
-            db_results.append({
-                "status": "skipped", 
-                "reason": "No participants in class_id", 
-                "warnings": ""
-            })
+            logger.skipped(item_key, f"Skipping: No participants in class_id")
+            print(f"ℹ️  [{idx}/{len(classes)}] Skipping class {label} - no participants found.")
             continue
 
-        # clear old positions for safe re-runs
-        cleared = PlayerParticipant.clear_final_positions_for_class(cur, tc.tournament_class_id)
-        # logging.info(f"  ↳ Cleared final_position for {cleared} participants (class_id={tc.tournament_class_id})")
-        # print(f"  ↳ Cleared final_position for {cleared} participants (class_id={tc.tournament_class_id})")
+        # Clear old positions
+        cleared = Participant.clear_final_positions(cursor, tc.tournament_class_id)
+        logging.info(f"Cleared final_position for {cleared} participants (class_id={tc.tournament_class_id})")
 
-        # Download stage=6 PDF
+        # Download PDF
         url = RESULTS_URL_TMPL.format(class_id=tc.tournament_class_id_ext)
         try:
             r = requests.get(url, timeout=30)
             r.raise_for_status()
         except Exception as e:
             reason = f"Download failed: {e}"
-            logging.error(f"  ↳ {reason}")
-            print(f"❌ {reason}")
-            db_results.append({
-                "status": "failed", 
-                "reason": reason, 
-                "warnings": ""
-            })
-            conn.commit()  # commit the clear
-            continue
-
-        # Parse stage=6 PDF
-        try:
-            rows = _parse_positions(_pdf_to_lines(r.content))
-        except Exception as e:
-            reason = f"PDF parsing failed: {e}"
-            logging.error(f"  ↳ {reason}")
-            print(f"❌ {reason}")
-            db_results.append({
-                "status": "failed",
-                "reason": reason,
-                "warnings": ""
-            })
-            conn.cursor().execute('''
-                INSERT INTO debug_invalid_pdf_parse (pdf_link, reason, msg, key, script, function)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (url, "Probably structure_id 2 = groups only. Need to get position from Stage=4 here?", reason, f"Class id ext: {tc.tournament_class_id_ext}", "upd_player_positions", "_parse_positions"))
-            conn.commit()  # commit the clear
-
-            continue
-
-        parsed_count = len(rows)        # expected = number of lines (ties allowed)
-        total_parsed += parsed_count
-        # logging.info(f"  ↳ Parsed {parsed_count} positions from PDF.")
-        # print(f"✅ Parsed {parsed_count}/{parsed_count} positions for class {tc.shortname or tc.longname or tc.tournament_class_id} (class_ext={tc.tournament_class_id_ext} in tournament id {tc.tournament_id})")
-
-        if parsed_count == 0:
-            db_results.append({
-                "status": "skipped", 
-                "reason": "No positions parsed", 
-                "warnings": ""
-            })
+            logger.failed(item_key, reason)
             conn.commit()
             continue
 
-        # Update loop
+        # Parse PDF
+        try:
+            rows = _parse_positions(r.content)
+        except Exception as e:
+            logger.failed(item_key, f"PDF parsing failed: {e}")
+            print(f"❌ PDF parsing failed: {e}")
+            conn.commit()
+            continue
+
+        parsed_count = len(rows)
+        total_parsed += parsed_count
+        logging.info(f"Parsed {parsed_count} positions from PDF.")
+
+        if parsed_count == 0:
+            logger.failed(item_key, "No positions parsed from PDF.")
+            conn.commit()
+            continue
+
+        # Update positions
         updated = skipped = 0
         for pos, fullname, club in rows:
-            ok = PlayerParticipant.upd_final_position_by_participant(
-                cur,
-                tc.tournament_class_id,
-                fullname,
-                club,
-                pos,
-                player_name_map,
-                unverified_name_map,
-                class_part_by_player,
-                club_map
+            result = Participant.update_final_position(
+                cursor, tc.tournament_class_id, fullname, club, pos,
+                player_name_map, unverified_name_map, class_part_by_player, club_map
             )
-            if ok:
+            if result["status"] == "success":
+                logger.success(item_key, f"Position successfully updated")
                 updated += 1
-                db_results.append({
-                    "status": "success",
-                    "reason": "Final position updated",
-                    "warnings": ""
-                })
             else:
+                logger.skipped(item_key, f"Position update skipped")
                 skipped += 1
-                db_results.append({
-                    "status": "skipped",
-                    "reason": "No participant match (name/club or not in class)",
-                    "warnings": ""
-                })
+
+        logging.info(f"[{idx}/{len(classes)}] Processed class {label} date={tc.date}. Deleted {cleared} existing positions, updated {updated} positions, skipped {skipped} positions.")
+        print(f"ℹ️  [{idx}/{len(classes)}] Processed class {label} date={tc.date}. Deleted {cleared} existing positions, updated {updated} positions, skipped {skipped} positions.")
 
         conn.commit()
         total_updated += updated
         total_skipped += skipped
-        logging.info(f"  ✅ Updated {updated}, skipped {skipped} for {label}")
-        print(      f"   ✅ Updated: {updated}   ⏭️  Skipped: {skipped}   ❌ Failed: 0")
-        
-    # ── 4) Totals + DB summary ────────────────────────────────────────────
+        logging.info(f"Updated {updated}, skipped {skipped} for {label}")
+
+    # 4) Summary
     t1 = time.perf_counter()
     elapsed = t1 - t0
-    print(f"ℹ️  Positions update complete in {elapsed:.2f}s")
-    print(f"ℹ️  Total positions parsed: {total_parsed}/{total_parsed}")
-    logging.info(f"Done. Total parsed={total_parsed}, updated={total_updated}, skipped={total_skipped}")
-
-    print_db_insert_results(db_results)
+    logging.info(f"Positions update complete in {elapsed:.2f}s")
+    logging.info(f"Total positions parsed: {total_parsed}, updated: {total_updated}, skipped: {total_skipped}")
+    logger.summarize()
     conn.close()
 
-def _pdf_to_lines(pdf_bytes: bytes):
-    lines = []
+def _parse_positions(pdf_bytes: bytes) -> List[Tuple[int, str, str]]:
+    """Parse positions from PDF, attempting table extraction first, then falling back to text."""
+    out = []
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
+            # Try table extraction
+            tables = page.extract_tables()
+            for table in tables:
+                for row in table[1:]:  # Skip header
+                    if len(row) >= 3 and row[0] and row[0].strip().isdigit():
+                        try:
+                            out.append((int(row[0]), row[1].strip(), row[2].strip()))
+                        except (ValueError, AttributeError):
+                            continue
+            if out:
+                return out  # Return if table extraction succeeded
+
+            # Fallback to text parsing
             text = page.extract_text() or ""
-            lines.extend(text.splitlines())
-    return lines
-
-def _parse_positions(lines):
-    out = []
-    try:
-        start_idx = next(i for i, ln in enumerate(lines) if _PLACERING_HDR_RE.search(ln))
-    except StopIteration:
-        logging.warning("Placering header not found in PDF.")
-        return out
-    for ln in lines[start_idx + 1:]:
-        s = (ln or "").strip()
-        if not s:
-            continue
-        if s.lower().startswith("setsiffror"):
-            break
-        m = _PLACERING_LINE_RE.match(s)
-        if m:
-            out.append((int(m.group(1)), m.group(2).strip(), m.group(3).strip()))
+            lines = text.splitlines()
+            try:
+                start_idx = next(i for i, ln in enumerate(lines) if _PLACERING_HDR_RE.search(ln))
+            except StopIteration:
+                OperationLogger().warning("Placering header not found in PDF.")
+                return out
+            for ln in lines[start_idx + 1:]:
+                s = (ln or "").strip()
+                if not s or s.lower().startswith("setsiffror"):
+                    break
+                m = _PLACERING_LINE_RE.match(s)
+                if m:
+                    try:
+                        out.append((int(m.group(1)), m.group(2).strip(), m.group(3).strip()))
+                    except ValueError:
+                        continue
     return out
-
