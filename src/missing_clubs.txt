@@ -902,3 +902,9 @@ Context: Kaleb, Wernersson, 2000, Uppsala Life IF, Vetlanda BTK, 2019-09-26, row
 Context: Samuel, Olander-Allard, 2011, Uppsala Life IF, IK Sirius BTK, 2021-12-24, row_id: 9510, Club Raw: Uppsala Life IF
 Context: Mazin, Al-Mayyahi Zaid, 1998, Arkelstorps BTK, Klubb saknas, 2025-08-04, row_id: 52949, Club Raw: Klubb saknas
 Context: Geffrey, Pettersson, 1981, Arkelstorps BTK, Klubb saknas, 2025-08-04, row_id: 52951, Club Raw: Klubb saknas
+Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE
