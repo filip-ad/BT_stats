@@ -6,7 +6,6 @@ import logging
 import re
 import unicodedata
 from models.cache_mixin import CacheMixin
-from utils import normalize_key
 
 @dataclass
 class Club(CacheMixin):
@@ -56,64 +55,90 @@ class Club(CacheMixin):
         )
     
     @classmethod
-    def cache_name_map(
-        cls, 
-        cursor
-    ) -> Dict[str, 'Club']:
-        """
-        Build a normalized name to Club map using cached query, including shortname, longname, and all aliases.
-        """
-        # Fetch all club rows to create Club objects
-        sql_clubs = """
-            SELECT *
-            FROM club
-        """
-        club_rows = cls.cached_query(cursor, sql_clubs)
-        clubs_dict = {row['club_id']: Club.from_dict(row) for row in club_rows}
+    def resolve(
+        cls,
+        cursor,
+        clubname_raw:       str,
+        club_map:           Dict[str, "Club"],
+        logger,
+        item_key:           str,
+        *,
+        allow_prefix:       bool = False,
+        min_ratio:          float = 0.8,
+        unknown_club_id:    int = 9999,
+    ) -> "Club":
+        norm = cls._normalize(clubname_raw)
+        club = club_map.get(norm)
 
-        # Fetch all possible names (short, long, aliases)
-        sql_names = """
-            SELECT club_id, name
-            FROM (
-                SELECT club_id, shortname AS name FROM club WHERE shortname IS NOT NULL AND shortname != ''
-                UNION
-                SELECT club_id, longname AS name FROM club WHERE longname IS NOT NULL AND longname != ''
-                UNION
-                SELECT club_id, alias AS name FROM club_name_alias WHERE alias IS NOT NULL AND alias != ''
-            )
-        """
-        name_rows = cls.cached_query(cursor, sql_names)
-
-        club_map: Dict[str, Club] = {}
-        for row in name_rows:
-            norm_key = normalize_key(row['name'])
-            club = clubs_dict.get(row['club_id'])
+        # optional prefix similarity
+        if not club and allow_prefix and len(norm) >= 5:
+            club = cls._prefix_match(norm, club_map, min_ratio=min_ratio)
             if club:
+                logger.warning(item_key, f"Club '{clubname_raw}' matched by prefix similarity")
+
+        if not club:
+            club = cls.get_by_id(cursor, unknown_club_id)
+            logger.warning(clubname_raw, f"Club not found. Using 'Unknown club (id: {unknown_club_id})'")
+            with open("missing_clubs.txt", "a", encoding="utf-8") as f:
+                f.write(f"Context: {item_key}, Club Raw: {clubname_raw}\n")
+
+        return club
+
+    @staticmethod
+    def _prefix_match(norm: str, club_map: Dict[str, "Club"], min_ratio: float = 0.8) -> Optional["Club"]:
+        """
+        Find best club whose normalized key shares at least `min_ratio`
+        of prefix characters with `norm`.
+        Example: 'lubeckertsde' vs 'lubeckerts' → ratio ≈ 0.83 → match.
+        """
+        best, best_ratio = None, 0.0
+        for key, club in club_map.items():
+            common = 0
+            for a, b in zip(norm, key):
+                if a != b:
+                    break
+                common += 1
+            ratio = common / max(len(norm), len(key))
+            if ratio > best_ratio:
+                best, best_ratio = club, ratio
+        return best if best_ratio >= min_ratio else None
+
+    
+    # --- NEW ---
+    @classmethod
+    def cache_name_map(cls, cursor) -> Dict[str, "Club"]:
+        """
+        Build a normalized name → Club map including shortname, longname, and aliases.
+        """
+        clubs = cls.cache_all(cursor)   # club_id → Club
+        club_map: Dict[str, Club] = {}
+
+        for club in clubs.values():
+            names: List[str] = []
+            if club.shortname:
+                names.append(club.shortname)
+            if club.longname:
+                names.append(club.longname)
+            for alias in club.aliases:
+                if alias["alias"]:
+                    names.append(alias["alias"])
+
+            for name in names:
+                norm_key = cls._normalize(name)   # instead of normalize_key(name)
+                if not norm_key:
+                    continue
                 if norm_key in club_map and club_map[norm_key].club_id != club.club_id:
-                    # Optional: log warning for conflicting keys
-                    pass
+                    logging.warning(
+                        f"Name '{name}' normalized to '{norm_key}' "
+                        f"conflicts between clubs {club.club_id} and {club_map[norm_key].club_id}"
+                    )
                 club_map[norm_key] = club
 
+        logging.info(
+            f"Built club_name_map with {len(club_map)} unique normalized names "
+            f"from {len(clubs)} clubs"
+        )
         return club_map
-    
-    # @classmethod
-    # def cache_name_map(cls, cursor) -> Dict[str, "Club"]:
-    #     """
-    #     Returns a dict mapping every normalized variant
-    #     (shortname, longname, *and* every alias) → Club instance.
-    #     """
-    #     by_id = cls.cache_all(cursor)
-    #     lookup: Dict[str, Club] = {}
-    #     for c in by_id.values():
-    #         for variant in (c.shortname, c.longname):
-    #             if variant:
-    #                 lookup[cls._normalize(variant)] = c
-    #         for alias in c.aliases:
-    #             lookup[cls._normalize(alias["alias"])] = c
-    #     logging.info(f"Cached {len(lookup)} normalized name→Club entries")
-    #     return lookup
-    
-
 
     @staticmethod
     def get_by_id_ext(cursor, id_ext: int) -> Optional["Club"]:

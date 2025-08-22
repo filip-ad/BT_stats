@@ -65,33 +65,6 @@ class PlayerLicense(CacheMixin):
                 "valid_to": row['valid_to']
             })
         return license_map
-    
-    # @staticmethod
-    # def cache_name_club_map(cursor):
-    #     """
-    #     Returns dict keyed by firstname, lastname and club_id
-    #     Value = list of dicts with player_id and license validity periods
-    #     """
-    #     cursor.execute("""
-    #         SELECT 
-    #                 p.player_id,    -- player ID
-    #                 p.firstname,    -- player's first name
-    #                 p.lastname,     -- player's last name
-    #                 pl.club_id,     -- club ID
-    #                 pl.valid_from,  -- license valid from date
-    #                 pl.valid_to     -- license valid to date
-    #         FROM player p
-    #         JOIN player_license pl ON p.player_id = pl.player_id
-    #     """)
-    #     cache = {}
-    #     for player_id, firstname, lastname, club_id, valid_from, valid_to in cursor.fetchall():
-    #         key = (firstname, lastname, club_id)
-    #         cache.setdefault(key, []).append({
-    #             "player_id": player_id,
-    #             "valid_from": valid_from,
-    #             "valid_to": valid_to
-    #         })
-    #     return cache
 
     @classmethod
     def cache_all(cls, cursor) -> Dict[int, Set[Tuple[int, int]]]:
@@ -151,85 +124,8 @@ class PlayerLicense(CacheMixin):
             logging.error(f"Error retrieving licenses for player_id {player_id}: {e}")
             return []
         
-    def validate(self, cursor) -> dict:
-        """Validate a single PlayerLicense instance."""
-        try:
-            # Check if player_id exists in player table
-            cursor.execute("SELECT 1 FROM player WHERE player_id = ?", (self.player_id,))
-            if not cursor.fetchone():
-                return {
-                    "status": "failed",
-                    "row_id": self.row_id,
-                    "reason": f"Foreign key violation: player_id {self.player_id} does not exist in player table"
-                }
-
-            # Check if club_id exists in club table
-            cursor.execute("SELECT 1 FROM club WHERE club_id = ?", (self.club_id,))
-            if not cursor.fetchone():
-                return {
-                    "status": "failed",
-                    "row_id": self.row_id,
-                    "reason": f"Foreign key violation: club_id {self.club_id} does not exist in club table"
-                }
-
-            # Check if season_id exists in season table
-            cursor.execute("SELECT 1 FROM season WHERE season_id = ?", (self.season_id,))
-            if not cursor.fetchone():
-                return {
-                    "status": "failed",
-                    "row_id": self.row_id,
-                    "reason": f"Foreign key violation: season_id {self.season_id} does not exist in season table"
-                }
-
-            # Check if license_id exists in license table
-            cursor.execute("SELECT 1 FROM license WHERE license_id = ?", (self.license_id,))
-            if not cursor.fetchone():
-                return {
-                    "status": "failed",
-                    "row_id": self.row_id,
-                    "reason": f"Foreign key violation: license_id {self.license_id} does not exist in license table"
-                }
-
-            # Check if the record already exists
-            cursor.execute("""
-                SELECT 1 FROM player_license 
-                WHERE player_id = ? AND license_id = ? AND season_id = ? AND club_id = ?
-            """, (self.player_id, self.license_id, self.season_id, self.club_id))
-            if cursor.fetchone():
-                return {
-                    "status": "skipped",
-                    "row_id": self.row_id,
-                    "reason": "Player license already exists in database"
-                }
-
-            # Check for overlapping licenses
-            cursor.execute("""
-                SELECT 1 FROM player_license 
-                WHERE player_id = ? AND license_id = ? AND season_id = ? 
-                AND ((valid_from <= ? AND valid_to >= ?) OR (valid_from <= ? AND valid_to >= ?))
-            """, (self.player_id, self.license_id, self.season_id, self.valid_from, self.valid_from, self.valid_to, self.valid_to))
-            if cursor.fetchone():
-                return {
-                    "status": "success",
-                    "row_id": self.row_id,
-                    "reason": "Warning! Player already has a license of the same type with overlapping dates"
-                }
-
-            return {
-                "status": "success",
-                "row_id": self.row_id,
-                "reason": "Player license validated successfully"
-            }
-        except Exception as e:
-            logging.error(f"Error validating license for player_id {self.player_id}: {e}")
-            return {
-                "status": "failed",
-                "row_id": self.row_id,
-                "reason": f"Database error: {str(e)}"
-            }        
-
     @staticmethod
-    def batch_save_to_db(cursor, licenses: List["PlayerLicense"]) -> List[Dict[str, Any]]:
+    def batch_save_to_db(cursor, licenses, logger: List["PlayerLicense"]) -> List[Dict[str, Any]]:
         """
         Batch-insert PlayerLicense objects in safe-sized chunks so as not to exceed
         SQLite’s default variable limit (~999). Returns one dict per input license
@@ -242,9 +138,9 @@ class PlayerLicense(CacheMixin):
         """)
         existing = {tuple(r) for r in cursor.fetchall()}
 
-        to_insert: List[tuple]      = []
-        insert_positions: List[int] = []
-        results: List[Dict[str, Any]] = []
+        to_insert: List[tuple]          = []
+        insert_positions: List[int]     = []
+        results: List[Dict[str, Any]]   = []
 
         # 2) Build both lists in lockstep
         for idx, lic in enumerate(licenses):
@@ -290,21 +186,23 @@ class PlayerLicense(CacheMixin):
         for start in range(0, len(to_insert), chunk_size):
             chunk      = to_insert[start : start + chunk_size]
             positions  = insert_positions[start : start + chunk_size]
+            key_item = (lic.player_id, lic.club_id, lic.season_id, lic.license_id, lic.valid_from, lic.valid_to)
             try:
                 cursor.executemany(insert_sql, chunk)
             except sqlite3.Error as e:
                 logging.error(f"Chunk insert error rows {start}-{start+len(chunk)-1}: {e}")
                 for pos in positions:
                     results[pos].update(status="failed", reason=str(e))
+                    logger.failed(key_item, f"Player license insert failed")
             else:
                 for pos in positions:
                     results[pos].update(status="success", reason="Inserted")
+                    logger.success(key_item, f"Player license inserted successfully")
 
         return results
     
     @staticmethod
-    def validate_batch(cursor, licenses: List['PlayerLicense']) -> List[dict]:
-            
+    def validate_batch(cursor, licenses, logger: List['PlayerLicense']) -> List[dict]:         
         try:
 
             """Batch validate multiple PlayerLicense objects, including date range checks."""
@@ -410,61 +308,71 @@ class PlayerLicense(CacheMixin):
             for lic in licenses:
                 key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
                 ov_key = (lic.player_id, lic.season_id, lic.license_id)
+                item_key = f"Player_id: {lic.player_id}, Club_id: {lic.club_id}, Season_id: {lic.season_id}, License_id: {lic.license_id})"
 
                 # null/zero checks
                 if not lic.player_id:
+                    # results.append({"status":"failed","row_id":lic.row_id,"reason":f"Invalid player_id: {lic.player_id}"})
                     results.append({"status":"failed","row_id":lic.row_id,"reason":f"Invalid player_id: {lic.player_id}"})
+                    logger.failed(item_key, f"Invalid player_id: {lic.player_id}")
                     continue
                 if not lic.club_id:
                     results.append({"status":"failed","row_id":lic.row_id,"reason":f"Invalid club_id: {lic.club_id}"})
+                    logger.failed(item_key, f"Invalid club_id: {lic.club_id}")
                     continue
                 if not lic.season_id:
                     results.append({"status":"failed","row_id":lic.row_id,"reason":f"Invalid season_id: {lic.season_id}"})
+                    logger.failed(item_key, f"Invalid season_id: {lic.season_id}")
                     continue
                 if not lic.license_id:
                     results.append({"status":"failed","row_id":lic.row_id,"reason":f"Invalid license_id: {lic.license_id}"})
+                    logger.failed(item_key, f"Invalid license_id: {lic.license_id}")
                     continue
 
                 # FK checks
                 if lic.player_id not in valid_players:
                     results.append({"status":"failed","row_id":lic.row_id,"reason":f"Foreign key violation: player_id {lic.player_id}"})
+                    logger.failed(item_key, f"Foreign key violation: player_id {lic.player_id}")
                     continue
                 if lic.club_id not in valid_clubs:
                     results.append({"status":"failed","row_id":lic.row_id,"reason":f"Foreign key violation: club_id {lic.club_id}"})
+                    logger.failed(item_key, f"Foreign key violation: club_id {lic.club_id}")
                     continue
                 if lic.season_id not in valid_seasons:
                     results.append({"status":"failed","row_id":lic.row_id,"reason":f"Foreign key violation: season_id {lic.season_id}"})
+                    logger.failed(item_key, f"Foreign key violation: season_id {lic.season_id}")
                     continue
                 if lic.license_id not in valid_license_ids:
                     results.append({"status":"failed","row_id":lic.row_id,"reason":f"Foreign key violation: license_id {lic.license_id}"})
+                    logger.failed(item_key, f"Foreign key violation: license_id {lic.license_id}")
                     continue
 
                 # Already exists?
                 if key in existing_licenses:
-                    results.append({"status":"skipped","row_id":lic.row_id,"reason":"Player license already exists"})
+                    results.append({"status":"skipped","row_id":lic.row_id,"reason":f"Player license already exists"})
+                    logger.skipped(item_key, f"Player license already exists")
                     continue
 
                 # Date‐range check
                 sd, ed = season_dates.get(lic.season_id, (None,None))
                 if not sd or not ed:
-                    results.append({"status":"failed","row_id":lic.row_id,"reason":"Season date missing"})
+                    results.append({"status":"failed","row_id":lic.row_id,"reason":f"Season date missing"})
+                    logger.failed(item_key, f"Season date missing")
                     continue
                 if lic.valid_from < sd or lic.valid_from > ed:
                     # allow up to 30d fudge beyond season_end
                     if abs((lic.valid_from - ed).days) <= 30:
                         lic.valid_from = ed
                     else:
-                        results.append({
-                            "status":"failed",
-                            "row_id":lic.row_id,
-                            "reason":f"Valid from {lic.valid_from} outside {sd}–{ed}"
-                        })
+                        results.append({"status":"failed","row_id":lic.row_id,"reason":f"Valid from {lic.valid_from} outside {sd}–{ed}"})
+                        logger.failed(item_key, f"Valid from outside season range")
                         continue
-                # if lic.valid_from == ed:
-                #     results.append({"status":"skipped",
-                #                     "row_id":lic.row_id,
-                #                     "reason":"Valid from date equals season end date"})
-                #     continue
+                if lic.valid_from == ed:
+                    logger.warning(item_key, "Valid from date equals season end date")
+                    # results.append({"status":"skipped",
+                    #                 "row_id":lic.row_id,
+                    #                 "reason":"Valid from date equals season end date"})
+                    # continue
 
                 # Overlap check
                 if ov_key in overlapping_licenses:
@@ -472,11 +380,11 @@ class PlayerLicense(CacheMixin):
                     # overlap if NOT (new_end < of OR new_start > ot)
                     new_start, new_end = lic.valid_from, lic.valid_to
                     if not (new_end < of or new_start > ot):
-                        results.append({"status":"failed","row_id":lic.row_id,"reason":"Overlaps existing license"})
+                        logger.failed(item_key, "Overlaps existing license")
                         continue
-
-                # finally, success
-                results.append({"status":"success","row_id":lic.row_id,"reason":"Player license validated successfully"})
+                    
+                # Everything OK
+                results.append({"status":"success","row_id":lic.row_id,"reason": "Valid player license"})
 
             return results
 
@@ -485,97 +393,6 @@ class PlayerLicense(CacheMixin):
             # fail all on error
             return [{"status":"failed","row_id":l.row_id,"reason":f"Database error: {e}"} for l in licenses]
         
-    def save_to_db(self, cursor):
-        try:
-            # Check if player_id exists in player table
-            cursor.execute("SELECT 1 FROM player WHERE player_id = ?", (self.player_id,))
-            if not cursor.fetchone():
-                return {
-                    "status": "failed",
-                    "player_id": self.player_id,
-                    "reason": f"Foreign key violation: player_id {self.player_id} does not exist in player table"
-                }
-
-            # Check if club_id exists in club table
-            cursor.execute("SELECT 1 FROM club WHERE club_id = ?", (self.club_id,))
-            if not cursor.fetchone():
-                return {
-                    "status": "failed",
-                    "player_id": self.player_id,
-                    "reason": f"Foreign key violation: club_id {self.club_id} does not exist in club table"
-                }
-
-            # Check if season_id exists in season table
-            cursor.execute("SELECT 1 FROM season WHERE season_id = ?", (self.season_id,))
-            if not cursor.fetchone():
-                return {
-                    "status": "failed",
-                    "player_id": self.player_id,
-                    "reason": f"Foreign key violation: season_id {self.season_id} does not exist in season table"
-                }
-
-            # Check if license_id exists in license table
-            cursor.execute("SELECT 1 FROM license WHERE license_id = ?", (self.license_id,))
-            if not cursor.fetchone():
-                return {
-                    "status": "failed",
-                    "player_id": self.player_id,
-                    "reason": f"Foreign key violation: license_id {self.license_id} does not exist in license table"
-                }
-
-            # Check if the record already exists
-            cursor.execute("""
-                SELECT 1 FROM player_license 
-                WHERE player_id = ? AND license_id = ? AND season_id = ? AND club_id = ?
-            """, (self.player_id, self.license_id, self.season_id, self.club_id))
-            if cursor.fetchone():
-                return {
-                    "status": "skipped",
-                    "player_id": self.player_id,
-                    "reason": "Player license already exists in database"
-                }
-
-            # Check if the player already has a license of the same type with overlapping dates
-            cursor.execute("""
-                SELECT 1 FROM player_license 
-                WHERE player_id = ? AND license_id = ? AND season_id = ? 
-                AND ((valid_from <= ? AND valid_to >= ?) OR (valid_from <= ? AND valid_to >= ?))
-            """, (self.player_id, self.license_id, self.season_id, self.valid_from, self.valid_from, self.valid_to, self.valid_to))
-
-            overlapping_license = 1 if cursor.fetchone() else 0
-
-            # Insert the player license
-            cursor.execute("""
-                INSERT INTO player_license (
-                    player_id, club_id, valid_from, valid_to, license_id, season_id
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                self.player_id, self.club_id, self.valid_from, self.valid_to,
-                self.license_id, self.season_id
-            ))
-
-            if overlapping_license == 1:
-                logging.warning(f"Player player_id: {self.player_id} already has a license of the same type with overlapping dates. Club: {self.club_id}, Season: {self.season_id}, License: {self.license_id}, Dates: {self.valid_from} - {self.valid_to}")
-                return {
-                        "status": "success",
-                        "player_id": self.player_id,
-                        "reason": "Warning! Player already has a license of the same type with overlapping dates"
-                    }
-
-            return {
-                "status": "success",
-                "player_id": self.player_id,
-                "reason": "Player license inserted successfully"
-            }
-
-        except Exception as e:
-            return {
-                "status": "failed",
-                "player_id": self.player_id,
-                "reason": f"Database error: {str(e)}"
-            }
-
 
 
     @staticmethod
@@ -691,3 +508,182 @@ class PlayerLicense(CacheMixin):
 
         logging.warning(f"No match for '{raw_name}' at club_id={club_id}")
         return None
+    
+
+    # def validate(self, cursor) -> dict:
+    #     """Validate a single PlayerLicense instance."""
+    #     try:
+    #         # Check if player_id exists in player table
+    #         cursor.execute("SELECT 1 FROM player WHERE player_id = ?", (self.player_id,))
+    #         if not cursor.fetchone():
+    #             return {
+    #                 "status": "failed",
+    #                 "row_id": self.row_id,
+    #                 "reason": f"Foreign key violation: player_id {self.player_id} does not exist in player table"
+    #             }
+
+    #         # Check if club_id exists in club table
+    #         cursor.execute("SELECT 1 FROM club WHERE club_id = ?", (self.club_id,))
+    #         if not cursor.fetchone():
+    #             return {
+    #                 "status": "failed",
+    #                 "row_id": self.row_id,
+    #                 "reason": f"Foreign key violation: club_id {self.club_id} does not exist in club table"
+    #             }
+
+    #         # Check if season_id exists in season table
+    #         cursor.execute("SELECT 1 FROM season WHERE season_id = ?", (self.season_id,))
+    #         if not cursor.fetchone():
+    #             return {
+    #                 "status": "failed",
+    #                 "row_id": self.row_id,
+    #                 "reason": f"Foreign key violation: season_id {self.season_id} does not exist in season table"
+    #             }
+
+    #         # Check if license_id exists in license table
+    #         cursor.execute("SELECT 1 FROM license WHERE license_id = ?", (self.license_id,))
+    #         if not cursor.fetchone():
+    #             return {
+    #                 "status": "failed",
+    #                 "row_id": self.row_id,
+    #                 "reason": f"Foreign key violation: license_id {self.license_id} does not exist in license table"
+    #             }
+
+    #         # Check if the record already exists
+    #         cursor.execute("""
+    #             SELECT 1 FROM player_license 
+    #             WHERE player_id = ? AND license_id = ? AND season_id = ? AND club_id = ?
+    #         """, (self.player_id, self.license_id, self.season_id, self.club_id))
+    #         if cursor.fetchone():
+    #             return {
+    #                 "status": "skipped",
+    #                 "row_id": self.row_id,
+    #                 "reason": "Player license already exists in database"
+    #             }
+
+    #         # Check for overlapping licenses
+    #         cursor.execute("""
+    #             SELECT 1 FROM player_license 
+    #             WHERE player_id = ? AND license_id = ? AND season_id = ? 
+    #             AND ((valid_from <= ? AND valid_to >= ?) OR (valid_from <= ? AND valid_to >= ?))
+    #         """, (self.player_id, self.license_id, self.season_id, self.valid_from, self.valid_from, self.valid_to, self.valid_to))
+    #         if cursor.fetchone():
+    #             return {
+    #                 "status": "success",
+    #                 "row_id": self.row_id,
+    #                 "reason": "Warning! Player already has a license of the same type with overlapping dates"
+    #             }
+
+    #         return {
+    #             "status": "success",
+    #             "row_id": self.row_id,
+    #             "reason": "Player license validated successfully"
+    #         }
+    #     except Exception as e:
+    #         logging.error(f"Error validating license for player_id {self.player_id}: {e}")
+    #         return {
+    #             "status": "failed",
+    #             "row_id": self.row_id,
+    #             "reason": f"Database error: {str(e)}"
+    #         }        
+
+    # def save_to_db(self, cursor, logger):
+    #     try:
+    #         item_key = f"{self.firstname} {self.lastname} (Player_id: {self.player_id}, Club_id: {self.club_id}, Season_id: {self.season_id}, License_id: {self.license_id})"
+    #         # Check if player_id exists in player table
+    #         cursor.execute("SELECT 1 FROM player WHERE player_id = ?", (self.player_id,))
+    #         if not cursor.fetchone():
+    #             logger.failed(item_key, f"Foreign key violation: player_id does not exist in player table")
+    #             return {
+    #                 "status": "failed",
+    #                 "player_id": self.player_id,
+    #                 "reason": f"Foreign key violation: player_id {self.player_id} does not exist in player table"
+    #             }
+
+    #         # Check if club_id exists in club table
+    #         cursor.execute("SELECT 1 FROM club WHERE club_id = ?", (self.club_id,))
+    #         if not cursor.fetchone():
+    #             logger.failed(item_key, f"Foreign key violation: club_id does not exist in club table")
+    #             return {
+    #                 "status": "failed",
+    #                 "player_id": self.player_id,
+    #                 "reason": f"Foreign key violation: club_id {self.club_id} does not exist in club table"
+    #             }
+
+    #         # Check if season_id exists in season table
+    #         cursor.execute("SELECT 1 FROM season WHERE season_id = ?", (self.season_id,))
+    #         if not cursor.fetchone():
+    #             logger.failed(item_key, f"Foreign key violation: season_id does not exist in season table")
+    #             return {
+    #                 "status": "failed",
+    #                 "player_id": self.player_id,
+    #                 "reason": f"Foreign key violation: season_id {self.season_id} does not exist in season table"
+    #             }
+
+    #         # Check if license_id exists in license table
+    #         cursor.execute("SELECT 1 FROM license WHERE license_id = ?", (self.license_id,))
+    #         if not cursor.fetchone():
+    #             logger.failed(item_key, f"Foreign key violation: license_id does not exist in license table")
+    #             return {
+    #                 "status": "failed",
+    #                 "player_id": self.player_id,
+    #                 "reason": f"Foreign key violation: license_id {self.license_id} does not exist in license table"
+    #             }
+
+    #         # Check if the record already exists
+    #         cursor.execute("""
+    #             SELECT 1 FROM player_license 
+    #             WHERE player_id = ? AND license_id = ? AND season_id = ? AND club_id = ?
+    #         """, (self.player_id, self.license_id, self.season_id, self.club_id))
+    #         if cursor.fetchone():
+    #             logger.failed(item_key, f"Player license already exists in database")
+    #             return {
+    #                 "status": "skipped",
+    #                 "player_id": self.player_id,
+    #                 "reason": "Player license already exists in database"
+    #             }
+
+    #         # Check if the player already has a license of the same type with overlapping dates
+    #         cursor.execute("""
+    #             SELECT 1 FROM player_license 
+    #             WHERE player_id = ? AND license_id = ? AND season_id = ? 
+    #             AND ((valid_from <= ? AND valid_to >= ?) OR (valid_from <= ? AND valid_to >= ?))
+    #         """, (self.player_id, self.license_id, self.season_id, self.valid_from, self.valid_from, self.valid_to, self.valid_to))
+
+    #         overlapping_license = 1 if cursor.fetchone() else 0
+
+    #         # Insert the player license
+    #         cursor.execute("""
+    #             INSERT INTO player_license (
+    #                 player_id, club_id, valid_from, valid_to, license_id, season_id
+    #             )
+    #             VALUES (?, ?, ?, ?, ?, ?)
+    #         """, (
+    #             self.player_id, self.club_id, self.valid_from, self.valid_to,
+    #             self.license_id, self.season_id
+    #         ))
+
+    #         if overlapping_license == 1:
+    #             # logging.warning(f"Player player_id: {self.player_id} already has a license of the same type with overlapping dates. Club: {self.club_id}, Season: {self.season_id}, License: {self.license_id}, Dates: {self.valid_from} - {self.valid_to}")
+    #             logger.warning(item_key, "Player already has a license of the same type with overlapping dates")
+    #             logger.success(item_key, "Player license inserted successfully, but with overlapping dates")
+    #             return {
+    #                     "status": "success",
+    #                     "player_id": self.player_id,
+    #                     "reason": "Warning! Player already has a license of the same type with overlapping dates"
+    #                 }
+
+    #         logger.success(item_key, "Player license inserted successfully")
+    #         logging.info(item_key, "Player license inserted successfully")
+    #         return {
+    #             "status": "success",
+    #             "player_id": self.player_id,
+    #             "reason": "Player license inserted successfully"
+    #         }
+
+    #     except Exception as e:
+    #         return {
+    #             "status": "failed",
+    #             "player_id": self.player_id,
+    #             "reason": f"Database error: {str(e)}"
+    #         }

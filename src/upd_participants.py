@@ -87,11 +87,7 @@ def upd_participants():
 
                 # Parse PDF
                 # =============================================================================
-                raw_participants, expected_count, seeded_count = parse_players_pdf(
-                    pdf_bytes, 
-                    logger, 
-                    item_key
-                )
+                raw_participants, expected_count, seeded_count = parse_players_pdf(pdf_bytes, logger, item_key)
                 if not raw_participants:
                     logger.skipped(item_key, "No participants parsed from PDF")
                     continue
@@ -559,29 +555,31 @@ def parse_players_pdf(
 
     return participants, effective_expected, seed_counter-1
 
-def find_club(
-        cursor,
-        clubname_raw: str, 
-        club_map: Dict[str, Club], 
-        logger: OperationLogger, 
-        item_key: str
-    ) -> Optional[Club]:
-    norm = normalize_key(clubname_raw)
-    club = club_map.get(norm)
-    if not club and len(norm) >= 5:
-        prefix_keys = [k for k in club_map if k.startswith(norm)]
-        if len(prefix_keys) == 1:
-            club = club_map[prefix_keys[0]]
-            logger.warning(item_key, "Club name matched by prefix")
-            # Log aliases if needed
-    if not club:
-        original_item_key = item_key  # Save original for logging to file (assuming it's player/context)
-        club = Club.get_by_id(cursor, 9999) # Unknown club
-        item_key = clubname_raw
-        logger.warning(item_key, f"Club not found. Using 'Unknown club (id: 9999)'")
-        with open('missing_clubs.txt', 'a') as f:
-            f.write(f"Player/Context: {original_item_key}, Club Raw: {clubname_raw}\n")
-    return club
+
+# def find_club(
+#         cursor,
+#         clubname_raw: str, 
+#         club_map: Dict[str, Club], 
+#         logger: OperationLogger, 
+#         item_key: str
+#     ) -> Optional[Club]:
+#     norm = normalize_key(clubname_raw)
+#     club = club_map.get(norm)
+#     if not club and len(norm) >= 5:
+#         prefix_keys = [k for k in club_map if k.startswith(norm)]
+#         if len(prefix_keys) == 1:
+#             club = club_map[prefix_keys[0]]
+#             logger.warning(item_key, "Club name matched by prefix")
+#             # Log aliases if needed
+#     if not club:
+#         original_item_key = item_key  # Save original for logging to file (assuming it's player/context)
+#         club = Club.get_by_id(cursor, 9999) # Unknown club
+#         item_key = clubname_raw
+#         logger.warning(item_key, f"Club not found. Using 'Unknown club (id: 9999)'")
+#         with open('missing_clubs.txt', 'a') as f:
+#             f.write(f"Player/Context: {original_item_key}, Club Raw: {clubname_raw}\n")
+#     return club
+
 
 def match_player(
         cursor, 
@@ -908,13 +906,16 @@ def parse_raw_participant(
     val = raw.get("tournament_participant_id_ext")
     t_ptcp_id_ext = (val.strip() if isinstance(val, str) and val.strip() else None)
 
-    club = find_club(
-        cursor, 
-        clubname_raw, 
-        club_map, 
-        logger, 
-        item_key
-    )
+    # club = find_club(
+    #     cursor, 
+    #     clubname_raw, 
+    #     club_map, 
+    #     logger, 
+    #     item_key
+    # )
+
+    club = Club.resolve(cursor, clubname_raw, club_map, logger, item_key, allow_prefix=True)
+
     if not club:
         logger.failed(item_key, f"Club not found for '{clubname_raw}'")
         return None

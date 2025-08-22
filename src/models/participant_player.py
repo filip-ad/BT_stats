@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 import sqlite3
 from .base import BaseModel
-from utils import OperationLogger
 
 @dataclass
 class ParticipantPlayer(BaseModel):

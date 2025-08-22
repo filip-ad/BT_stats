@@ -1409,9 +1409,9 @@ def create_views(cursor):
 
     views = [
         (
-            "v_match_results",
+            "V_match_results",
             """
-            CREATE VIEW v_match_results AS
+            CREATE VIEW V_match_results AS
             SELECT 
                 m.match_id,
                 m.date,
@@ -1440,9 +1440,9 @@ def create_views(cursor):
             """
         ),
         (
-            "v_group_standings",
+            "V_group_standings",
             """
-            CREATE VIEW v_group_standings AS
+            CREATE VIEW V_group_standings AS
             SELECT 
                 s.tournament_class_group_id,
                 tc.shortname AS tournament_class_shortname,
@@ -1465,9 +1465,9 @@ def create_views(cursor):
             """
         ),
         (
-            "vw_tourn_class_overview",
+            "V_tourn_class_overview",
             """
-            CREATE VIEW IF NOT EXISTS vw_tourn_class_overview AS
+            CREATE VIEW IF NOT EXISTS V_tourn_class_overview AS
             SELECT
                 t.shortname  AS tournament_shortname,
                 tc.longname  AS class_longname,
@@ -1498,9 +1498,9 @@ def create_views(cursor):
             """
         ),
         (
-            "vw_tournament_class_participants",
+            "V_tournament_class_participants",
             """
-            CREATE VIEW IF NOT EXISTS vw_tournament_class_participants AS
+            CREATE VIEW IF NOT EXISTS V_tournament_class_participants AS
             SELECT
                 t.tournament_id,
                 t.tournament_id_ext,
@@ -1509,7 +1509,8 @@ def create_views(cursor):
                 t.longname AS tournament_name,
                 tc.shortname AS class_name,
                 COALESCE(pl.firstname || ' ' || pl.lastname, pl.fullname_raw) AS player_name,
-                c.shortname,
+                c.shortname as club_name,
+                c.club_id as club_id,
                 pp.participant_player_id,
                 pp.player_id,
                 p.participant_id,
@@ -1533,20 +1534,55 @@ def create_views(cursor):
         """
         ),
         (
-            "vw_foreign_keys",
+            "V_foreign_keys",
             '''
-            CREATE VIEW IF NOT EXISTS vw_foreign_keys AS
+            CREATE VIEW IF NOT EXISTS V_foreign_keys AS
                 SELECT m.name AS table_name, p.*
             FROM sqlite_master AS m
             JOIN pragma_foreign_key_list(m.name) AS p
             WHERE m.type = 'table';
+            '''
+        ),
+        (
+            "V_clubs_full_agg",
+            '''
+            CREATE VIEW IF NOT EXISTS V_clubs_full_agg AS
+                SELECT 
+                    c.club_id,
+                    c.shortname        AS club_shortname,
+                    c.longname         AS club_longname,
+                    c.city,
+                    c.country_code,
+                    c.active,
+                    ct.description     AS club_type,
+                    d.district_id,
+                    d.name        AS district_shortname,
+                    GROUP_CONCAT(DISTINCT ce.club_id_ext || ':' || ce.data_source) AS ext_ids,
+                    GROUP_CONCAT(DISTINCT a.alias || ' (' || a.alias_type || ')')  AS aliases
+                FROM club c
+                LEFT JOIN club_type ct
+                    ON ct.club_type_id = c.club_type
+                LEFT JOIN district d
+                    ON d.district_id = c.district_id
+                LEFT JOIN club_id_ext ce
+                    ON ce.club_id = c.club_id
+                LEFT JOIN club_name_alias a
+                    ON a.club_id = c.club_id
+                GROUP BY c.club_id
+                ORDER BY c.club_id;
             '''
         )
     ]
 
     try:
         for name, create_sql in views:
-            cursor.execute("DROP VIEW IF EXISTS vw_tournament_classes_overview")
+            cursor.execute("DROP VIEW IF EXISTS vw_tourn_class_overview")
+            cursor.execute("DROP VIEW IF EXISTS vw_match_results")
+            cursor.execute("DROP VIEW IF EXISTS vw_tournament_class_participants")
+            cursor.execute("DROP VIEW IF EXISTS vw_foreign_keys")
+            cursor.execute("DROP VIEW IF EXISTS vw_clubs_full_agg")
+            
+
             cursor.execute(f"DROP VIEW IF EXISTS {name};")
             cursor.execute(create_sql)
             
