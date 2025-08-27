@@ -83,7 +83,6 @@ def upd_player_positions():
     for idx, tc in enumerate(classes, 1):
 
         item_key = f"Class id ext: {tc.tournament_class_id_ext}"
-        label = f"{tc.shortname or tc.longname or tc.tournament_class_id}, {tc.date} (ext:{tc.tournament_class_id_ext})"
 
         if not tc or not tc.tournament_class_id_ext:
             logger.skipped(item_key, f"Skipping: Missing class or external class_id")
@@ -129,10 +128,11 @@ def upd_player_positions():
             conn.commit()
             continue
 
-        # Update positions
+        roster_index = Participant.build_class_roster_index(cursor, tc.tournament_class_id)
+       
         updated = skipped = 0
         for pos, fullname, club_raw in rows:
-        #     # NEW: Resolve club
+            # 1) Resolve club_id from the PDF club name (already in your code)
             club = Club.resolve(cursor, club_raw, club_map, logger, item_key, allow_prefix=True)
             if not club:
                 logger.skipped(item_key, f"Skipping position {pos}: Club not found for '{club_raw}'")
@@ -140,45 +140,43 @@ def upd_player_positions():
                 continue
             club_id = club.club_id
 
-            logging.info(f"{fullname}, {club_raw} (id: {club_id}), final position: {pos}")
+            # 2) Find the participant in THIS class by name (+prefer exact club match)
+            participant_id = Participant.find_participant_for_class_by_name_club(
+                roster_index=roster_index,
+                fullname=fullname,
+                club_id=club_id,
+                club_map=club_map,
+            )
 
-            
+            if participant_id is None:
+                # Try again without club (e.g., club not set on participant_player); still bounded to the class roster
+                participant_id = Participant.find_participant_for_class_by_name_club(
+                    roster_index=roster_index,
+                    fullname=fullname,
+                    club_id=None,
+                    club_map=club_map,
+                )
 
-        #     # NEW: Use match_player to get player_id
-        #     for pos, fullname, club_raw in rows:
-        #         participant_id = ParticipantPlayer.find_participant_id_by_name_club(
-        #             cursor, tc.tournament_class_id, fullname, club_raw, club_map
-        #         )
-        #         if participant_id is None:
-        #             logger.skipped(item_key, f"Skipping position {pos}: No match for '{fullname}' in '{club_raw}'")
-        #             skipped += 1
-        #             continue
+            if participant_id is None:
+                logger.skipped(item_key, f"Skipping position: No unique match for 'name / club' in class roster")
+                skipped += 1
+                continue
 
-        #         # Update by participant_id (simpler than by player_id, since singles)
-        #         result = Participant.update_final_position(cursor, participant_id, pos)
-        #         if result["status"] == "success":
-        #             logger.success(item_key, f"Position {pos} updated for participant_id {participant_id}")
-        #             updated += 1
-        #         else:
-        #             logger.skipped(item_key, f"Position {pos} update skipped: {result['reason']}")
-        #             skipped += 1
+            # 3) Update position
+            result = Participant.update_final_position(cursor, participant_id, pos)
+            if result["status"] == "success":
+                logger.success(item_key, f"Position updated successfully")
+                updated += 1
+            else:
+                logger.skipped(item_key, f"Position update skipped: {result.get('reason')}")
+                skipped += 1
 
-        #     # NEW: Update by player_id (add this method to Participant model if not present)
-        #     result = Participant.update_final_position_by_player_id(cursor, tc.tournament_class_id, player_id, pos)
-        #     if result["status"] == "success":
-        #         logger.success(item_key, f"Position {pos} updated for player_id {player_id} (match_type: {match_type})")
-        #         updated += 1
-        #     else:
-        #         logger.skipped(item_key, f"Position {pos} update skipped for player_id {player_id}: {result['reason']}")
-        #         skipped += 1
-
-        # logging.info(f"[{idx}/{len(classes)}] Processed class {label} date={tc.date}. Cleared {cleared} positions, parsed {parsed_count}, updated {updated}, skipped {skipped}.")
-        # print(f"ℹ️  [{idx}/{len(classes)}] Processed class {label} date={tc.date}. Cleared {cleared} positions, parsed {parsed_count}, updated {updated}, skipped {skipped}.")
-        print(f"ℹ️  [{idx}/{len(classes)}] Processed class {label} date={tc.date}. Cleared {cleared} positions, parsed {parsed_count}.")
-
+        label = f"{tc.shortname or tc.longname}, {tc.date} (id: {tc.tournament_class_id}, ext:{tc.tournament_class_id_ext})"
+        logging.info(f"[{idx}/{len(classes)}] Processed class {label}. Cleared {cleared} positions, parsed {parsed_count}, updated {updated}, skipped {skipped}.")
+        print(f"ℹ️  [{idx}/{len(classes)}] Processed class {label}. Cleared {cleared} positions, parsed {parsed_count}, updated {updated}, skipped {skipped}.")
         conn.commit()
-        # total_updated += updated
-        # total_skipped += skipped
+        total_updated += updated
+        total_skipped += skipped
 
     # 4) Summary
     t1 = time.perf_counter()
