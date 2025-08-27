@@ -137,7 +137,7 @@ def main():
         # upd_clubs()
         # upd_players_verified()
 
-        upd_player_licenses()
+        # upd_player_licenses()
         # upd_player_transitions()
         # upd_player_ranking_groups()
 

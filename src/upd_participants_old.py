@@ -38,7 +38,7 @@ def upd_participants():
     logger = OperationLogger(
         verbosity       = 2, 
         print_output    = False, 
-        log_to_db       = False, 
+        log_to_db       = True, 
         cursor          = cursor
         )
 
@@ -75,32 +75,39 @@ def upd_participants():
         logging.info(f"Scraping participants for {len(classes)} valid singles classes with cutoff date: {cutoff_date or 'none'}")
         print(f"ℹ️  Scraping participants for {len(classes)} valid singles classes, cutoff: {cutoff_date or 'none'}")
 
-        # Build lookup caches
+        # Build lookup caches exactly once
         club_map                    = Club.cache_name_map(cursor)
         license_name_club_map       = PlayerLicense.cache_name_club_map(cursor)
         player_name_map             = Player.cache_name_map_verified(cursor)
         player_unverified_name_map  = Player.cache_name_map_unverified(cursor)
-        unverified_appearance_map   = Player.cache_unverified_appearances(cursor)
 
         for i, tc in enumerate(classes, 1):
             item_key = f"{tc.shortname} (id: {tc.tournament_class_id}, ext_id: {tc.tournament_class_id_ext})"
 
             try:
+                # Scrape (download PDF)
+                # =============================================================================
                 pdf_bytes = download_pdf(f"{PDF_BASE}?classID={tc.tournament_class_id_ext}&stage=1")
                 if not pdf_bytes:
                     logger.failed(item_key, "PDF download failed")
                     continue
 
+                # Parse PDF
+                # =============================================================================
                 raw_participants, expected_count, seeded_count = parse_players_pdf(pdf_bytes, logger, item_key)
                 if not raw_participants:
                     logger.skipped(item_key, "No participants parsed from PDF")
                     continue
 
                 if expected_count is not None and len(raw_participants) != expected_count:
-                    extended_key = f"{tc.shortname} in tournament {tc.tournament_id} (id: {tc.tournament_class_id}, ext_id: {tc.tournament_class_id_ext})"
-                    logger.warning(extended_key, f"Could not parse all expected participants.")
+                    item_key = f"{tc.shortname} in tournament {tc.tournament_id} (id: {tc.tournament_class_id}, ext_id: {tc.tournament_class_id_ext})"
+                    logger.warning(item_key, f"Could not parse all expected participants.")
 
-                deleted = Participant.remove_for_class(cursor, tc.tournament_class_id)
+                # Wipe old participants for this class - will also delete ParticipantPlayer entries due to DELETE ON CASCADE
+                deleted = Participant.remove_for_class(
+                    cursor, 
+                    tc.tournament_class_id
+                )
 
                 found = len(raw_participants)
                 icon = "✅" if (expected_count is not None and expected_count == found) else ("❌ " if expected_count is not None else "❌ ")
@@ -115,49 +122,33 @@ def upd_participants():
                 print(msg)
                 logging.info(msg)
 
+
                 for raw in raw_participants:
-                    fullname_raw = raw.get("raw_name")
-                    clubname_raw = raw.get("club_name")
-                    if not fullname_raw or not clubname_raw:
-                        logger.error(item_key, "Missing name or club in raw data")
-                        continue
+                    # Parse raw to structured and match player
+                    # =============================================================================
 
-                    seed = int(raw.get("seed")) if str(raw.get("seed")).isdigit() else None
-                    t_ptcp_id_ext = raw.get("tournament_participant_id_ext")
+                    # REVIEW MATCHING STRATEGIES!!! Do we look for license first?!
 
-                    club = Club.resolve(cursor, clubname_raw, club_map, logger, item_key, allow_prefix=True)
-                    if not club:
-                        logger.failed(item_key, f"Club not found for '{clubname_raw}'")
-                        continue
-                    club_id = club.club_id
-
-                    temp_participant = Participant(tournament_class_id=tc.tournament_class_id)
-                    temp_participant.club_id = club_id
-
-                    player_id, match_type = match_player(
-                        cursor,
-                        temp_participant,
-                        fullname_raw,
-                        clubname_raw,
-                        tc.date,
-                        license_name_club_map,
-                        player_name_map,
-                        player_unverified_name_map,
-                        unverified_appearance_map,
-                        logger,
-                        item_key,
-                        tc.tournament_class_id_ext
+                    
+                    parsed_data, matched_type = parse_raw_participant(
+                        cursor, 
+                        raw, 
+                        tc.tournament_class_id,
+                        tc.tournament_class_id_ext,
+                        tc.date, 
+                        club_map, 
+                        license_name_club_map, 
+                        player_name_map, 
+                        player_unverified_name_map, 
+                        logger, 
+                        item_key
                     )
-                    if player_id is None:
-                        logger.failed(item_key, "No match for player")
+                    if parsed_data is None:
                         continue
 
-                    participant_data = {
-                        "tournament_class_id": tc.tournament_class_id,
-                        "tournament_class_seed": seed,
-                        "tournament_class_final_position": None
-                    }
-                    participant = Participant.from_dict(participant_data)
+                    # Create and insert Participant
+                    # =============================================================================
+                    participant = Participant.from_dict(parsed_data["participant"])
                     val_res = participant.validate()
                     if val_res["status"] != "success":
                         logger.failed(item_key, f"Participant validation failed: {val_res['reason']}")
@@ -168,40 +159,27 @@ def upd_participants():
                         logger.failed(item_key, f"Participant insert failed: {ins_res['reason']}")
                         continue
 
-                    pp_data = {
-                        "participant_player_id_ext": t_ptcp_id_ext,
-                        "participant_id": participant.participant_id,
-                        "player_id": player_id,
-                        "club_id": club_id
-                    }
-                    participant_player = ParticipantPlayer.from_dict(pp_data)
+                    # Create and insert ParticipantPlayer
+                    # =============================================================================
+                    participant_player = ParticipantPlayer.from_dict(parsed_data["participant_player"])
+                    participant_player.participant_id = participant.participant_id
                     val_res = participant_player.validate()
                     if val_res["status"] != "success":
-                        logger.failed(item_key, f"ParticipantPlayer validation failed: {val_res['reason']}")
+                        logger.failed(item_key, f"Participating player validation failed: {val_res['reason']}")
                         continue
 
                     ins_res = participant_player.insert(cursor)
                     if ins_res["status"] != "success":
-                        logger.failed(item_key, f"ParticipantPlayer insert failed: {ins_res['reason']}")
+                        logger.failed(item_key, f"Participating player insert failed: {ins_res['reason']}")
                         continue
+                    logger.success(item_key, f"Participating player inserted successfully (match type: {matched_type})")
 
-                    logger.success(item_key, f"ParticipantPlayer inserted successfully (match type: {match_type})")
-
-                    if "unverified" in match_type:
-                        Player.link_unverified_appearance(cursor, player_id, club_id, tc.date)
 
             except Exception as e:
                 logger.failed(item_key, f"Exception during processing: {e}")
                 continue
 
-        e = time.time() - start_time
-        if e >= 60:
-            mins = int(e // 60)
-            secs = e % 60
-            msg = f"ℹ️  Participants update completed in {mins} minute{'s' if mins > 1 else ''} and {secs:.2f} seconds."
-        else:
-            msg = f"ℹ️  Participants update completed in {e:.2f} seconds."
-        print(msg)
+        print(f"ℹ️  Participants update completed in {(e:=time.time()-start_time)//60} minute{'s' if (m:=int(e//60))>1 else ''} and {e%60:.2f} seconds." if (e:=time.time()-start_time)>=60 else f"ℹ️  Participants update completed in {e:.2f} seconds.")
         logger.summarize()
 
     except Exception as e:
@@ -210,305 +188,7 @@ def upd_participants():
 
     finally:
         conn.commit()
-
-# ... (keep download_pdf, parse_players_pdf as-is)
-
-def match_player(
-    cursor,
-    participant: Participant,
-    fullname_raw: str,
-    clubname_raw: str,
-    class_date: date,
-    license_name_club_map,
-    player_name_map,
-    player_unverified_name_map,
-    unverified_appearance_map,
-    logger: OperationLogger,
-    item_key: str,
-    tournament_class_id_ext: str,
-) -> Tuple[Optional[int], Optional[str]]:
-    strategies = [
-        match_by_license_exact,
-        match_by_license_substring,
-        match_by_any_season_exact,
-        match_by_any_season_substring,
-        match_by_transition_exact,
-        match_by_transition_substring,
-        match_by_unverified_with_club
-    ]
-    warnings = []
-
-    for strategy in strategies:
-        outcome = strategy(
-            cursor,
-            fullname_raw,
-            clubname_raw,
-            class_date,
-            license_name_club_map,
-            player_name_map,
-            participant.club_id,
-            warnings,
-            unverified_appearance_map if strategy == match_by_unverified_with_club else None
-        )
-        if outcome:
-            pid, match_type = outcome
-            if warnings:
-                for w in warnings:
-                    logger.warning(item_key, w)
-            return pid, match_type
-
-    pid = fallback_unverified(
-        cursor,
-        fullname_raw,
-        clubname_raw,
-        player_unverified_name_map,
-        logger,
-        item_key
-    )
-    if pid:
-        extended_key = f"[cid/cid_ext] {participant.tournament_class_id}/{tournament_class_id_ext} [player_id] {pid} [fullname_raw] {fullname_raw} [club] {clubname_raw}"
-        logger.warning(extended_key, "Fallback to unverified player")
-        return pid, "unverified"
-    return None, None
-
-def match_by_license_exact(
-    cursor,
-    fullname_raw: str,
-    clubname_raw: str,
-    class_date: date,
-    license_name_club_map,
-    player_name_map,
-    club_id: int,
-    warnings: List[str],
-    _
-) -> Optional[Tuple[int, str]]:
-    keys = name_keys_for_lookup_all_splits(fullname_raw)
-    candidates = set()
-    for k in keys:
-        parts = k.split()
-        if len(parts) < 2:
-            continue
-        fn = " ".join(parts[:-1])
-        ln = parts[-1]
-        key = (normalize_key(fn), normalize_key(ln), club_id)
-        if key in license_name_club_map:
-            for lic in license_name_club_map[key]:
-                if lic["valid_from"] <= class_date <= lic["valid_to"]:
-                    candidates.add(lic["player_id"])
-    if len(candidates) == 1:
-        return list(candidates)[0], "license_exact"
-    return None
-
-def match_by_license_substring(
-    cursor,
-    fullname_raw: str,
-    clubname_raw: str,
-    class_date: date,
-    license_name_club_map,
-    player_name_map,
-    club_id: int,
-    warnings: List[str],
-    _
-) -> Optional[Tuple[int, str]]:
-    clean = normalize_key(fullname_raw)
-    parts = clean.split()
-    if len(parts) > 2:
-        return None
-    first_tok, last_tok = parts[0], parts[-1]
-    candidates = set()
-    for (fn, ln, cid), rows in license_name_club_map.items():
-        if cid != club_id:
-            continue
-        candidate_key = normalize_key(f"{fn} {ln}")
-        cand_parts = candidate_key.split()
-        if len(cand_parts) < 3:
-            continue
-        if first_tok in candidate_key and last_tok in candidate_key:
-            for row in rows:
-                if row["valid_from"] <= class_date <= row["valid_to"]:
-                    candidates.add(row["player_id"])
-    if len(candidates) == 1:
-        return list(candidates)[0], "license_substring"
-    return None
-
-def match_by_any_season_exact(
-    cursor,
-    fullname_raw: str,
-    clubname_raw: str,
-    class_date: date,
-    license_name_club_map,
-    player_name_map,
-    club_id: int,
-    warnings: List[str],
-    _
-) -> Optional[Tuple[int, str]]:
-    keys = name_keys_for_lookup_all_splits(fullname_raw)
-    candidates = set()
-    for k in keys:
-        parts = k.split()
-        if len(parts) < 2:
-            continue
-        fn = " ".join(parts[:-1])
-        ln = parts[-1]
-        key = (normalize_key(fn), normalize_key(ln), club_id)
-        if key in license_name_club_map:
-            for lic in license_name_club_map[key]:
-                candidates.add(lic["player_id"])
-    if len(candidates) == 1:
-        warnings.append("Matched by name with license in club, but not necessarily valid on class date")
-        return list(candidates)[0], "any_season_exact"
-    return None
-
-def match_by_any_season_substring(
-    cursor,
-    fullname_raw: str,
-    clubname_raw: str,
-    class_date: date,
-    license_name_club_map,
-    player_name_map,
-    club_id: int,
-    warnings: List[str],
-    _
-) -> Optional[Tuple[int, str]]:
-    clean = normalize_key(fullname_raw)
-    parts = clean.split()
-    if len(parts) > 2:
-        return None
-    first_tok, last_tok = parts[0], parts[-1]
-    candidates = set()
-    for (fn, ln, cid), rows in license_name_club_map.items():
-        if cid != club_id:
-            continue
-        candidate_key = normalize_key(f"{fn} {ln}")
-        cand_parts = candidate_key.split()
-        if len(cand_parts) < 3:
-            continue
-        if first_tok in candidate_key and last_tok in candidate_key:
-            for row in rows:
-                candidates.add(row["player_id"])
-    if len(candidates) == 1:
-        warnings.append("Matched by substring with license in club, but not necessarily valid on class date")
-        return list(candidates)[0], "any_season_substring"
-    return None
-
-def match_by_transition_exact(
-    cursor,
-    fullname_raw: str,
-    clubname_raw: str,
-    class_date: date,
-    license_name_club_map,
-    player_name_map,
-    club_id: int,
-    warnings: List[str],
-    _
-) -> Optional[Tuple[int, str]]:
-    pids = get_name_candidates(fullname_raw, player_name_map)
-    if not pids:
-        return None
-    placeholders = ",".join("?" for _ in pids)
-    sql = f"""
-        SELECT DISTINCT player_id FROM player_transition
-        WHERE (club_id_to = ? OR club_id_from = ?)
-        AND transition_date <= ?
-        AND player_id IN ({placeholders})
-    """
-    params = [club_id, club_id, class_date] + pids
-    cursor.execute(sql, params)
-    trans = [r[0] for r in cursor.fetchall()]
-    if len(trans) == 1:
-        return trans[0], "transition_exact"
-    return None
-
-def match_by_transition_substring(
-    cursor,
-    fullname_raw: str,
-    clubname_raw: str,
-    class_date: date,
-    license_name_club_map,
-    player_name_map,
-    club_id: int,
-    warnings: List[str],
-    _
-) -> Optional[Tuple[int, str]]:
-    clean = normalize_key(fullname_raw)
-    parts = clean.split()
-    if len(parts) > 2:
-        return None
-    first_tok, last_tok = parts[0], parts[-1]
-    sub_pids = set()
-    for (fn, ln, cid), rows in license_name_club_map.items():
-        if cid != club_id:
-            continue
-        candidate_key = normalize_key(f"{fn} {ln}")
-        cand_parts = candidate_key.split()
-        if len(cand_parts) < 3:
-            continue
-        if first_tok in candidate_key and last_tok in candidate_key:
-            for row in rows:
-                sub_pids.add(row["player_id"])
-    if not sub_pids:
-        return None
-    placeholders = ",".join("?" for _ in sub_pids)
-    sql = f"""
-        SELECT DISTINCT player_id FROM player_transition
-        WHERE (club_id_to = ? OR club_id_from = ?)
-        AND transition_date <= ?
-        AND player_id IN ({placeholders})
-    """
-    params = [club_id, club_id, class_date] + list(sub_pids)
-    cursor.execute(sql, params)
-    trans = [r[0] for r in cursor.fetchall()]
-    if len(trans) == 1:
-        return trans[0], "transition_substring"
-    return None
-
-def match_by_unverified_with_club(
-    cursor,
-    fullname_raw: str,
-    clubname_raw: str,
-    class_date: date,
-    license_name_club_map,
-    player_name_map,
-    club_id: int,
-    warnings: List[str],
-    unverified_appearance_map
-) -> Optional[Tuple[int, str]]:
-    clean = normalize_key(fullname_raw)
-    if clean in unverified_appearance_map:
-        for entry in unverified_appearance_map[clean]:
-            if entry["club_id"] == club_id:
-                return entry["player_id"], "unverified_club"
-    return None
-
-def fallback_unverified(
-    cursor, 
-    fullname_raw: str, 
-    clubname_raw: str,
-    player_unverified_name_map: Dict[str, int], 
-    logger: OperationLogger, 
-    item_key: str
-) -> Optional[int]:
-    clean = normalize_key(fullname_raw)
-    existing = player_unverified_name_map.get(clean)
-    if existing is not None:
-        return existing
-
-    new_id = Player.insert_unverified(cursor, fullname_raw)
-    if new_id:
-        player_unverified_name_map[clean] = new_id
-        logger.warning(item_key, "Created new unverified player")
-        return new_id
-    return None
-
-def get_name_candidates(
-    fullname_raw: str, 
-    player_name_map: Dict[str, List[int]]
-) -> List[int]:
-    keys = name_keys_for_lookup_all_splits(fullname_raw)
-    matches = set()
-    for k in keys:
-        matches.update(player_name_map.get(k, []))
-    return list(matches)
+        conn.close()
 
 def download_pdf(pdf_url: str, retries: int = 3, timeout: int = 30) -> Optional[bytes]:
     """
@@ -789,6 +469,360 @@ def parse_players_pdf(
 
     return participants, effective_expected, seed_counter-1
 
+def match_player(
+        cursor, 
+        participant: Participant, 
+        fullname_raw: str, 
+        clubname_raw: str,
+        class_date: date, 
+        license_name_club_map, 
+        player_name_map, 
+        player_unverified_name_map, 
+        logger: OperationLogger, 
+        item_key: str,
+        tournament_class_id_ext: str,
+    ) -> Tuple[Optional[int], Optional[str]]:
+    strategies = [
+        match_by_name,
+        match_by_name_with_license,
+        match_by_transition,
+        match_by_any_season_license,
+        match_by_name_substring_license
+    ]
+    warnings = []
 
+    for strategy in strategies:
+        outcome = strategy(
+            cursor, 
+            fullname_raw, 
+            clubname_raw,
+            class_date, 
+            license_name_club_map, 
+            player_name_map, 
+            participant.club_id, 
+            warnings
+        )
+        if outcome:
+            pid, match_type = outcome
+            if warnings:
+                for w in warnings:
+                    logger.warning(item_key, w)
+            return pid, match_type
 
+    # Fallback to unverified (after all strategies)
+    pid = fallback_unverified(
+        cursor, 
+        fullname_raw, 
+        clubname_raw,
+        player_unverified_name_map, 
+        logger, 
+        item_key
+    )
 
+    if not fullname_raw:
+        return None
+    clean = " ".join(fullname_raw.strip().split())
+    
+    if pid:
+        item_key = (f"[cid/cid_ext] {participant.tournament_class_id}/{tournament_class_id_ext} [player_id] {pid} [fullname_raw] {clean} [club] {clubname_raw}")
+        logger.warning(item_key, "Fallback to unverified player")
+        return pid, "unverified"
+    return None, None
+
+def match_by_name(
+        cursor, 
+        fullname_raw: str, 
+        clubname_raw: str,
+        class_date: date, 
+        license_name_club_map, 
+        player_name_map, 
+        club_id: int,
+        warnings: List[str]
+    ) -> Optional[Tuple[int, str]]:
+    pids = get_name_candidates(fullname_raw, player_name_map)
+    if len(pids) != 1:
+        return None
+    pid = pids[0]
+
+    valid = False
+    for (fn, ln, cid), rows in license_name_club_map.items():
+        if cid != club_id:
+            continue
+        for lic in rows:
+            if lic["player_id"] != pid:
+                continue
+            if lic["valid_from"] <= class_date <= lic["valid_to"]:
+                valid = True
+                break
+        if valid:
+            break
+
+    if not valid:
+        warnings.append("Matched by name, but player did not have a valid license in the club on the day of the tournament")
+
+    return pid, "unique_name"
+
+def match_by_name_with_license(
+        cursor, 
+        fullname_raw: str, 
+        clubname_raw: str,
+        class_date: date, 
+        license_name_club_map, 
+        player_name_map, 
+        club_id: int, 
+        warnings: List[str]
+    ) -> Optional[Tuple[int, str]]:
+    pids = get_name_candidates(fullname_raw, player_name_map)
+    if len(pids) <= 1:
+        return None
+
+    # Query for valid licenses
+    placeholders = ",".join("?" for _ in pids)
+    sql = f"""
+        SELECT DISTINCT player_id FROM player_license
+        WHERE player_id IN ({placeholders})
+        AND club_id = ?
+        AND valid_from <= ?
+        AND valid_to >= ?
+    """
+    params = [*pids, club_id, class_date, class_date]
+    cursor.execute(sql, params)
+    valid = [r[0] for r in cursor.fetchall()]
+
+    if len(valid) == 1:
+        return valid[0], "license"
+
+    if len(valid) > 1:
+        # Ambiguous - log or handle
+        return None
+
+    # Check expired
+    sql_expired = f"""
+        SELECT DISTINCT player_id FROM player_license
+        WHERE player_id IN ({placeholders})
+        AND club_id = ?
+    """
+    cursor.execute(sql_expired, [*pids, club_id])
+    expired = [r[0] for r in cursor.fetchall()]
+
+    if len(expired) == 1:
+        warnings.append("Matched via expired license")
+        return expired[0], "expired_license"
+
+    return None
+
+def match_by_transition(
+        cursor, 
+        fullname_raw: str, 
+        clubname_raw: str,
+        class_date: date, 
+        license_name_club_map, 
+        player_name_map, 
+        club_id: int, 
+        warnings: List[str]
+    ) -> Optional[Tuple[int, str]]:
+    pids = get_name_candidates(fullname_raw, player_name_map)
+    if not pids:
+        return None
+    placeholders = ",".join("?" for _ in pids)
+    sql = f"""
+        SELECT player_id FROM player_transition
+        WHERE (club_id_to = ? OR club_id_from = ?)
+        AND transition_date <= ?
+        AND player_id IN ({placeholders})
+    """
+    params = [club_id, club_id, class_date, *pids]
+    cursor.execute(sql, params)
+    trans = [r[0] for r in cursor.fetchall()]
+    if len(trans) == 1:
+        return trans[0], "transition"
+
+    return None
+
+def match_by_any_season_license(
+        cursor, 
+        fullname_raw: str, 
+        clubname_raw: str,
+        class_date: date, 
+        license_name_club_map, 
+        player_name_map, 
+        club_id: int, 
+        warnings: List[str]
+    ) -> Optional[Tuple[int, str]]:
+    pids = get_name_candidates(fullname_raw, player_name_map)
+    if not pids:
+        return None
+    placeholders = ",".join("?" for _ in pids)
+    sql = f"""
+        SELECT DISTINCT player_id FROM player_license
+        WHERE club_id = ?
+        AND player_id IN ({placeholders})
+    """
+    cursor.execute(sql, [club_id, *pids])
+    all_l = [r[0] for r in cursor.fetchall()]
+    if len(all_l) == 1:
+        return all_l[0], "any_season_license"
+
+    return None
+
+def match_by_name_substring_license(
+        cursor, 
+        fullname_raw: str, 
+        clubname_raw: str,
+        class_date: date, 
+        license_name_club_map, 
+        player_name_map, 
+        club_id: int, 
+        warnings: List[str]
+    ) -> Optional[Tuple[int, str]]:
+    clean = normalize_key(fullname_raw)
+    raw_parts = clean.split()
+
+    if len(raw_parts) > 2:
+        return None
+
+    first_tok, last_tok = raw_parts[0], raw_parts[-1]
+
+    candidates = []
+    for (fn, ln, cid), rows in license_name_club_map.items():
+        if cid != club_id:
+            continue
+        candidate_key = normalize_key(f"{fn} {ln}")
+        cand_parts = candidate_key.split()
+        if len(cand_parts) < 3:
+            continue
+
+        if first_tok in candidate_key and last_tok in candidate_key:
+            candidates.extend(rows)
+
+    if not candidates:
+        return None
+
+    valid_ids = set()
+    expired_ids = set()
+    for row in candidates:
+        pid = row["player_id"]
+        vf, vt = row["valid_from"], row["valid_to"]
+        if vf <= class_date <= vt:
+            valid_ids.add(pid)
+        else:
+            expired_ids.add(pid)
+
+    if len(valid_ids) == 1:
+        return list(valid_ids)[0], "substring_license"
+
+    if len(valid_ids) > 1:
+        return None  # Ambiguous
+
+    if len(expired_ids) == 1:
+        warnings.append("Matched via expired substring license")
+        return list(expired_ids)[0], "expired_substring_license"
+
+    return None
+
+def fallback_unverified(
+        cursor, 
+        fullname_raw: str, 
+        clubname_raw: str,
+        player_unverified_name_map: Dict[str, int], 
+        logger: OperationLogger, 
+        item_key: str
+    ) -> Optional[int]:
+    clean = normalize_key(fullname_raw)
+    existing = player_unverified_name_map.get(clean)
+    if existing is not None:
+        return existing
+
+    # Create new unverified player
+    new_id = Player.insert_unverified(cursor, fullname_raw)  # Still insert with raw
+    if new_id:
+        player_unverified_name_map[clean] = new_id
+        logger.warning(item_key, "Created new unverified player")
+        return new_id
+    return None
+
+def get_name_candidates(
+        fullname_raw: str, 
+        player_name_map: Dict[str, List[int]]
+    ) -> List[int]:
+    keys = name_keys_for_lookup_all_splits(fullname_raw)
+    matches = set()
+    for k in keys:
+        matches.update(player_name_map.get(k, []))
+    return list(matches)
+
+def parse_raw_participant(
+        cursor, 
+        raw: Dict[str, Any], 
+        tournament_class_id: int, 
+        tournament_class_id_ext: str,
+        class_date: date, 
+        club_map, 
+        license_name_club_map,
+        player_name_map,
+        player_unverified_name_map, 
+        logger: OperationLogger, 
+        item_key: str
+    ) -> Tuple[Optional[Dict[str, Dict[str, Any]]], Optional[str]]:
+    """
+    Parse raw participant data, match club and player using existing logic.
+    Returns dict with 'participant' and 'participant_player' data, or None on failure.
+    """
+
+    try: 
+        # Using square bracket loop forces keys to exist, otherwise raising KeyError
+        fullname_raw        = raw["raw_name"]
+        clubname_raw        = raw["club_name"]
+    except KeyError as e:
+        logger.error(item_key, f"Missing name or club in raw data: {e}")
+        return None
+
+    v = raw.get("seed")
+    seed = int(v) if isinstance(v, (int, str)) and str(v).strip().isdigit() else None
+
+    val = raw.get("tournament_participant_id_ext")
+    t_ptcp_id_ext = (val.strip() if isinstance(val, str) and val.strip() else None)
+
+    club = Club.resolve(cursor, clubname_raw, club_map, logger, item_key, allow_prefix=True)
+
+    if not club:
+        logger.failed(item_key, f"Club not found for '{clubname_raw}'")
+        return None
+    
+    club_id = club.club_id
+
+    # Create temp Participant for matching (club_id used in strategies)
+    temp_participant = Participant(tournament_class_id=tournament_class_id)
+    temp_participant.club_id = club_id  # Add club_id to Participant if needed, or pass separately
+
+    player_id, match_type = match_player(
+        cursor, 
+        temp_participant, 
+        fullname_raw, 
+        clubname_raw,
+        class_date, 
+        license_name_club_map, 
+        player_name_map, 
+        player_unverified_name_map, 
+        logger, 
+        item_key,
+        tournament_class_id_ext
+    )
+    if player_id is None:
+        logger.failed(item_key, f"No match for player")
+        return None, None
+
+    result_dict = {
+        "participant": {
+            "tournament_class_id": tournament_class_id,
+            "tournament_class_seed": seed,
+            "tournament_class_final_position": None
+        },
+        "participant_player": {
+            "participant_player_id_ext": t_ptcp_id_ext,
+            "participant_id": None,
+            "player_id": player_id,
+            "club_id": club_id
+        }
+    }
+    return result_dict, match_type

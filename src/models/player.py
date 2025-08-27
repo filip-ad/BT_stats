@@ -1,7 +1,8 @@
 # src/models/player.py
 
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Tuple
+from datetime import date
+from typing import Any, Optional, List, Dict, Tuple
 import logging
 from collections import defaultdict
 
@@ -98,6 +99,32 @@ class Player(CacheMixin):
                 # For now, overwrite; if common, change to List[int] and resolve like verified
             unverified_map[norm_name] = row['player_id']
         return unverified_map
+    
+    @classmethod
+    def cache_unverified_appearances(cls, cursor) -> Dict[str, List[Dict[str, Any]]]:
+        sql = """
+            SELECT pua.player_id, pua.club_id, pua.appearance_date, p.fullname_raw
+            FROM player_unverified_appearance pua
+            JOIN player p ON pua.player_id = p.player_id
+            WHERE p.is_verified = 0
+        """
+        rows = cls.cached_query(cursor, sql)
+        appearance_map: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for row in rows:
+            norm_name = normalize_key(row["fullname_raw"])
+            appearance_map[norm_name].append({
+                "player_id": row["player_id"],
+                "club_id": row["club_id"],
+                "appearance_date": row["appearance_date"]
+            })
+        return appearance_map
+    
+    @staticmethod
+    def link_unverified_appearance(cursor, player_id: int, club_id: int, appearance_date: date):
+        cursor.execute("""
+            INSERT OR IGNORE INTO player_unverified_appearance (player_id, club_id, appearance_date)
+            VALUES (?, ?, ?)
+        """, (player_id, club_id, appearance_date))
 
     def save_to_db(
             self, 

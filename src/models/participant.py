@@ -3,13 +3,11 @@
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, Tuple
 import sqlite3
-
-
-from .base import BaseModel
+from models.cache_mixin import CacheMixin
 
 
 @dataclass
-class Participant(BaseModel):
+class Participant(CacheMixin):
     participant_id:                     Optional[int] = None
     tournament_class_id:                Optional[int] = None
     tournament_class_seed:              Optional[int] = None

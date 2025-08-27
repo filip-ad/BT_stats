@@ -8,12 +8,12 @@ import datetime
 from typing import Optional, List, Dict, Any, Tuple, Set
 import logging
 import sqlite3
-from models.base import BaseModel
+from models.cache_mixin import CacheMixin
 from models.tournament import Tournament
 from utils import OperationLogger, parse_date
 
 @dataclass
-class TournamentClass(BaseModel):
+class TournamentClass(CacheMixin):
     tournament_class_id:            Optional[int]  = None           # Canonical ID for class
     tournament_class_id_ext:        Optional[str]  = None           # External ID from ondata.se or other source
     tournament_id:                  int = None                      # Foreign key to parent tournament

@@ -7,13 +7,13 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional, Dict
 import sqlite3
-from models.base import BaseModel
+from models.cache_mixin import CacheMixin
 from utils import parse_date, OperationLogger
 
 
 
 @dataclass
-class Tournament(BaseModel):
+class Tournament(CacheMixin):
     tournament_id:          Optional[int] = None        # Canonical ID from tournament table
     tournament_id_ext:      Optional[str] = None        # External ID from ondata.se
     longname:               Optional[str] = None        # Full tournament name

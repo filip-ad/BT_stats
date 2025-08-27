@@ -1,8 +1,11 @@
 # src/models/cache_mixin.py
 
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import sqlite3
+
+from utils import normalize_key
 
 
 class CacheMixin:
@@ -48,6 +51,7 @@ class CacheMixin:
 
         cls._cache[cache_key] = results
         return results
+
 
     @classmethod
     def clear_cache(cls) -> None:

@@ -583,7 +583,7 @@ def create_tables(cursor):
                 row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (fullname_raw)
-            )
+            );
         ''')
 
         # Create player id ext table
@@ -594,10 +594,24 @@ def create_tables(cursor):
                 data_source_id                  INTEGER,
                 row_created TIMESTAMP           DEFAULT CURRENT_TIMESTAMP,   
                 row_updated TIMESTAMP           DEFAULT CURRENT_TIMESTAMP,   
-                FOREIGN KEY (player_id)         REFERENCES player(player_id)        ON DELETE CASCADE,    
+                FOREIGN KEY (player_id)         REFERENCES player(player_id)            ON DELETE CASCADE,    
                 FOREIGN KEY (data_source_id)    REFERENCES data_source(data_source_id),
                 UNIQUE      (player_id_ext, data_source_id)      
-            ) 
+            );
+        ''')
+
+        # Create player unverified appearance
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS player_unverified_appearance (
+                player_id                           INTEGER NOT NULL,
+                club_id                             INTEGER NOT NULL,
+                appearance_date                     DATE NOT NULL,
+                row_created                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (player_id)             REFERENCES player(player_id)                        ON DELETE CASCADE,
+                FOREIGN KEY (club_id)               REFERENCES club(club_id)                            ON DELETE CASCADE,
+                UNIQUE (player_id, club_id, appearance_date)
+            );
         ''')
 
         # Create player license raw table
