@@ -177,7 +177,7 @@ class TournamentClass(CacheMixin):
                     and (tournament_ids is None or tc.tournament_id in tournament_ids)
                     and (not require_ended or tc.tournament_status_id == 3)
                     and (allowed_type_ids is None or tc.tournament_class_type_id in allowed_type_ids)
-                    and (allowed_structure_ids is None or tc.structure_id in allowed_structure_ids)  # NEW: In-memory filter for structure_id
+                    and (allowed_structure_ids is None or tc.tournament_class_structure_id in allowed_structure_ids)  # NEW: In-memory filter for structure_id
                     and (cutoff_date is None or tc.date >= cutoff_date)
                 ]
 
@@ -222,7 +222,7 @@ class TournamentClass(CacheMixin):
 
             if allowed_structure_ids is not None:  # NEW: Add to SQL WHERE
                 placeholders = ', '.join(['?'] * len(allowed_structure_ids))
-                query += f" AND tc.structure_id IN ({placeholders})"
+                query += f" AND tc.tournament_class_structure_id IN ({placeholders})"
                 params.extend(allowed_structure_ids)
 
             if cutoff_date is not None:

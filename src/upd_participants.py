@@ -212,8 +212,6 @@ def upd_participants():
     finally:
         conn.commit()
 
-# ... (keep download_pdf, parse_players_pdf as-is)
-
 def match_player(
     cursor,
     participant: Participant,

@@ -152,8 +152,8 @@ def main():
         # upd_tournament_group_stage()
 
     except Exception as e:
-        logging.error(f"Error: {e}")
+        logging.error(f"Error: {e}", stack_info=True, stacklevel=3, exc_info=True)
         print(f"❌ Error: {e}")
 
-if __name__ == "__main__":#
+if __name__ == "__main__":
     main()
