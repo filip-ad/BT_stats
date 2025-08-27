@@ -9428,3 +9428,44 @@ Context: G11~B (id: 27785, ext_id: 29834), Club Raw: Sandefjord TIF-BTG
 Context: G15 (id: 27786, ext_id: 29759), Club Raw: Husøy og Foynland IF
 Context: G15 (id: 27786, ext_id: 29759), Club Raw: Husøy og Foynland IF
 Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Bærums Verk
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Bærums Verk
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Bærums Verk
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Randesund IL - BTG
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Sandefjord TIF-BTG
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Bærums Verk
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Sandefjord TIF-BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Randesund IL - BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Randesund IL - BTG
+Context: G13B (id: 27792, ext_id: 29835), Club Raw: Husøy og Foynland IF
+Context: DÅ (id: 27805, ext_id: 29720), Club Raw: Bærums Verk
