@@ -74,7 +74,7 @@ class Club(CacheMixin):
         if not club and allow_prefix and len(norm) >= 5:
             club = cls._prefix_match(norm, club_map, min_ratio=min_ratio)
             if club:
-                logger.warning(item_key, f"Club '{clubname_raw}' matched by prefix similarity")
+                logger.warning(item_key, f"Club matched by prefix similarity")
 
         if not club:
             club = cls.get_by_id(cursor, unknown_club_id)
@@ -85,7 +85,7 @@ class Club(CacheMixin):
         return club
 
     @staticmethod
-    def _prefix_match(norm: str, club_map: Dict[str, "Club"], min_ratio: float = 0.8) -> Optional["Club"]:
+    def _prefix_match(norm: str, club_map: Dict[str, "Club"], min_ratio: float = 0.75) -> Optional["Club"]:
         """
         Find best club whose normalized key shares at least `min_ratio`
         of prefix characters with `norm`.
@@ -101,6 +101,7 @@ class Club(CacheMixin):
             ratio = common / max(len(norm), len(key))
             if ratio > best_ratio:
                 best, best_ratio = club, ratio
+        logging.info(f"Prefix match for '{norm}': {best} (ratio: {best_ratio})")
         return best if best_ratio >= min_ratio else None
 
     

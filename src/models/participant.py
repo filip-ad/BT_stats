@@ -109,41 +109,70 @@ class Participant(CacheMixin):
         )
         return cursor.rowcount    
     
+    # @classmethod
+    # def update_final_position(
+    #     cls,
+    #     cursor: sqlite3.Cursor,
+    #     tournament_class_id: int,
+    #     fullname: str,
+    #     club: str,
+    #     position: int,
+    #     player_name_map: Dict[str, int],
+    #     unverified_name_map: Dict[str, int],
+    #     class_part_by_player: Dict[int, Tuple[int, Optional[int]]],
+    #     club_map: Dict[str, int]
+    # ) -> Dict[str, str]:
+    #     """Update participant's final position based on name and club."""
+    #     player_id = player_name_map.get(fullname) or unverified_name_map.get(fullname)
+    #     if not player_id or player_id not in class_part_by_player:
+    #         return {"status": "skipped", "reason": "No participant match (name or not in class)"}
+
+    #     participant_id, db_club_id = class_part_by_player[player_id]
+    #     club_id = club_map.get(club)
+    #     if db_club_id and club_id and db_club_id != club_id:
+    #         return {"status": "skipped", "reason": "Club mismatch"}
+
+    #     query = """
+    #         UPDATE participant
+    #         SET tournament_class_final_position = ?
+    #         WHERE participant_id = ? AND tournament_class_id = ?
+    #     """
+    #     try:
+    #         cursor.execute(query, (position, participant_id, tournament_class_id))
+    #         if cursor.rowcount > 0:
+    #             return {"status": "success", "reason": "Final position updated"}
+    #         return {"status": "skipped", "reason": "No rows updated"}
+    #     except Exception as e:
+    #         return {"status": "failed", "reason": f"Update failed: {e}"}
+
+# Add to models/participant.py
+
     @classmethod
-    def update_final_position(
-        cls,
-        cursor: sqlite3.Cursor,
-        tournament_class_id: int,
-        fullname: str,
-        club: str,
-        position: int,
-        player_name_map: Dict[str, int],
-        unverified_name_map: Dict[str, int],
-        class_part_by_player: Dict[int, Tuple[int, Optional[int]]],
-        club_map: Dict[str, int]
+    def update_final_position_by_player_id(
+        cls, 
+        cursor, 
+        tournament_class_id: int, 
+        player_id: int, 
+        position: int
     ) -> Dict[str, str]:
-        """Update participant's final position based on name and club."""
-        player_id = player_name_map.get(fullname) or unverified_name_map.get(fullname)
-        if not player_id or player_id not in class_part_by_player:
-            return {"status": "skipped", "reason": "No participant match (name or not in class)"}
-
-        participant_id, db_club_id = class_part_by_player[player_id]
-        club_id = club_map.get(club)
-        if db_club_id and club_id and db_club_id != club_id:
-            return {"status": "skipped", "reason": "Club mismatch"}
-
-        query = """
-            UPDATE participant
-            SET tournament_class_final_position = ?
-            WHERE participant_id = ? AND tournament_class_id = ?
-        """
         try:
-            cursor.execute(query, (position, participant_id, tournament_class_id))
-            if cursor.rowcount > 0:
-                return {"status": "success", "reason": "Final position updated"}
-            return {"status": "skipped", "reason": "No rows updated"}
+            sql = """
+                UPDATE participant
+                SET tournament_class_final_position = ?
+                WHERE tournament_class_id = ?
+                AND participant_id IN (
+                    SELECT participant_id FROM participant_player WHERE player_id = ?
+                )
+            """
+            cursor.execute(sql, (position, tournament_class_id, player_id))
+            if cursor.rowcount == 1:
+                return {"status": "success", "reason": "Position updated"}
+            elif cursor.rowcount == 0:
+                return {"status": "failed", "reason": "No matching participant for player_id"}
+            else:
+                return {"status": "failed", "reason": "Multiple updates—data inconsistency"}
         except Exception as e:
-            return {"status": "failed", "reason": f"Update failed: {e}"}
+            return {"status": "failed", "reason": str(e)}
 
     @classmethod
     def cache_by_class_player(cls, cursor: sqlite3.Cursor) -> Dict[int, Dict[int, Tuple[int, Optional[int]]]]:

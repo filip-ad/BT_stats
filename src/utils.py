@@ -318,7 +318,7 @@ class OperationLogger:
         self.results[item_key]["skipped"] += 1
         self.reasons["skipped"][reason] += 1
         self._log_to_db(item_key, "skipped", reason)
-        if self.verbosity <= 3:
+        if self.verbosity >= 3:
             msg = f"[SKIPPED] {item_key}: {reason}"
             logging.warning(msg)
             if self.print_output:

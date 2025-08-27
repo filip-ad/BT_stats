@@ -94,41 +94,6 @@ class TournamentClass(CacheMixin):
         results = cls.cached_query(cursor, sql, (cutoff_date,), cache_key_extra="get_valid_singles_after_cutoff")
         return [cls.from_dict(res) for res in results]
 
-    # @classmethod
-    # def get_filtered_classes(
-    #     cls,
-    #     cursor: sqlite3.Cursor,
-    #     class_id_ext: Optional[int] = None,
-    #     max_classes: Optional[int] = None,
-    #     order: Optional[str] = None
-    # ) -> List['TournamentClass']:
-    #     """Load and filter tournament classes based on config settings."""
-    #     classes_by_ext = cls.cache_by_id_ext(cursor)
-    #     if class_id_ext:
-    #         tc = classes_by_ext.get(class_id_ext)
-    #         classes = [tc] if tc else []
-    #     else:
-    #         classes = list(classes_by_ext.values())
-
-    #     order = (order or "").lower()
-    #     if order == "newest":
-    #         classes.sort(key=lambda tc: tc.date or datetime.date.min, reverse=True)
-    #     elif order == "oldest":
-    #         classes.sort(key=lambda tc: tc.date or datetime.date.min)
-
-    #     if max_classes and max_classes > 0:
-    #         classes = classes[:max_classes]
-    #     return classes
-
-
-# Assuming other class methods like cache_by_id_ext are defined elsewhere in this file.
-# For example:
-# @classmethod
-# def cache_by_id_ext(cls, cursor: sqlite3.Cursor) -> Dict[int, 'TournamentClass']:
-#     # Logic to query all and return {tc.id_ext: tc for tc in queried}
-#
-# Similarly, assume there are cache_by_id, cache_by_tournament_id if needed, or generalize as below.
-
     @classmethod
     def get_filtered_classes(
         cls,
@@ -139,6 +104,7 @@ class TournamentClass(CacheMixin):
         cutoff_date:            Optional[date] = None,
         require_ended:          bool = True,
         allowed_type_ids:       Optional[List[int]] = None,
+        allowed_structure_ids:  Optional[List[int]] = None,  # NEW: Filter by structure_id (e.g., 1 for Groups_and_KO, 3 for KO_only)
         max_classes:            Optional[int] = None,
         order:                  Optional[str] = None,
         cache_key:              Optional[str] = None  # e.g., 'id', 'tournament_id'; None for direct SQL query
@@ -150,7 +116,7 @@ class TournamentClass(CacheMixin):
         Raises error if both ext lists are provided or if data_source_id missing when exts given.
         If cache_key is provided, queries all classes, builds an in-memory cache dict using the specified key,
         and filters/looks up in memory. If cache_key is None, builds a dynamic SQL query with filters
-        for efficiency (direct fetch of matching rows).
+        for efficiency (direct fetch of matching rows with filters).
         Note: cache_key options adjusted to internal keys (e.g., 'id' for tournament_class_id, 'tournament_id').
         """
         if class_id_exts is not None and tournament_id_exts is not None:
@@ -192,7 +158,7 @@ class TournamentClass(CacheMixin):
                 for tc in all_classes:
                     classes_by_key[tc.tournament_class_id] = tc  # Use internal id
             else:
-                raise ValueError(f"Unsupported cache_key: {cache_key}")
+                raise ValueError(f"Unknown cache_key: {cache_key}")
 
             # Lookup if specific IDs match the cache_key, else filter all_classes
             if class_ids is not None and cache_key == 'id':
@@ -211,6 +177,7 @@ class TournamentClass(CacheMixin):
                     and (tournament_ids is None or tc.tournament_id in tournament_ids)
                     and (not require_ended or tc.tournament_status_id == 3)
                     and (allowed_type_ids is None or tc.tournament_class_type_id in allowed_type_ids)
+                    and (allowed_structure_ids is None or tc.structure_id in allowed_structure_ids)  # NEW: In-memory filter for structure_id
                     and (cutoff_date is None or tc.date >= cutoff_date)
                 ]
 
@@ -252,6 +219,11 @@ class TournamentClass(CacheMixin):
                 placeholders = ', '.join(['?'] * len(allowed_type_ids))
                 query += f" AND tc.tournament_class_type_id IN ({placeholders})"
                 params.extend(allowed_type_ids)
+
+            if allowed_structure_ids is not None:  # NEW: Add to SQL WHERE
+                placeholders = ', '.join(['?'] * len(allowed_structure_ids))
+                query += f" AND tc.structure_id IN ({placeholders})"
+                params.extend(allowed_structure_ids)
 
             if cutoff_date is not None:
                 query += " AND tc.date >= ?"

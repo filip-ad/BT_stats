@@ -113,7 +113,7 @@ def upd_players_verified():
 
             if not can_tuple:
                 msg = f"No source data for group with canonical ext; skipping"
-                logging.warning(f"No source data for group with canonical ext {can_ext}; skipping {sorted(all_exts)}")
+                # logging.warning(f"No source data for group with canonical ext {can_ext}; skipping {sorted(all_exts)}")
                 logger.failed(f"Group {can_ext}", msg)
                 continue
 

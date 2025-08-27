@@ -92,6 +92,28 @@ class Tournament(CacheMixin):
             "key":      item_key,
             "reason":   "Validated OK"
         }
+    
+    @classmethod
+    def get_internal_tournament_ids(
+        cls,
+        cursor: sqlite3.Cursor,
+        tournament_id_exts: List[str],
+        data_source_id: int
+    ) -> List[int]:
+        """Convert external tournament IDs to internal tournament_ids."""
+        if not tournament_id_exts:
+            return []
+
+        placeholders = ",".join("?" for _ in tournament_id_exts)
+        sql = f"""
+            SELECT tournament_id
+            FROM tournament_id_ext
+            WHERE tournament_id_ext IN ({placeholders})
+            AND data_source_id = ?
+        """
+        params = tournament_id_exts + [data_source_id]
+        cursor.execute(sql, params)
+        return [row[0] for row in cursor.fetchall()]
 
     # Rewrite this and get rid of the MAP....
     @classmethod

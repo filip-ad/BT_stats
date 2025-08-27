@@ -106,7 +106,7 @@ def upd_participants():
                 icon = "✅" if (expected_count is not None and expected_count == found) else ("❌ " if expected_count is not None else "❌ ")
 
                 msg = (
-                    f"{icon} [{i}/{len(classes)}] Parsed class {tc.shortname} {tc.date}"
+                    f"{icon} [{i}/{len(classes)}] Parsed class {tc.shortname} {tc.date} "
                     f"(id: {tc.tournament_class_id}, ext_id: {tc.tournament_class_id_ext}, tid: {tc.tournament_id}). "
                     f"Expected {expected_count if expected_count is not None else '—'}, "
                     f"found {found}, seeded: {seeded_count}, deleted: {deleted} old participants."
