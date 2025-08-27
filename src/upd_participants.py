@@ -192,6 +192,7 @@ def upd_participants():
 
             except Exception as e:
                 logger.failed(item_key, f"Exception during processing: {e}")
+                logging.error(f"Exception processing {item_key}: {e}") # exc_info=True, stacklevel=2
                 continue
 
         e = time.time() - start_time
@@ -247,7 +248,9 @@ def match_player(
             license_name_club_map,
             player_name_map,
             participant.club_id,
-            warnings,
+            # warnings,
+            logger,
+            item_key,
             unverified_appearance_map if strategy == match_by_unverified_with_club else None
         )
         if outcome:
@@ -279,18 +282,15 @@ def match_by_license_exact(
     license_name_club_map,
     player_name_map,
     club_id: int,
-    warnings: List[str],
+    # warnings: List[str],
+    logger: OperationLogger,
+    item_key: str,
     _
 ) -> Optional[Tuple[int, str]]:
     keys = name_keys_for_lookup_all_splits(fullname_raw)
     candidates = set()
     for k in keys:
-        parts = k.split()
-        if len(parts) < 2:
-            continue
-        fn = " ".join(parts[:-1])
-        ln = parts[-1]
-        key = (normalize_key(fn), normalize_key(ln), club_id)
+        key = (k, club_id)
         if key in license_name_club_map:
             for lic in license_name_club_map[key]:
                 if lic["valid_from"] <= class_date <= lic["valid_to"]:
@@ -307,7 +307,9 @@ def match_by_license_substring(
     license_name_club_map,
     player_name_map,
     club_id: int,
-    warnings: List[str],
+    # warnings: List[str],
+    logger: OperationLogger,
+    item_key: str,
     _
 ) -> Optional[Tuple[int, str]]:
     clean = normalize_key(fullname_raw)
@@ -316,14 +318,12 @@ def match_by_license_substring(
         return None
     first_tok, last_tok = parts[0], parts[-1]
     candidates = set()
-    for (fn, ln, cid), rows in license_name_club_map.items():
+    for (full_key, cid), rows in license_name_club_map.items():
         if cid != club_id:
             continue
-        candidate_key = normalize_key(f"{fn} {ln}")
-        cand_parts = candidate_key.split()
-        if len(cand_parts) < 3:
+        if len(full_key.split()) < 3:
             continue
-        if first_tok in candidate_key and last_tok in candidate_key:
+        if first_tok in full_key and last_tok in full_key:
             for row in rows:
                 if row["valid_from"] <= class_date <= row["valid_to"]:
                     candidates.add(row["player_id"])
@@ -339,23 +339,21 @@ def match_by_any_season_exact(
     license_name_club_map,
     player_name_map,
     club_id: int,
-    warnings: List[str],
+    # warnings: List[str],
+    logger: OperationLogger,
+    item_key: str,
     _
 ) -> Optional[Tuple[int, str]]:
     keys = name_keys_for_lookup_all_splits(fullname_raw)
     candidates = set()
     for k in keys:
-        parts = k.split()
-        if len(parts) < 2:
-            continue
-        fn = " ".join(parts[:-1])
-        ln = parts[-1]
-        key = (normalize_key(fn), normalize_key(ln), club_id)
+        key = (k, club_id)
         if key in license_name_club_map:
             for lic in license_name_club_map[key]:
                 candidates.add(lic["player_id"])
     if len(candidates) == 1:
-        warnings.append("Matched by name with license in club, but not necessarily valid on class date")
+        # warnings.append("Matched by name with license in club, but not necessarily valid on class date")
+        logger.warning(fullname_raw + " " + clubname_raw + " " + str(class_date) + " " + item_key, "Matched by name with license in club, but not necessarily valid on class date")
         return list(candidates)[0], "any_season_exact"
     return None
 
@@ -367,7 +365,9 @@ def match_by_any_season_substring(
     license_name_club_map,
     player_name_map,
     club_id: int,
-    warnings: List[str],
+    # warnings: List[str],
+    logger: OperationLogger,
+    item_key: str,
     _
 ) -> Optional[Tuple[int, str]]:
     clean = normalize_key(fullname_raw)
@@ -376,18 +376,17 @@ def match_by_any_season_substring(
         return None
     first_tok, last_tok = parts[0], parts[-1]
     candidates = set()
-    for (fn, ln, cid), rows in license_name_club_map.items():
+    for (full_key, cid), rows in license_name_club_map.items():
         if cid != club_id:
             continue
-        candidate_key = normalize_key(f"{fn} {ln}")
-        cand_parts = candidate_key.split()
-        if len(cand_parts) < 3:
+        if len(full_key.split()) < 3:
             continue
-        if first_tok in candidate_key and last_tok in candidate_key:
+        if first_tok in full_key and last_tok in full_key:
             for row in rows:
                 candidates.add(row["player_id"])
     if len(candidates) == 1:
-        warnings.append("Matched by substring with license in club, but not necessarily valid on class date")
+        # warnings.append("Matched by substring with license in club, but not necessarily valid on class date")
+        logger.warning(item_key, "Matched by substring with license in club, but not necessarily valid on class date")
         return list(candidates)[0], "any_season_substring"
     return None
 
@@ -399,7 +398,9 @@ def match_by_transition_exact(
     license_name_club_map,
     player_name_map,
     club_id: int,
-    warnings: List[str],
+    # warnings: List[str],
+    logger: OperationLogger,
+    item_key: str,
     _
 ) -> Optional[Tuple[int, str]]:
     pids = get_name_candidates(fullname_raw, player_name_map)
@@ -413,7 +414,11 @@ def match_by_transition_exact(
         AND player_id IN ({placeholders})
     """
     params = [club_id, club_id, class_date] + pids
-    cursor.execute(sql, params)
+    try:
+        cursor.execute(sql, params)
+    except Exception as e:
+        logging.error(f"Error executing SQL for transition_exact: {e}")
+        return None
     trans = [r[0] for r in cursor.fetchall()]
     if len(trans) == 1:
         return trans[0], "transition_exact"
@@ -427,7 +432,9 @@ def match_by_transition_substring(
     license_name_club_map,
     player_name_map,
     club_id: int,
-    warnings: List[str],
+    # warnings: List[str],
+    logger: OperationLogger,
+    item_key: str,
     _
 ) -> Optional[Tuple[int, str]]:
     clean = normalize_key(fullname_raw)
@@ -436,14 +443,12 @@ def match_by_transition_substring(
         return None
     first_tok, last_tok = parts[0], parts[-1]
     sub_pids = set()
-    for (fn, ln, cid), rows in license_name_club_map.items():
+    for (full_key, cid), rows in license_name_club_map.items():
         if cid != club_id:
             continue
-        candidate_key = normalize_key(f"{fn} {ln}")
-        cand_parts = candidate_key.split()
-        if len(cand_parts) < 3:
+        if len(full_key.split()) < 3:
             continue
-        if first_tok in candidate_key and last_tok in candidate_key:
+        if first_tok in full_key and last_tok in full_key:
             for row in rows:
                 sub_pids.add(row["player_id"])
     if not sub_pids:
@@ -470,14 +475,16 @@ def match_by_unverified_with_club(
     license_name_club_map,
     player_name_map,
     club_id: int,
-    warnings: List[str],
+    # warnings: List[str],
+    logger: OperationLogger,
+    item_key: str,
     unverified_appearance_map
 ) -> Optional[Tuple[int, str]]:
     clean = normalize_key(fullname_raw)
     if clean in unverified_appearance_map:
         for entry in unverified_appearance_map[clean]:
             if entry["club_id"] == club_id:
-                return entry["player_id"], "unverified_club"
+                return entry["player_id"], "unverified player with club"
     return None
 
 def fallback_unverified(

@@ -77,7 +77,6 @@ def upd_player_positions():
     for idx, tc in enumerate(classes, 1):
 
         item_key = f"Class id ext: {tc.tournament_class_id_ext}"
-
         label = f"{tc.shortname or tc.longname or tc.tournament_class_id}, {tc.date} (ext:{tc.tournament_class_id_ext})"
 
 

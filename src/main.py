@@ -129,9 +129,9 @@ def main():
         #
 
         # 1 Scrape and populate raw tables.
-        # upd_player_licenses_raw()
-        # upd_player_transitions_raw()
-        # upd_player_rankings_raw()
+        upd_player_licenses_raw()
+        upd_player_transitions_raw()
+        upd_player_rankings_raw()
 
         # 2 update clubs, verified players and player ranking groups
         # upd_clubs()
@@ -147,7 +147,7 @@ def main():
         # upd_tournaments()
         # upd_tournament_classes()
 
-        upd_participants()
+        # upd_participants()
         # upd_player_positions()
         # upd_tournament_group_stage()
 

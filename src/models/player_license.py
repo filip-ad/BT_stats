@@ -32,11 +32,7 @@ class PlayerLicense(CacheMixin):
         )
     
     @classmethod
-    def cache_name_club_map(cls, cursor) -> Dict[Tuple[str, str, int], List[Dict[str, Any]]]:
-        """
-        Build a (first_name_norm, last_name_norm, club_id) to list of license dicts map using cached query.
-        Note: Returns list of dicts per key for licenses, as there might be multiple per name/club.
-        """
+    def cache_name_club_map(cls, cursor) -> Dict[Tuple[str, int], List[Dict[str, Any]]]:
         sql = """
             SELECT 
                 pl.player_id,
@@ -52,11 +48,10 @@ class PlayerLicense(CacheMixin):
         """
         rows = cls.cached_query(cursor, sql)
 
-        license_map: Dict[Tuple[str, str, int], List[Dict[str, Any]]] = defaultdict(list)
+        license_map: Dict[Tuple[str, int], List[Dict[str, Any]]] = defaultdict(list)
         for row in rows:
-            fn_norm = normalize_key(row['firstname'] or '')
-            ln_norm = normalize_key(row['lastname'] or '')
-            key = (fn_norm, ln_norm, row['club_id'])
+            full_norm = normalize_key(f"{row['firstname'] or ''} {row['lastname'] or ''}").strip()
+            key = (full_norm, row['club_id'])
             license_map[key].append({
                 "player_id": row['player_id'],
                 "club_id": row['club_id'],
