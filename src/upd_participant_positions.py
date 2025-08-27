@@ -1,3 +1,5 @@
+# src/upd_participant_positions.py
+
 import io
 import re
 import time
@@ -7,11 +9,13 @@ import pdfplumber
 import logging
 
 from db import get_conn
-from utils import OperationLogger
+from utils import OperationLogger, parse_date
 from config import (
-    SCRAPE_PARTICIPANTS_MAX_CLASSES,
-    SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+    SCRAPE_PARTICIPANTS_CUTOFF_DATE,
+    SCRAPE_PARTICIPANTS_CLASS_ID_EXTS, 
     SCRAPE_PARTICIPANTS_ORDER,
+    SCRAPE_PARTICIPANTS_MAX_CLASSES,
+    SCRAPE_PARTICIPANTS_TNMT_ID_EXTS
 )
 from models.club import Club
 from models.player import Player
@@ -33,13 +37,32 @@ def upd_player_positions():
         cursor          = cursor
     )
 
+    cutoff_date = parse_date(SCRAPE_PARTICIPANTS_CUTOFF_DATE) if SCRAPE_PARTICIPANTS_CUTOFF_DATE else None
+    if cutoff_date is None and SCRAPE_PARTICIPANTS_CUTOFF_DATE not in (None, "0"):
+        logger.failed("global", "Invalid cutoff date format")
+        print("❌ Invalid cutoff date format")
+        return
+
     # 1) Load and filter classes
     classes = TournamentClass.get_filtered_classes(
         cursor,
-        class_id_ext=SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+        class_id_exts=SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+        tournament_id_exts=SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
+        data_source_id=1 if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else None,
+        cutoff_date=cutoff_date,
+        require_ended=True,
+        allowed_type_ids=[1],  # Singles only (type_id 1)
         max_classes=SCRAPE_PARTICIPANTS_MAX_CLASSES,
         order=SCRAPE_PARTICIPANTS_ORDER
     )
+
+    if not classes:
+        logger.skipped("global", "No valid singles classes matching filters")
+        print("⚠️  No valid singles classes matching filters.")
+        return
+
+    print(f"ℹ️  Filtered to {len(classes)} valid singles classes{' via specific IDs (class or tournament, overriding cutoff)' if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else f' after cutoff date: {cutoff_date or "none"}'}.")
+
     logging.info(f"Updating tournament class positions for {len(classes)} classes...")
     print(f"ℹ️  Updating tournament class positions for {len(classes)} classes...")
 
@@ -115,8 +138,8 @@ def upd_player_positions():
                 logger.skipped(item_key, f"Position update skipped")
                 skipped += 1
 
-        logging.info(f"[{idx}/{len(classes)}] Processed class {label} date={tc.date}. Deleted {cleared} existing positions, updated {updated} positions, skipped {skipped} positions.")
-        print(f"ℹ️  [{idx}/{len(classes)}] Processed class {label} date={tc.date}. Deleted {cleared} existing positions, updated {updated} positions, skipped {skipped} positions.")
+        logging.info(f"[{idx}/{len(classes)}] Processed class {label} date={tc.date}. Deleted existing positions for all {cleared} participants, updated {updated} positions, skipped {skipped} positions.")
+        print(f"ℹ️  [{idx}/{len(classes)}] Processed class {label} date={tc.date}. Deleted existing positions for all {cleared} participants, updated {updated} positions, skipped {skipped} positions.")
 
         conn.commit()
         total_updated += updated

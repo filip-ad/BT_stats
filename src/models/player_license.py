@@ -20,7 +20,7 @@ class PlayerLicense(CacheMixin):
     row_id:       Optional[int] = None
 
     @staticmethod
-    def from_dict(data: dict):
+    def from_dict(data: dict) -> "PlayerLicense":
         return PlayerLicense(
             player_id=data["player_id"],
             club_id=data["club_id"],
@@ -52,17 +52,18 @@ class PlayerLicense(CacheMixin):
         """
         rows = cls.cached_query(cursor, sql)
 
-        license_map: Dict[Tuple[str, str, int], List[Dict[str, Any]]] = {}
+        license_map: Dict[Tuple[str, str, int], List[Dict[str, Any]]] = defaultdict(list)
         for row in rows:
-            fn_norm = normalize_key(row['firstname'])
-            ln_norm = normalize_key(row['lastname'])
+            fn_norm = normalize_key(row['firstname'] or '')
+            ln_norm = normalize_key(row['lastname'] or '')
             key = (fn_norm, ln_norm, row['club_id'])
-            license_map.setdefault(key, []).append({
+            license_map[key].append({
                 "player_id": row['player_id'],
                 "club_id": row['club_id'],
-                "license_number": row['license_id'],
+                "license_id": row['license_id'],
                 "valid_from": row['valid_from'],
-                "valid_to": row['valid_to']
+                "valid_to": row['valid_to'],
+                "season_id": row['season_id']
             })
         return license_map
 
@@ -91,7 +92,7 @@ class PlayerLicense(CacheMixin):
         """
         Check if the given player_id has a license in club_id for any of the specified seasons.
         """
-        licenses = license_map.get(player_id, ())
+        licenses = license_map.get(player_id, set())
         return any((club_id, sid) in licenses for sid in seasons)
     
     @staticmethod
@@ -125,38 +126,39 @@ class PlayerLicense(CacheMixin):
             return []
         
     @staticmethod
-    def batch_save_to_db(cursor, licenses, logger: List["PlayerLicense"]) -> List[Dict[str, Any]]:
+    def batch_insert(
+        cursor, 
+        licenses: List["PlayerLicense"], 
+        logger
+    ) -> List[Dict[str, Any]]:
         """
-        Batch-insert PlayerLicense objects in safe-sized chunks so as not to exceed
+        Batch-insert PlayerLicense objects in safe-sized chunks to avoid exceeding
         SQLite’s default variable limit (~999). Returns one dict per input license
         summarizing skip/insert/fail.
+        Aligns with Player.save_to_db pattern but for batch.
         """
         # 1) Load existing keys to skip duplicates
         cursor.execute("""
             SELECT player_id, club_id, season_id, license_id
-              FROM player_license
+            FROM player_license
         """)
         existing = {tuple(r) for r in cursor.fetchall()}
 
-        to_insert: List[tuple]          = []
-        insert_positions: List[int]     = []
-        results: List[Dict[str, Any]]   = []
+        to_insert: List[tuple] = []
+        results: List[Dict[str, Any]] = []
 
-        # 2) Build both lists in lockstep
-        for idx, lic in enumerate(licenses):
+        # 2) Filter new licenses
+        for lic in licenses:
             key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
+            item_key = f"(player_id: {lic.player_id}, club_id: {lic.club_id}, season_id: {lic.season_id}, license_id: {lic.license_id})"
             if key in existing:
                 results.append({
                     "status": "skipped",
-                    "key": str(key),
+                    "key": item_key,
                     "reason": "Already exists"
                 })
+                logger.skipped(item_key, "Player license already exists")
             else:
-                results.append({
-                    "status": "pending",
-                    "key": str(key),
-                    "reason": "Will insert"
-                })
                 to_insert.append((
                     lic.player_id,
                     lic.club_id,
@@ -165,235 +167,205 @@ class PlayerLicense(CacheMixin):
                     lic.valid_from,
                     lic.valid_to
                 ))
-                insert_positions.append(idx)
+                results.append({
+                    "status": "pending",
+                    "key": item_key,
+                    "reason": "Will insert"
+                })
 
         # 3) Nothing new?
         if not to_insert:
             return results
 
-        # 4) Figure out chunk size (SQLite default max vars ≈999, 6 columns per row)
-        MAX_VARS     = 999
+        # 4) Chunk size calculation
+        MAX_VARS = 999
         COLS_PER_ROW = 6
-        chunk_size   = MAX_VARS // COLS_PER_ROW  # = 166
+        chunk_size = MAX_VARS // COLS_PER_ROW  # ~166
 
         insert_sql = """
             INSERT OR IGNORE INTO player_license
-              (player_id, club_id, season_id, license_id, valid_from, valid_to)
+            (player_id, club_id, season_id, license_id, valid_from, valid_to)
             VALUES (?, ?, ?, ?, ?, ?)
         """
 
-        # 5) Execute each chunk separately
+        # 5) Execute chunks
+        inserted_count = 0
         for start in range(0, len(to_insert), chunk_size):
-            chunk      = to_insert[start : start + chunk_size]
-            positions  = insert_positions[start : start + chunk_size]
-            key_item = (lic.player_id, lic.club_id, lic.season_id, lic.license_id, lic.valid_from, lic.valid_to)
+            chunk = to_insert[start : start + chunk_size]
             try:
                 cursor.executemany(insert_sql, chunk)
+                inserted_count += cursor.rowcount
             except sqlite3.Error as e:
-                logging.error(f"Chunk insert error rows {start}-{start+len(chunk)-1}: {e}")
-                for pos in positions:
-                    results[pos].update(status="failed", reason=str(e))
-                    logger.failed(key_item, f"Player license insert failed")
+                logging.error(f"Chunk insert error: {e}")
+                for i in range(start, start + len(chunk)):
+                    results[i]["status"] = "failed"
+                    results[i]["reason"] = str(e)
+                    logger.failed(results[i]["key"], "Player license insert failed")
             else:
-                for pos in positions:
-                    results[pos].update(status="success", reason="Inserted")
-                    logger.success(key_item, f"Player license inserted successfully")
+                for i in range(start, start + len(chunk)):
+                    results[i]["status"] = "success"
+                    results[i]["reason"] = "Inserted"
+                    logger.success(results[i]["key"], "Player license inserted successfully")
 
+        logging.info(f"Batch insert completed: {inserted_count} new licenses")
         return results
     
     @staticmethod
-    def validate_batch(cursor, licenses, logger: List['PlayerLicense']) -> List[dict]:         
-        try:
+    def batch_validate(
+        cursor, 
+        licenses: List['PlayerLicense'], 
+        logger
+    ) -> List[dict]:         
+        """Batch validate multiple PlayerLicense objects, including date range checks."""
+        if not licenses:
+            return []
 
-            """Batch validate multiple PlayerLicense objects, including date range checks."""
-            if not licenses:
-                return []
+        MAX_VARS = 999
 
-            MAX_VARS = 999
-            def chunked(ids):
-                """Yield successive chunks of at most MAX_VARS items."""
-                it = list(ids)
-                for i in range(0, len(it), MAX_VARS):
-                    yield it[i : i + MAX_VARS]
+        def chunk_iterable(iterable, size):
+            it = list(iterable)
+            for i in range(0, len(it), size):
+                yield it[i : i + size]
 
-            # Prepare sets of all IDs we need to check
-            player_ids  = {l.player_id  for l in licenses if l.player_id}
-            club_ids    = {l.club_id    for l in licenses if l.club_id}
-            season_ids  = {l.season_id  for l in licenses if l.season_id}
-            license_ids = {l.license_id for l in licenses if l.license_id}
+        # Prepare sets of all IDs
+        player_ids = {l.player_id for l in licenses if l.player_id}
+        club_ids = {l.club_id for l in licenses if l.club_id}
+        season_ids = {l.season_id for l in licenses if l.season_id}
+        license_ids = {l.license_id for l in licenses if l.license_id}
 
-            # 1) Chunked fetch of valid foreign keys
-            valid_players  = set()
-            valid_clubs    = set()
-            valid_seasons  = set()
-            season_dates   = {}
-            valid_license_ids = set()
+        # 1) Chunked fetch of valid foreign keys
+        valid_players = set()
+        for chunk in chunk_iterable(player_ids, MAX_VARS):
+            placeholders = ",".join("?" * len(chunk))
+            cursor.execute(f"SELECT player_id FROM player WHERE player_id IN ({placeholders})", chunk)
+            valid_players.update(r[0] for r in cursor.fetchall())
 
-            # players
-            for chunk in chunked(player_ids):
-                placeholders = ",".join("?" * len(chunk))
-                cursor.execute(
-                    f"SELECT player_id FROM player WHERE player_id IN ({placeholders})",
-                    chunk
-                )
-                valid_players.update(r[0] for r in cursor.fetchall())
+        valid_clubs = set()
+        for chunk in chunk_iterable(club_ids, MAX_VARS):
+            placeholders = ",".join("?" * len(chunk))
+            cursor.execute(f"SELECT club_id FROM club WHERE club_id IN ({placeholders})", chunk)
+            valid_clubs.update(r[0] for r in cursor.fetchall())
 
-            # clubs
-            for chunk in chunked(club_ids):
-                placeholders = ",".join("?" * len(chunk))
-                cursor.execute(
-                    f"SELECT club_id FROM club WHERE club_id IN ({placeholders})",
-                    chunk
-                )
-                valid_clubs.update(r[0] for r in cursor.fetchall())
+        valid_seasons = set()
+        season_dates = {}
+        for chunk in chunk_iterable(season_ids, MAX_VARS):
+            placeholders = ",".join("?" * len(chunk))
+            cursor.execute(f"SELECT season_id, start_date, end_date FROM season WHERE season_id IN ({placeholders})", chunk)
+            for sid, sd, ed in cursor.fetchall():
+                valid_seasons.add(sid)
+                season_dates[sid] = (sd, ed)
 
-            # seasons + dates
-            for chunk in chunked(season_ids):
-                placeholders = ",".join("?" * len(chunk))
-                cursor.execute(
-                    f"SELECT season_id, start_date, end_date \
-                    FROM season WHERE season_id IN ({placeholders})",
-                    chunk
-                )
-                for sid, sd, ed in cursor.fetchall():
-                    valid_seasons.add(sid)
-                    season_dates[sid] = (sd, ed)
+        valid_license_ids = set()
+        for chunk in chunk_iterable(license_ids, MAX_VARS):
+            placeholders = ",".join("?" * len(chunk))
+            cursor.execute(f"SELECT license_id FROM license WHERE license_id IN ({placeholders})", chunk)
+            valid_license_ids.update(r[0] for r in cursor.fetchall())
 
-            # licenses
-            for chunk in chunked(license_ids):
-                placeholders = ",".join("?" * len(chunk))
-                cursor.execute(
-                    f"SELECT license_id FROM license WHERE license_id IN ({placeholders})",
-                    chunk
-                )
-                valid_license_ids.update(r[0] for r in cursor.fetchall())
+        # 2) Fetch existing licenses
+        existing_licenses = set()
+        COLS_PER_ROW_EXIST = 4
+        chunk_size_exist = MAX_VARS // COLS_PER_ROW_EXIST
+        for start in range(0, len(licenses), chunk_size_exist):
+            slice_ = licenses[start : start + chunk_size_exist]
+            placeholders = ",".join("(?,?,?,?)" for _ in slice_)
+            binds = [item for lic in slice_ for item in (lic.player_id, lic.club_id, lic.season_id, lic.license_id)]
+            cursor.execute(
+                f"SELECT player_id, club_id, season_id, license_id FROM player_license WHERE (player_id, club_id, season_id, license_id) IN (VALUES {placeholders})",
+                binds
+            )
+            existing_licenses.update(tuple(r) for r in cursor.fetchall())
 
-            # 2) Chunked fetch of existing player_license keys
-            existing_licenses = set()
-            players_with_licenses = {k[0] for k in existing_licenses}  # Set of player_ids with at least one existing license
-            all_lics = licenses
-            cols_per_row = 4
-            for i in range(0, len(all_lics), MAX_VARS // cols_per_row):
-                slice_ = all_lics[i : i + (MAX_VARS // cols_per_row)]
-                placeholders = ",".join("(?,?,?,?)" for _ in slice_)
-                binds = []
-                for lic in slice_:
-                    binds.extend((lic.player_id, lic.club_id, lic.season_id, lic.license_id))
-                cursor.execute(
-                    f"SELECT player_id, club_id, season_id, license_id \
-                    FROM player_license WHERE (player_id,club_id,season_id,license_id) IN ({placeholders})",
-                    binds
-                )
-                existing_licenses.update(tuple(r) for r in cursor.fetchall())
+        # 3) Fetch overlapping licenses
+        overlapping_licenses = {}
+        COLS_PER_ROW_OV = 3
+        chunk_size_ov = MAX_VARS // COLS_PER_ROW_OV
+        for start in range(0, len(licenses), chunk_size_ov):
+            slice_ = licenses[start : start + chunk_size_ov]
+            placeholders = ",".join("(?,?,?)" for _ in slice_)
+            binds = [item for lic in slice_ for item in (lic.player_id, lic.season_id, lic.license_id)]
+            cursor.execute(
+                f"SELECT player_id, season_id, license_id, valid_from, valid_to FROM player_license WHERE (player_id, season_id, license_id) IN (VALUES {placeholders})",
+                binds
+            )
+            for pid, sid, lid, vf, vt in cursor.fetchall():
+                overlapping_licenses[(pid, sid, lid)] = (vf, vt)
 
-            # 3) Chunked fetch of overlap periods
-            overlapping_licenses = {}
-            cols_per_row = 3
-            for i in range(0, len(all_lics), MAX_VARS // cols_per_row):
-                slice_ = all_lics[i : i + (MAX_VARS // cols_per_row)]
-                placeholders = ",".join("(?,?,?)" for _ in slice_)
-                binds = []
-                for lic in slice_:
-                    binds.extend((lic.player_id, lic.season_id, lic.license_id))
-                cursor.execute(
-                    f"SELECT player_id, season_id, license_id, valid_from, valid_to \
-                    FROM player_license WHERE (player_id,season_id,license_id) IN ({placeholders})",
-                    binds
-                )
-                for pid, sid, lid, vf, vt in cursor.fetchall():
-                    overlapping_licenses[(pid, sid, lid)] = (vf, vt)
+        # 4) Per-license validation
+        results = []
+        for lic in licenses:
+            key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
+            ov_key = (lic.player_id, lic.season_id, lic.license_id)
+            item_key = f"(player_id: {lic.player_id}, club_id: {lic.club_id}, season_id: {lic.season_id}, license_id: {lic.license_id})"
 
-            # 4) Per-license validation
-            results = []
-            for lic in licenses:
-                key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
-                ov_key = (lic.player_id, lic.season_id, lic.license_id)
-                item_key = f"Player_id: {lic.player_id}, Club_id: {lic.club_id}, Season_id: {lic.season_id}, License_id: {lic.license_id})"
+            # Required fields
+            if not all([lic.player_id, lic.club_id, lic.season_id, lic.license_id]):
+                reason = "Missing required field"
+                results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
+                logger.failed(item_key, reason)
+                continue
 
-                # null/zero checks
-                if not lic.player_id:
-                    # results.append({"status":"failed","row_id":lic.row_id,"reason":f"Invalid player_id: {lic.player_id}"})
-                    results.append({"status":"failed","row_id":lic.row_id,"reason":f"Invalid player_id: {lic.player_id}"})
-                    logger.failed(item_key, f"Invalid player_id: {lic.player_id}")
+            # FK validation
+            if lic.player_id not in valid_players:
+                reason = f"Invalid player_id {lic.player_id}"
+                results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
+                logger.failed(item_key, reason)
+                continue
+            if lic.club_id not in valid_clubs:
+                reason = f"Invalid club_id {lic.club_id}"
+                results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
+                logger.failed(item_key, reason)
+                continue
+            if lic.season_id not in valid_seasons:
+                reason = f"Invalid season_id {lic.season_id}"
+                results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
+                logger.failed(item_key, reason)
+                continue
+            if lic.license_id not in valid_license_ids:
+                reason = f"Invalid license_id {lic.license_id}"
+                results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
+                logger.failed(item_key, reason)
+                continue
+
+            # Duplicate check
+            if key in existing_licenses:
+                reason = "Already exists"
+                results.append({"status": "skipped", "row_id": lic.row_id, "reason": reason})
+                logger.skipped(item_key, reason)
+                continue
+
+            # Season date range
+            sd, ed = season_dates.get(lic.season_id, (None, None))
+            if sd is None or ed is None:
+                reason = "Season dates not found"
+                results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
+                logger.failed(item_key, reason)
+                continue
+            if lic.valid_from < sd or lic.valid_from > ed:
+                if abs((lic.valid_from - ed).days) <= 30:
+                    lic.valid_from = ed
+                    logger.warning(item_key, "Adjusted valid_from to season end (within 30 days)")
+                else:
+                    reason = f"valid_from {lic.valid_from} outside season {sd}-{ed}"
+                    results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
+                    logger.failed(item_key, reason)
                     continue
-                if not lic.club_id:
-                    results.append({"status":"failed","row_id":lic.row_id,"reason":f"Invalid club_id: {lic.club_id}"})
-                    logger.failed(item_key, f"Invalid club_id: {lic.club_id}")
-                    continue
-                if not lic.season_id:
-                    results.append({"status":"failed","row_id":lic.row_id,"reason":f"Invalid season_id: {lic.season_id}"})
-                    logger.failed(item_key, f"Invalid season_id: {lic.season_id}")
-                    continue
-                if not lic.license_id:
-                    results.append({"status":"failed","row_id":lic.row_id,"reason":f"Invalid license_id: {lic.license_id}"})
-                    logger.failed(item_key, f"Invalid license_id: {lic.license_id}")
+            if lic.valid_from == ed:
+                logger.warning(item_key, "valid_from equals season end date")
+
+            # Overlap check (same player, season, license)
+            if ov_key in overlapping_licenses:
+                of, ot = overlapping_licenses[ov_key]
+                new_start, new_end = lic.valid_from, lic.valid_to
+                if not (new_end < of or new_start > ot):
+                    reason = "Overlaps existing license period"
+                    results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
+                    logger.failed(item_key, reason)
                     continue
 
-                # FK checks
-                if lic.player_id not in valid_players:
-                    results.append({"status":"failed","row_id":lic.row_id,"reason":f"Foreign key violation: player_id {lic.player_id}"})
-                    logger.failed(item_key, f"Foreign key violation: player_id {lic.player_id}")
-                    continue
-                if lic.club_id not in valid_clubs:
-                    results.append({"status":"failed","row_id":lic.row_id,"reason":f"Foreign key violation: club_id {lic.club_id}"})
-                    logger.failed(item_key, f"Foreign key violation: club_id {lic.club_id}")
-                    continue
-                if lic.season_id not in valid_seasons:
-                    results.append({"status":"failed","row_id":lic.row_id,"reason":f"Foreign key violation: season_id {lic.season_id}"})
-                    logger.failed(item_key, f"Foreign key violation: season_id {lic.season_id}")
-                    continue
-                if lic.license_id not in valid_license_ids:
-                    results.append({"status":"failed","row_id":lic.row_id,"reason":f"Foreign key violation: license_id {lic.license_id}"})
-                    logger.failed(item_key, f"Foreign key violation: license_id {lic.license_id}")
-                    continue
+            # Success
+            results.append({"status": "success", "row_id": lic.row_id, "reason": "Valid"})
 
-                # Already exists?
-                if key in existing_licenses:
-                    results.append({"status":"skipped","row_id":lic.row_id,"reason":f"Player license already exists"})
-                    logger.skipped(item_key, f"Player license already exists")
-                    continue
-
-                # Date‐range check
-                sd, ed = season_dates.get(lic.season_id, (None,None))
-                if not sd or not ed:
-                    results.append({"status":"failed","row_id":lic.row_id,"reason":f"Season date missing"})
-                    logger.failed(item_key, f"Season date missing")
-                    continue
-                if lic.valid_from < sd or lic.valid_from > ed:
-                    # allow up to 30d fudge beyond season_end
-                    if abs((lic.valid_from - ed).days) <= 30:
-                        lic.valid_from = ed
-                    else:
-                        results.append({"status":"failed","row_id":lic.row_id,"reason":f"Valid from {lic.valid_from} outside {sd}–{ed}"})
-                        logger.failed(item_key, f"Valid from outside season range")
-                        continue
-                if lic.valid_from == ed:
-                    logger.warning(item_key, "Valid from date equals season end date")
-                    # results.append({"status":"skipped",
-                    #                 "row_id":lic.row_id,
-                    #                 "reason":"Valid from date equals season end date"})
-                    # continue
-
-                # Overlap check
-                if ov_key in overlapping_licenses:
-                    of, ot = overlapping_licenses[ov_key]
-                    # overlap if NOT (new_end < of OR new_start > ot)
-                    new_start, new_end = lic.valid_from, lic.valid_to
-                    if not (new_end < of or new_start > ot):
-                        logger.failed(item_key, "Overlaps existing license")
-                        continue
-                    
-                # Everything OK
-                results.append({"status":"success","row_id":lic.row_id,"reason": "Valid player license"})
-
-            return results
-
-        except Exception as e:
-            logging.error(f"Error batch validating licenses: {e}")
-            # fail all on error
-            return [{"status":"failed","row_id":l.row_id,"reason":f"Database error: {e}"} for l in licenses]
-        
-
+        return results
 
     @staticmethod
     def cache_find_by_name_club_date(licenses_cache, firstname, lastname, club_id, tournament_date, fallback_to_latest=False):
@@ -401,34 +373,30 @@ class PlayerLicense(CacheMixin):
         Strict lookup: find player_id with a valid license for tournament_date.
         Optional fallback: return the most recent license if no valid one is found.
         """
-        key = (firstname, lastname, club_id)
+        fn_norm = normalize_key(firstname)
+        ln_norm = normalize_key(lastname)
+        key = (fn_norm, ln_norm, club_id)
         if key not in licenses_cache:
             return None
 
-        # Step 1: Strict match
-        valid_candidates = [
-            license["player_id"]
-            for license in licenses_cache[key]
-            if license["valid_from"] <= tournament_date <= license["valid_to"]
-        ]
-        if len(valid_candidates) == 1:
-            return valid_candidates[0]
-        elif len(valid_candidates) > 1:
-            logging.warning(f"Multiple valid licenses for {firstname} {lastname} at club_id={club_id} on {tournament_date}")
-            return valid_candidates[0]
+        # Strict match on date
+        valid_pids = {
+            lic["player_id"] for lic in licenses_cache[key]
+            if lic["valid_from"] <= tournament_date <= lic["valid_to"]
+        }
+        if len(valid_pids) == 1:
+            return next(iter(valid_pids))
+        elif len(valid_pids) > 1:
+            logging.warning(f"Ambiguous valid licenses for {firstname} {lastname} at club {club_id} on {tournament_date}")
+            return next(iter(valid_pids))  # Arbitrary first
 
-        # Step 2: Optional fallback to most recent license
         if fallback_to_latest:
-            most_recent = max(licenses_cache[key], key=lambda x: x["valid_to"], default=None)
+            most_recent = max(licenses_cache[key], key=lambda lic: lic["valid_to"], default=None)
             if most_recent:
-                logging.info(
-                    f"Fallback: using most recent license for {firstname} {lastname} at club_id={club_id} "
-                    f"(valid_to={most_recent['valid_to']})"
-                )
+                logging.info(f"Fallback to latest license for {firstname} {lastname} at club {club_id} (valid_to={most_recent['valid_to']})")
                 return most_recent["player_id"]
-            
-        logging.warning(f"No valid license found for {firstname} {lastname} at club_id={club_id} on {tournament_date}")
 
+        logging.warning(f"No valid license for {firstname} {lastname} at club {club_id} on {tournament_date}")
         return None
 
     @staticmethod
@@ -442,248 +410,25 @@ class PlayerLicense(CacheMixin):
         fuzzy_threshold=0.85
     ):
         """
-        1. Try each (lastname, firstname) split—strict cache lookup
+        1. Try each (firstname, lastname) split—strict cache lookup
         2. Fuzzy match among licensed players in the club
-        # CHANGE: Removed step 2 (Exact alias lookup) from the description, as aliases are now merged into ext_ids and handled upstream in Player class caches. This simplifies the method and avoids redundant DB queries.
+        Note: Removed alias lookup as it's handled in Player class.
         """
         parts = raw_name.split()
-        candidates = []
+        if len(parts) < 2:
+            return None
 
-        # Build every possible split point (any number of firstnames and lastnames)
+        # Generate possible (fn, ln) splits
         for i in range(1, len(parts)):
-            lastname  = " ".join(parts[:i])
-            firstname = " ".join(parts[i:])
-            candidates.append((lastname, firstname))
-
-        # 1 Strict date‐valid cache lookup (with fallback)
-        for ln, fn in candidates:
+            fn = " ".join(parts[:i])
+            ln = " ".join(parts[i:])
             pid = PlayerLicense.cache_find_by_name_club_date(
-                licenses_cache, fn, ln, club_id, tournament_date,
-                fallback_to_latest=fallback_to_latest
+                licenses_cache, fn, ln, club_id, tournament_date, fallback_to_latest
             )
             if pid:
-                logging.info(f"Matched strict/fallback: '{raw_name}' → fn='{fn}', ln='{ln}'")
+                logging.info(f"Matched split: '{raw_name}' → fn='{fn}', ln='{ln}' pid={pid}")
                 return pid
 
-        # CHANGE: Removed the entire block for "2 Exact alias lookup". Original code had:
-        # for ln, fn in candidates:
-        #     cursor.execute("""
-        #         SELECT pa.player_id, p.firstname, p.lastname
-        #           FROM player_alias pa
-        #           JOIN player       p ON pa.player_id = p.player_id
-        #          WHERE pa.firstname = ? AND pa.lastname = ?
-        #     """, (fn, ln))
-        #     row = cursor.fetchone()
-        #     if row:
-        #         alias_pid, alias_fn, alias_ln = row
-        #         pid = PlayerLicense.cache_find_by_name_club_date(
-        #             licenses_cache, alias_fn, alias_ln, club_id, tournament_date,
-        #             fallback_to_latest=fallback_to_latest
-        #         )
-        #         if pid:
-        #             logging.info(f"Matched alias: '{raw_name}' → '{alias_fn} {alias_ln}'")
-        #             return pid
-        # RATIONALE: With the merge of player_alias into player_id_ext, alias resolution is now part of the Player class (e.g., via cache_id_ext_map and cache_name_year_map). Lookups here should rely on the pre-cached Player data, not query player_alias (which no longer exists). This prevents errors and improves performance.
-
-        # # 3 Fuzzy fallback among all players licensed at this club
-        # cursor.execute("""
-        #     SELECT DISTINCT p.firstname, p.lastname, p.player_id
-        #       FROM player p
-        #       JOIN player_license pl ON p.player_id = pl.player_id
-        #      WHERE pl.club_id = ?
-        # """, (club_id,))
-        # rows = cursor.fetchall()
-
-        # target = raw_name.lower()
-        # best_ratio, best_pid, best_name = 0.0, None, None
-        # for db_fn, db_ln, db_pid in rows:
-        #     db_name = f"{db_fn} {db_ln}".lower()
-        #     ratio = difflib.SequenceMatcher(None, target, db_name).ratio()
-        #     if ratio > best_ratio:
-        #         best_ratio, best_pid, best_name = ratio, db_pid, f"{db_fn} {db_ln}"
-
-        # if best_ratio >= fuzzy_threshold:
-        #     logging.info(f"Fuzzy matched '{raw_name}' → '{best_name}' (score={best_ratio:.2f})")
-        #     return best_pid
-
-        logging.warning(f"No match for '{raw_name}' at club_id={club_id}")
+        # Fuzzy match (if needed, implement with difflib or similar if imported)
+        # For now, skip as not implemented in original
         return None
-    
-
-    # def validate(self, cursor) -> dict:
-    #     """Validate a single PlayerLicense instance."""
-    #     try:
-    #         # Check if player_id exists in player table
-    #         cursor.execute("SELECT 1 FROM player WHERE player_id = ?", (self.player_id,))
-    #         if not cursor.fetchone():
-    #             return {
-    #                 "status": "failed",
-    #                 "row_id": self.row_id,
-    #                 "reason": f"Foreign key violation: player_id {self.player_id} does not exist in player table"
-    #             }
-
-    #         # Check if club_id exists in club table
-    #         cursor.execute("SELECT 1 FROM club WHERE club_id = ?", (self.club_id,))
-    #         if not cursor.fetchone():
-    #             return {
-    #                 "status": "failed",
-    #                 "row_id": self.row_id,
-    #                 "reason": f"Foreign key violation: club_id {self.club_id} does not exist in club table"
-    #             }
-
-    #         # Check if season_id exists in season table
-    #         cursor.execute("SELECT 1 FROM season WHERE season_id = ?", (self.season_id,))
-    #         if not cursor.fetchone():
-    #             return {
-    #                 "status": "failed",
-    #                 "row_id": self.row_id,
-    #                 "reason": f"Foreign key violation: season_id {self.season_id} does not exist in season table"
-    #             }
-
-    #         # Check if license_id exists in license table
-    #         cursor.execute("SELECT 1 FROM license WHERE license_id = ?", (self.license_id,))
-    #         if not cursor.fetchone():
-    #             return {
-    #                 "status": "failed",
-    #                 "row_id": self.row_id,
-    #                 "reason": f"Foreign key violation: license_id {self.license_id} does not exist in license table"
-    #             }
-
-    #         # Check if the record already exists
-    #         cursor.execute("""
-    #             SELECT 1 FROM player_license 
-    #             WHERE player_id = ? AND license_id = ? AND season_id = ? AND club_id = ?
-    #         """, (self.player_id, self.license_id, self.season_id, self.club_id))
-    #         if cursor.fetchone():
-    #             return {
-    #                 "status": "skipped",
-    #                 "row_id": self.row_id,
-    #                 "reason": "Player license already exists in database"
-    #             }
-
-    #         # Check for overlapping licenses
-    #         cursor.execute("""
-    #             SELECT 1 FROM player_license 
-    #             WHERE player_id = ? AND license_id = ? AND season_id = ? 
-    #             AND ((valid_from <= ? AND valid_to >= ?) OR (valid_from <= ? AND valid_to >= ?))
-    #         """, (self.player_id, self.license_id, self.season_id, self.valid_from, self.valid_from, self.valid_to, self.valid_to))
-    #         if cursor.fetchone():
-    #             return {
-    #                 "status": "success",
-    #                 "row_id": self.row_id,
-    #                 "reason": "Warning! Player already has a license of the same type with overlapping dates"
-    #             }
-
-    #         return {
-    #             "status": "success",
-    #             "row_id": self.row_id,
-    #             "reason": "Player license validated successfully"
-    #         }
-    #     except Exception as e:
-    #         logging.error(f"Error validating license for player_id {self.player_id}: {e}")
-    #         return {
-    #             "status": "failed",
-    #             "row_id": self.row_id,
-    #             "reason": f"Database error: {str(e)}"
-    #         }        
-
-    # def save_to_db(self, cursor, logger):
-    #     try:
-    #         item_key = f"{self.firstname} {self.lastname} (Player_id: {self.player_id}, Club_id: {self.club_id}, Season_id: {self.season_id}, License_id: {self.license_id})"
-    #         # Check if player_id exists in player table
-    #         cursor.execute("SELECT 1 FROM player WHERE player_id = ?", (self.player_id,))
-    #         if not cursor.fetchone():
-    #             logger.failed(item_key, f"Foreign key violation: player_id does not exist in player table")
-    #             return {
-    #                 "status": "failed",
-    #                 "player_id": self.player_id,
-    #                 "reason": f"Foreign key violation: player_id {self.player_id} does not exist in player table"
-    #             }
-
-    #         # Check if club_id exists in club table
-    #         cursor.execute("SELECT 1 FROM club WHERE club_id = ?", (self.club_id,))
-    #         if not cursor.fetchone():
-    #             logger.failed(item_key, f"Foreign key violation: club_id does not exist in club table")
-    #             return {
-    #                 "status": "failed",
-    #                 "player_id": self.player_id,
-    #                 "reason": f"Foreign key violation: club_id {self.club_id} does not exist in club table"
-    #             }
-
-    #         # Check if season_id exists in season table
-    #         cursor.execute("SELECT 1 FROM season WHERE season_id = ?", (self.season_id,))
-    #         if not cursor.fetchone():
-    #             logger.failed(item_key, f"Foreign key violation: season_id does not exist in season table")
-    #             return {
-    #                 "status": "failed",
-    #                 "player_id": self.player_id,
-    #                 "reason": f"Foreign key violation: season_id {self.season_id} does not exist in season table"
-    #             }
-
-    #         # Check if license_id exists in license table
-    #         cursor.execute("SELECT 1 FROM license WHERE license_id = ?", (self.license_id,))
-    #         if not cursor.fetchone():
-    #             logger.failed(item_key, f"Foreign key violation: license_id does not exist in license table")
-    #             return {
-    #                 "status": "failed",
-    #                 "player_id": self.player_id,
-    #                 "reason": f"Foreign key violation: license_id {self.license_id} does not exist in license table"
-    #             }
-
-    #         # Check if the record already exists
-    #         cursor.execute("""
-    #             SELECT 1 FROM player_license 
-    #             WHERE player_id = ? AND license_id = ? AND season_id = ? AND club_id = ?
-    #         """, (self.player_id, self.license_id, self.season_id, self.club_id))
-    #         if cursor.fetchone():
-    #             logger.failed(item_key, f"Player license already exists in database")
-    #             return {
-    #                 "status": "skipped",
-    #                 "player_id": self.player_id,
-    #                 "reason": "Player license already exists in database"
-    #             }
-
-    #         # Check if the player already has a license of the same type with overlapping dates
-    #         cursor.execute("""
-    #             SELECT 1 FROM player_license 
-    #             WHERE player_id = ? AND license_id = ? AND season_id = ? 
-    #             AND ((valid_from <= ? AND valid_to >= ?) OR (valid_from <= ? AND valid_to >= ?))
-    #         """, (self.player_id, self.license_id, self.season_id, self.valid_from, self.valid_from, self.valid_to, self.valid_to))
-
-    #         overlapping_license = 1 if cursor.fetchone() else 0
-
-    #         # Insert the player license
-    #         cursor.execute("""
-    #             INSERT INTO player_license (
-    #                 player_id, club_id, valid_from, valid_to, license_id, season_id
-    #             )
-    #             VALUES (?, ?, ?, ?, ?, ?)
-    #         """, (
-    #             self.player_id, self.club_id, self.valid_from, self.valid_to,
-    #             self.license_id, self.season_id
-    #         ))
-
-    #         if overlapping_license == 1:
-    #             # logging.warning(f"Player player_id: {self.player_id} already has a license of the same type with overlapping dates. Club: {self.club_id}, Season: {self.season_id}, License: {self.license_id}, Dates: {self.valid_from} - {self.valid_to}")
-    #             logger.warning(item_key, "Player already has a license of the same type with overlapping dates")
-    #             logger.success(item_key, "Player license inserted successfully, but with overlapping dates")
-    #             return {
-    #                     "status": "success",
-    #                     "player_id": self.player_id,
-    #                     "reason": "Warning! Player already has a license of the same type with overlapping dates"
-    #                 }
-
-    #         logger.success(item_key, "Player license inserted successfully")
-    #         logging.info(item_key, "Player license inserted successfully")
-    #         return {
-    #             "status": "success",
-    #             "player_id": self.player_id,
-    #             "reason": "Player license inserted successfully"
-    #         }
-
-    #     except Exception as e:
-    #         return {
-    #             "status": "failed",
-    #             "player_id": self.player_id,
-    #             "reason": f"Database error: {str(e)}"
-    #         }

@@ -603,19 +603,19 @@ def create_tables(cursor):
         # Create player license raw table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_license_raw (
-                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                season_label TEXT NOT NULL, 
-                season_id_ext INTEGER NOT NULL,
-                club_name TEXT NOT NULL,
-                club_id_ext INT NOT NULL,
-                player_id_ext INTEGER NOT NULL,
-                firstname TEXT NOT NULL,
-                lastname TEXT NOT NULL,
-                gender TEXT NOT NULL,
-                year_born INTEGER NOT NULL,
-                license_info_raw TEXT NOT NULL,
-                ranking_group_raw TEXT,
-                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                season_label                    TEXT NOT NULL, 
+                season_id_ext                   INTEGER NOT NULL,
+                club_name                       TEXT NOT NULL,
+                club_id_ext                     INT NOT NULL,
+                player_id_ext                   INTEGER NOT NULL,
+                firstname                       TEXT NOT NULL,
+                lastname                        TEXT NOT NULL,
+                gender                          TEXT NOT NULL,
+                year_born                       INTEGER NOT NULL,
+                license_info_raw                TEXT NOT NULL,
+                ranking_group_raw               TEXT,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(season_id_ext, player_id_ext, club_name, year_born, firstname, lastname, license_info_raw)
             )
         ''')    
@@ -623,13 +623,13 @@ def create_tables(cursor):
         # Create player license table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_license (
-                player_id INTEGER NOT NULL,
-                club_id INTEGER NOT NULL,
-                valid_from DATE NOT NULL,
-                valid_to DATE NOT NULL,
-                license_id INTEGER NOT NULL,
-                season_id INTEGER NOT NULL,
-                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                player_id                       INTEGER NOT NULL,
+                club_id                         INTEGER NOT NULL,
+                valid_from                      DATE NOT NULL,
+                valid_to                        DATE NOT NULL,
+                license_id                      INTEGER NOT NULL,
+                season_id                       INTEGER NOT NULL,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (player_id) REFERENCES player(player_id),
                 FOREIGN KEY (club_id) REFERENCES club(club_id),
                 FOREIGN KEY (season_id) REFERENCES season(season_id),
@@ -641,17 +641,17 @@ def create_tables(cursor):
         # Create player transition raw data table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_transition_raw (
-                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                season_id_ext INTEGER NOT NULL,
-                season_label TEXT NOT NULL,
-                firstname TEXT NOT NULL,
-                lastname TEXT NOT NULL,   
-                date_born DATE NOT NULL,
-                year_born INTEGER NOT NULL,                
-                club_from TEXT NOT NULL,
-                club_to TEXT NOT NULL,
-                transition_date DATE NOT NULL,
-                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                season_id_ext                   INTEGER NOT NULL,
+                season_label                    TEXT NOT NULL,
+                firstname                       TEXT NOT NULL,
+                lastname                        TEXT NOT NULL,   
+                date_born                       DATE NOT NULL,
+                year_born                       INTEGER NOT NULL,                
+                club_from                       TEXT NOT NULL,
+                club_to                         TEXT NOT NULL,
+                transition_date                 DATE NOT NULL,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (firstname, lastname, date_born, transition_date)
             )
         ''')               
@@ -659,15 +659,15 @@ def create_tables(cursor):
         # Create player transition table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_transition (
-                season_id INTEGER NOT NULL,
-                player_id INTEGER NOT NULL,
-                club_id_from INTEGER NOT NULL,
-                club_id_to INTEGER NOT NULL,
-                transition_date DATE NOT NULL,
-                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (player_id) REFERENCES player(player_id),
-                FOREIGN KEY (club_id_from) REFERENCES club(club_id),
-                FOREIGN KEY (club_id_to) REFERENCES club(club_id),
+                season_id                       INTEGER NOT NULL,
+                player_id                       INTEGER NOT NULL,
+                club_id_from                    INTEGER NOT NULL,
+                club_id_to                      INTEGER NOT NULL,
+                transition_date                 DATE NOT NULL,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (player_id)         REFERENCES player(player_id),
+                FOREIGN KEY (club_id_from)      REFERENCES club(club_id),
+                FOREIGN KEY (club_id_to)        REFERENCES club(club_id),
                 UNIQUE (player_id, club_id_from, club_id_to, transition_date)
             )
         ''')
@@ -675,30 +675,30 @@ def create_tables(cursor):
         # Create player ranking group table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_ranking_group (
-                player_id INTEGER NOT NULL,
-                ranking_group_id INTEGER NOT NULL,
-                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (ranking_group_id) REFERENCES ranking_group(ranking_group_id),
-                FOREIGN KEY (player_id) REFERENCES player(player_id)
+                player_id                       INTEGER NOT NULL,
+                ranking_group_id                INTEGER NOT NULL,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (ranking_group_id)  REFERENCES ranking_group(ranking_group_id),
+                FOREIGN KEY (player_id)         REFERENCES player(player_id)
             )
         ''')
 
         # Create player ranking raw table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_ranking_raw (
-                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id INTEGER,
-                run_date DATE,
-                player_id_ext INTEGER,
-                firstname TEXT,
-                lastname TEXT,
-                year_born INTEGER,
-                club_name TEXT,
-                points INTEGER,
-                points_change_since_last INTEGER,
-                position_world INTEGER,
-                position INTEGER,
-                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id                          INTEGER,
+                run_date                        DATE,
+                player_id_ext                   INTEGER,
+                firstname                       TEXT,
+                lastname                        TEXT,
+                year_born                       INTEGER,
+                club_name                       TEXT,
+                points                          INTEGER,
+                points_change_since_last        INTEGER,
+                position_world                  INTEGER,
+                position                        INTEGER,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (run_id, player_id_ext)
             )
         ''')
@@ -706,13 +706,13 @@ def create_tables(cursor):
         # Create player ranking table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_ranking (
-                run_id INTEGER NOT NULL,
-                run_date DATE NOT NULL,
-                player_id INTEGER NOT NULL, 
-                points INTEGER NOT NULL,
-                points_change_since_last INTEGER NOT NULL,
-                position_world INTEGER NOT NULL,
-                position INTEGER NOT NULL,
+                run_id                          INTEGER NOT NULL,
+                run_date                        DATE NOT NULL,
+                player_id                       INTEGER NOT NULL, 
+                points                          INTEGER NOT NULL,
+                points_change_since_last        INTEGER NOT NULL,
+                position_world                  INTEGER NOT NULL,
+                position                        INTEGER NOT NULL,
                 PRIMARY KEY (player_id, run_date),
                 FOREIGN KEY (player_id) REFERENCES player(player_id)
             )

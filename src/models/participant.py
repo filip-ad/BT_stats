@@ -1,11 +1,10 @@
 # src/models/participant.py
 
 from dataclasses import dataclass
-import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import sqlite3
 
-from models import tournament
+
 from .base import BaseModel
 
 

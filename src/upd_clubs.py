@@ -95,7 +95,7 @@ def upd_clubs(dry_run: bool = False) -> None:
                         "club_id": club_id,
                         "reason": f"{category.capitalize()} already existed"
                     })
-                    logging.info(f"{category.capitalize()} {shortname} already existed for club_id={club_id}")
+                    # logging.info(f"{category.capitalize()} {shortname} already existed for club_id={club_id}")
             except Exception as e:
                 db_results.append({
                     "status": "failed",

@@ -79,8 +79,9 @@ class Player(CacheMixin):
     @classmethod
     def cache_name_map_unverified(cls, cursor) -> Dict[str, int]:
         """
-        Build a clean full name to player_id map for unverified players using cached query.
-        Assumes names are unique for unverified.
+        Build a normalized full name to player_id map for unverified players using cached query.
+        Assumes names are unique for unverified after normalization.
+        If collisions occur post-normalization, consider changing to List[int] and handling ambiguity.
         """
         sql = """
             SELECT player_id, fullname_raw
@@ -91,9 +92,12 @@ class Player(CacheMixin):
 
         unverified_map: Dict[str, int] = {}
         for row in rows:
-            clean_name = " ".join(row['fullname_raw'].strip().split())
-            unverified_map[clean_name] = row['player_id']
-        return unverified_map    
+            norm_name = normalize_key(row['fullname_raw'])
+            if norm_name in unverified_map:
+                logging.warning(f"Normalized name collision for unverified player: {norm_name}")
+                # For now, overwrite; if common, change to List[int] and resolve like verified
+            unverified_map[norm_name] = row['player_id']
+        return unverified_map
 
     def save_to_db(
             self, 
@@ -432,7 +436,6 @@ class Player(CacheMixin):
         cursor,
         fullname_raw: str,
         year_born: Optional[int] = None,
-        player_id_ext: Optional[str] = None,
         data_source_id: Optional[int] = None
     ) -> Optional[int]:
         """
@@ -445,7 +448,7 @@ class Player(CacheMixin):
         )
         res = player.save_to_db(
             cursor,
-            player_id_ext=player_id_ext,
+            player_id_ext=None,
             data_source_id=data_source_id
         )
 

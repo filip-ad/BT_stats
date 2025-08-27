@@ -137,13 +137,10 @@ def upd_player_licenses():
                 logger.failed(item_key, f"Valid from date is outside the season range")
                 continue
 
-<<<<<<< HEAD
             # Skip if valid_from equals season end date
             if valid_from == season.end_date:
                 logging.warning(f"Player {firstname} {lastname} {club_name} (ext_id: {player_id_ext}, id: {player_id}) skipped because valid_from ({valid_from}) equals season end date, row_id {row_id}")
 
-=======
->>>>>>> dfbb58977579c213753fb2cf6e59bd4e083f1afb
             # Map player using player_id_ext
             player = player_id_ext_map.get((player_id_ext, data_source_id))
             if not player:
@@ -193,13 +190,13 @@ def upd_player_licenses():
 
         # Batch validate licenses
         batch_start = time.time()
-        validation_results = PlayerLicense.validate_batch(cursor, licenses, logger)
+        validation_results = PlayerLicense.batch_validate(cursor, licenses, logger)
 
         # Extract valid licenses for saving
         valid_licenses = [licenses[i] for i, result in enumerate(validation_results) if result["status"] == "success"]
 
         # Batch save valid licenses
-        save_results = PlayerLicense.batch_save_to_db(cursor, valid_licenses, logger)
+        save_results = PlayerLicense.batch_insert(cursor, valid_licenses, logger)
 
         logging.info(f"Batch validation and insert completed in {time.time() - batch_start:.2f} seconds")
         logging.info(f"Player cache misses: {player_cache_misses}, Club cache misses: {club_cache_misses}, License cache_misses: {license_cache_misses}")

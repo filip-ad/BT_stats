@@ -173,39 +173,52 @@ def sanitize_name(name: str) -> str:
 
 def normalize_key(name: str) -> str:
     """
-    Produce a matching key by:
+    Updated: Produce a matching key by:
         1) stripping and collapsing whitespace
-        2) decomposing Unicode and removing diacritics
-        3) lowercasing
-    Example: 'Harry Hamrén' -> 'harry hamren'
+        2) lowercasing
+        3) decomposing Unicode and removing diacritics *except* for Nordic letters (ÅÄÖåäö), which are preserved as-is.
+    Example: 'Harry Hamrén ÅÄÖ' -> 'harry hamren åäö'
     """
     s = name.strip()
     s = re.sub(r"\s+", " ", s)
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    return s.lower()
+    s = s.lower()  # Lowercase first to simplify
 
-def name_keys_for_lookup_all_splits(name: str) -> list[str]:
+    # Decompose and remove combining only for non-Nordic
+    normalized = []
+    for ch in s:
+        if ch in 'åäö':  # Preserve lowercase Nordic as-is
+            normalized.append(ch)
+        else:
+            decomp = unicodedata.normalize("NFKD", ch)
+            normalized.append("".join(c for c in decomp if not unicodedata.combining(c)))
+    
+    return "".join(normalized)
+
+def name_keys_for_lookup_all_splits(name: str) -> List[str]:
     """
     Generate normalized name keys:
       - the raw normalized string
       - for every split point i (1..n-1): 
-          * "lastname firstname" where lastname = tokens[i:], firstname = tokens[:i]
-          * "firstname lastname" where firstname = tokens[:i], lastname = tokens[i:]
-    This covers any number of first-/last-name tokens.
+          * "prefix suffix" where prefix = tokens[:i] (firstname(s)), suffix = tokens[i:] (lastname(s))
+          * "suffix prefix" (reversed for lastname firstname order)
+    This covers any number of first-/last-name tokens and possible order flips in PDFs.
+    Example: For "John Doe Smith": ['smith john doe', 'john doe smith', 'doe smith john']
+    Deduplicates unique keys.
     """
     n = normalize_key(name)
     parts = n.split()
     if len(parts) <= 1:
         return [n]
-
-    keys: set[str] = {n}
+    keys = [n]  # Include raw normalized full string
     for i in range(1, len(parts)):
-        first = " ".join(parts[:i])
-        last  = " ".join(parts[i:])
-        keys.add(f"{last} {first}")   # lastname firstname
-        keys.add(f"{first} {last}")   # firstname lastname
-    return list(keys)
+        prefix = " ".join(parts[:i])
+        suffix = " ".join(parts[i:])
+        fn_ln = f"{prefix} {suffix}"  # firstname(s) lastname(s)
+        ln_fn = f"{suffix} {prefix}"  # lastname(s) firstname(s)
+        keys.append(fn_ln)
+        if fn_ln != ln_fn:  # Avoid dup if symmetric
+            keys.append(ln_fn)
+    return list(set(keys))  # Dedup and return as list
 
 class OperationLogger:
     """

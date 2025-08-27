@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 import datetime
 from typing import Optional, List, Dict, Any, Tuple, Set
 import logging
 import sqlite3
 from models.base import BaseModel
+from models.tournament import Tournament
 from utils import OperationLogger, parse_date
 
 @dataclass
 class TournamentClass(BaseModel):
     tournament_class_id:            Optional[int]  = None           # Canonical ID for class
-    tournament_class_id_ext:        Optional[int]  = None           # External ID from ondata.se or other source
+    tournament_class_id_ext:        Optional[str]  = None           # External ID from ondata.se or other source
     tournament_id:                  int = None                      # Foreign key to parent tournament
     tournament_class_type_id:       Optional[int]  = None           # Type of class (e.g., "singles", "doubles")
     tournament_class_structure_id:  Optional[int]  = None           # Foreign key to tournament structure (e.g., "knockout", "round-robin")
@@ -48,6 +50,35 @@ class TournamentClass(BaseModel):
         )
     
     @classmethod
+    def from_row(
+        cls, 
+        row: Dict[str, Any]
+    ) -> 'TournamentClass':
+        """Instantiate from a database row dict, including extra fields like tournament_is_valid."""
+        return cls.from_dict(row)  # Assumes from_dict handles extra keys like tournament_is_valid
+    
+    @classmethod
+    def get_internal_class_ids(
+        cls,
+        cursor: sqlite3.Cursor,
+        ext_ids: List[str],
+        data_source_id: int = 1
+    ) -> List[int]:
+        """Convert list of external class IDs (with data_source_id) to internal tournament_class_ids."""
+        if not ext_ids:
+            return []
+
+        placeholders = ', '.join(['?'] * len(ext_ids))
+        sql = f"""
+            SELECT tournament_class_id 
+            FROM tournament_class 
+            WHERE tournament_class_id_ext IN ({placeholders}) AND data_source_id = ?
+        """
+        params = ext_ids + [data_source_id]
+        cursor.execute(sql, params)
+        return [row[0] for row in cursor.fetchall()]
+    
+    @classmethod
     def get_valid_singles_after_cutoff(
         cls, 
         cursor: sqlite3.Cursor, 
@@ -63,30 +94,188 @@ class TournamentClass(BaseModel):
         results = cls.cached_query(cursor, sql, (cutoff_date,), cache_key_extra="get_valid_singles_after_cutoff")
         return [cls.from_dict(res) for res in results]
 
+    # @classmethod
+    # def get_filtered_classes(
+    #     cls,
+    #     cursor: sqlite3.Cursor,
+    #     class_id_ext: Optional[int] = None,
+    #     max_classes: Optional[int] = None,
+    #     order: Optional[str] = None
+    # ) -> List['TournamentClass']:
+    #     """Load and filter tournament classes based on config settings."""
+    #     classes_by_ext = cls.cache_by_id_ext(cursor)
+    #     if class_id_ext:
+    #         tc = classes_by_ext.get(class_id_ext)
+    #         classes = [tc] if tc else []
+    #     else:
+    #         classes = list(classes_by_ext.values())
+
+    #     order = (order or "").lower()
+    #     if order == "newest":
+    #         classes.sort(key=lambda tc: tc.date or datetime.date.min, reverse=True)
+    #     elif order == "oldest":
+    #         classes.sort(key=lambda tc: tc.date or datetime.date.min)
+
+    #     if max_classes and max_classes > 0:
+    #         classes = classes[:max_classes]
+    #     return classes
+
+
+# Assuming other class methods like cache_by_id_ext are defined elsewhere in this file.
+# For example:
+# @classmethod
+# def cache_by_id_ext(cls, cursor: sqlite3.Cursor) -> Dict[int, 'TournamentClass']:
+#     # Logic to query all and return {tc.id_ext: tc for tc in queried}
+#
+# Similarly, assume there are cache_by_id, cache_by_tournament_id if needed, or generalize as below.
+
     @classmethod
     def get_filtered_classes(
         cls,
-        cursor: sqlite3.Cursor,
-        class_id_ext: Optional[int] = None,
-        max_classes: Optional[int] = None,
-        order: Optional[str] = None
+        cursor:                 sqlite3.Cursor,
+        class_id_exts:          Optional[List[str]] = None,  # External class IDs
+        tournament_id_exts:     Optional[List[str]] = None,  # External tournament IDs
+        data_source_id:         Optional[int] = None,
+        cutoff_date:            Optional[date] = None,
+        require_ended:          bool = True,
+        allowed_type_ids:       Optional[List[int]] = None,
+        max_classes:            Optional[int] = None,
+        order:                  Optional[str] = None,
+        cache_key:              Optional[str] = None  # e.g., 'id', 'tournament_id'; None for direct SQL query
     ) -> List['TournamentClass']:
-        """Load and filter tournament classes based on config settings."""
-        classes_by_ext = cls.cache_by_id_ext(cursor)
-        if class_id_ext:
-            tc = classes_by_ext.get(class_id_ext)
-            classes = [tc] if tc else []
+        """Load and filter tournament classes based on config settings.
+        
+        Accepts either class_id_exts or tournament_id_exts (with data_source_id), converts to internal IDs,
+        and applies other filters. If neither ext list is provided, uses only other filters.
+        Raises error if both ext lists are provided or if data_source_id missing when exts given.
+        If cache_key is provided, queries all classes, builds an in-memory cache dict using the specified key,
+        and filters/looks up in memory. If cache_key is None, builds a dynamic SQL query with filters
+        for efficiency (direct fetch of matching rows).
+        Note: cache_key options adjusted to internal keys (e.g., 'id' for tournament_class_id, 'tournament_id').
+        """
+        if class_id_exts is not None and tournament_id_exts is not None:
+            raise ValueError("Cannot provide both class_id_exts and tournament_id_exts")
+        if (class_id_exts is not None or tournament_id_exts is not None) and data_source_id is None:
+            raise ValueError("data_source_id required when providing class_id_exts or tournament_id_exts")
+
+        class_ids: Optional[List[int]] = None
+        tournament_ids: Optional[List[int]] = None
+        if class_id_exts is not None:
+            class_ids = cls.get_internal_class_ids(cursor, class_id_exts, data_source_id)
+        elif tournament_id_exts is not None:
+            tournament_ids = Tournament.get_internal_tournament_ids(cursor, tournament_id_exts, data_source_id)
+
+        classes: List['TournamentClass']
+
+        if cache_key is not None:
+            # Query all classes (self-contained, no nested method calls)
+            all_query = """
+                SELECT tc.*, t.tournament_status_id AS tournament_status_id
+                FROM tournament_class tc
+                JOIN tournament t ON tc.tournament_id = t.tournament_id
+            """
+            cursor.execute(all_query)
+            rows = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            all_rows = [dict(zip(columns, row)) for row in rows]
+            all_classes = [cls.from_row(r) for r in all_rows]
+
+            # Build cache dict based on cache_key
+            classes_by_key: Any = {}
+            is_grouped = False
+            if cache_key == 'tournament_id':
+                classes_by_key = defaultdict(list)
+                for tc in all_classes:
+                    classes_by_key[tc.tournament_id].append(tc)
+                is_grouped = True
+            elif cache_key == 'id':
+                for tc in all_classes:
+                    classes_by_key[tc.tournament_class_id] = tc  # Use internal id
+            else:
+                raise ValueError(f"Unsupported cache_key: {cache_key}")
+
+            # Lookup if specific IDs match the cache_key, else filter all_classes
+            if class_ids is not None and cache_key == 'id':
+                classes = [classes_by_key.get(cid) for cid in class_ids if cid in classes_by_key]
+            elif tournament_ids is not None and cache_key == 'tournament_id':
+                classes = [tc for tid in tournament_ids for tc in classes_by_key.get(tid, [])]
+            elif class_ids is not None and cache_key != 'id':
+                raise ValueError(f"class_ids derived but cache_key '{cache_key}' does not match 'id'")
+            elif tournament_ids is not None and cache_key != 'tournament_id':
+                raise ValueError(f"tournament_ids derived but cache_key '{cache_key}' does not match 'tournament_id'")
+            else:
+                # No specific lookup: filter all_classes in memory
+                classes = [
+                    tc for tc in all_classes
+                    if (class_ids is None or tc.tournament_class_id in class_ids)
+                    and (tournament_ids is None or tc.tournament_id in tournament_ids)
+                    and (not require_ended or tc.tournament_status_id == 3)
+                    and (allowed_type_ids is None or tc.tournament_class_type_id in allowed_type_ids)
+                    and (cutoff_date is None or tc.date >= cutoff_date)
+                ]
+
+            # Apply sorting in memory
+            order = (order or "").lower()
+            if order == "newest":
+                classes.sort(key=lambda tc: tc.date or datetime.date.min, reverse=True)
+            elif order == "oldest":
+                classes.sort(key=lambda tc: tc.date or datetime.date.min)
+
+            # Apply max limit
+            if max_classes is not None and max_classes > 0:
+                classes = classes[:max_classes]
+
         else:
-            classes = list(classes_by_ext.values())
+            # Direct dynamic SQL query (efficient, no in-memory filtering)
+            query = """
+                SELECT tc.*, t.tournament_status_id AS tournament_status_id
+                FROM tournament_class tc
+                JOIN tournament t ON tc.tournament_id = t.tournament_id
+                WHERE 1=1
+            """
+            params: List[Any] = []
 
-        order = (order or "").lower()
-        if order == "newest":
-            classes.sort(key=lambda tc: tc.date or datetime.date.min, reverse=True)
-        elif order == "oldest":
-            classes.sort(key=lambda tc: tc.date or datetime.date.min)
+            if require_ended:
+                query += " AND t.tournament_status_id = 3"
 
-        if max_classes and max_classes > 0:
-            classes = classes[:max_classes]
+            if class_ids is not None:
+                placeholders = ', '.join(['?'] * len(class_ids))
+                query += f" AND tc.tournament_class_id IN ({placeholders})"
+                params.extend(class_ids)
+
+            if tournament_ids is not None:
+                placeholders = ', '.join(['?'] * len(tournament_ids))
+                query += f" AND tc.tournament_id IN ({placeholders})"
+                params.extend(tournament_ids)
+
+            if allowed_type_ids is not None:
+                placeholders = ', '.join(['?'] * len(allowed_type_ids))
+                query += f" AND tc.tournament_class_type_id IN ({placeholders})"
+                params.extend(allowed_type_ids)
+
+            if cutoff_date is not None:
+                query += " AND tc.date >= ?"
+                params.append(cutoff_date)
+
+            # Apply ordering
+            order = (order or "").lower()
+            if order == "newest":
+                query += " ORDER BY tc.date DESC"
+            elif order == "oldest":
+                query += " ORDER BY tc.date ASC"
+
+            # Apply max limit
+            if max_classes is not None and max_classes > 0:
+                query += " LIMIT ?"
+                params.append(max_classes)
+
+            # Execute and instantiate
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+            row_dicts = [dict(zip(columns, row)) for row in rows]
+            classes = [cls.from_row(rd) for rd in row_dicts]
+
         return classes
     
     @classmethod

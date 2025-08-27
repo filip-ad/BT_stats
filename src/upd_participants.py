@@ -9,8 +9,14 @@ from datetime import date, datetime
 import time
 from typing import Any, List, Dict, Optional, Tuple
 from db import get_conn
-from utils import parse_date, OperationLogger, normalize_key
-from config import SCRAPE_TOURNAMENTS_CUTOFF_DATE, SCRAPE_PARTICIPANTS_CLASS_ID_EXTS, SCRAPE_PARTICIPANTS_ORDER
+from utils import name_keys_for_lookup_all_splits, parse_date, OperationLogger, normalize_key
+from config import (
+    SCRAPE_PARTICIPANTS_CUTOFF_DATE,
+    SCRAPE_PARTICIPANTS_CLASS_ID_EXTS, 
+    SCRAPE_PARTICIPANTS_ORDER,
+    SCRAPE_PARTICIPANTS_MAX_CLASSES,
+    SCRAPE_PARTICIPANTS_TNMT_ID_EXTS
+)
 from models.tournament_class import TournamentClass
 from models.club import Club
 from models.player_license import PlayerLicense
@@ -39,34 +45,35 @@ def upd_participants():
     start_time = time.time()
 
     try:
+
         try:
-            cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
+            cutoff_date = parse_date(SCRAPE_PARTICIPANTS_CUTOFF_DATE)
         except ValueError as ve:
             logger.failed("global", f"Invalid cutoff date format: {ve}")
             print(f"❌ Invalid cutoff date format: {ve}")
             return
 
-        # Fetch classes (singles only for now, filtered by cutoff or by list of class id ext)
-        # Also checks tournament.is_valid = 1 making sure the class structure is known so we know how to parse
-        # =============================================================================
-        if SCRAPE_PARTICIPANTS_CLASS_ID_EXTS != 0:
-            classes = TournamentClass.get_by_ext_ids(cursor, SCRAPE_PARTICIPANTS_CLASS_ID_EXTS)
-            print(f"ℹ️  Filtered to {len(classes)} specific classes via SCRAPE_CLASS_PARTICIPANTS_CLASS_ID_EXT (overriding cutoff).")
-        else:
-            classes = TournamentClass.get_valid_singles_after_cutoff(cursor, cutoff_date)
-            if not classes:
-                logger.skipped("global", "No singles classes after cutoff date")
-                print("⚠️  No singles classes after cutoff date.")
-                return
-            
-        order = (SCRAPE_PARTICIPANTS_ORDER or "").lower()
-        if order == "newest":
-            classes.sort(key=lambda tc: tc.date or datetime.date.min, reverse=True)
-        elif order == "oldest":
-            classes.sort(key=lambda tc: tc.date or datetime.date.min)
-            
-        logging.info(f"Scraping participants for {len(classes)} valid only singles classes with cutoff date: {cutoff_date}")
-        print(f"ℹ️  Scraping participants for {len(classes)} valid only singles classes, cutoff: {cutoff_date}")
+        classes = TournamentClass.get_filtered_classes(
+            cursor,
+            class_id_exts       = SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+            tournament_id_exts  = SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
+            data_source_id      = 1 if SCRAPE_PARTICIPANTS_CLASS_ID_EXTS else None,  # Assume default 1
+            cutoff_date         = cutoff_date,
+            require_ended       = True, # Only include ended tournaments, status_id = 3
+            allowed_type_ids    = [1],  # Singles only (type_id 1)
+            max_classes         = SCRAPE_PARTICIPANTS_MAX_CLASSES,
+            order               = SCRAPE_PARTICIPANTS_ORDER
+        )
+
+        if not classes:
+            logger.skipped("global", "No valid singles classes matching filters")
+            print("⚠️  No valid singles classes matching filters.")
+            return
+
+        print(f"ℹ️  Filtered to {len(classes)} valid singles classes{' via SCRAPE_PARTICIPANTS_CLASS_ID_EXTS (overriding cutoff)' if SCRAPE_PARTICIPANTS_CLASS_ID_EXTS else f' after cutoff date: {cutoff_date or "none"}'}.")
+
+        logging.info(f"Scraping participants for {len(classes)} valid singles classes with cutoff date: {cutoff_date or 'none'}")
+        print(f"ℹ️  Scraping participants for {len(classes)} valid singles classes, cutoff: {cutoff_date or 'none'}")
 
         # Build lookup caches exactly once
         club_map                    = Club.cache_name_map(cursor)
@@ -387,99 +394,6 @@ def parse_players_pdf(
     finally:
         pdf.close()
 
-    # def _strip_above_and_header(block: str) -> tuple[str, int | None]:
-    #     m = EXPECTED_PARTICIPANT_COUNT_RE.search(block)
-    #     if m:
-    #         end_of_header_line = block.find('\n', m.end())
-    #         if end_of_header_line == -1:
-    #             end_of_header_line = len(block)
-    #         # logging.info(f"\nStripped block: \n{block}")
-    #         return block[end_of_header_line + 1:], int(m.group(1))
-    #     # logging.info(f"\nUnstripped block: \n{block}")
-    #     return block, None
-
-    # pdf = pdfplumber.open(BytesIO(pdf_bytes))
-    # try:
-    #     for page in pdf.pages:
-
-    #         # ---- text blocks (handle two columns) ----
-    #         w, h = page.width, page.height
-    #         TOP         = 100
-    #         BOTTOM      = 50
-    #         left  = page.crop((0,     TOP, w/2,   h - BOTTOM)).extract_text() or ""
-    #         right = page.crop((w/2,   TOP, w,     h - BOTTOM)).extract_text() or ""
-            
-    #         for raw_block in (left, right):
-               
-    #             # remove sections you already cut elsewhere
-    #             block = re.sub              (r'Directly qualified.*$', "", raw_block, flags=re.M)
-    #             block = re.sub              (r'Group stage.*$',        "", block, flags=re.M)
-    #             block = TITLE_RE.sub('', block)
-    #             block = CLASS_HEADER_RE.sub('', block)
-    #             block = FOOTER_ANY_LINE_RE.sub('', block)
-
-    #             # cut everything above the per-block header (kills titles)
-    #             block, cnt = _strip_above_and_header(block)
-
-    #             # Debug placeholder
-    #             print(block)
-
-    #             if expected_count is None and cnt is not None:
-    #                 expected_count = cnt
-    #             if block:
-    #                 full_text_blocks.append(block)
-
-    #         # ---- bold name detection for seeding ----
-    #         words = page.extract_words(
-    #             use_text_flow=True,
-    #             keep_blank_chars=False,
-    #             extra_attrs=["fontname"]
-    #         )
-    #         if not words:
-    #             continue
-
-    #         # cluster tokens by line (y top within tolerance)
-    #         lines: dict[int, list[dict]] = {}
-    #         tol = 2
-    #         for w in words:
-    #             t = int(round(w["top"]))
-    #             key = next((k for k in lines.keys() if abs(k - t) <= tol), t)
-    #             lines.setdefault(key, []).append(w)
-
-    #         for _, line_words in lines.items():
-    #             # reconstruct "name before comma"
-    #             name_tokens = []
-    #             for w in line_words:
-    #                 txt = w["text"]
-    #                 if "," in txt:
-    #                     before = txt.split(",", 1)[0].strip()
-    #                     if before:
-    #                         name_tokens.append(before)
-    #                     break
-    #                 else:
-    #                     name_tokens.append(txt)
-    #             if not name_tokens:
-    #                 continue
-
-    #             # drop leading index like "12"
-    #             if name_tokens and re.fullmatch(r"\d+", name_tokens[0]):
-    #                 name_tokens = name_tokens[1:]
-
-    #             name_candidate = " ".join(name_tokens).strip()
-
-    #             # must contain letters to be a plausible name
-    #             if not re.search(r"[A-Za-zÅÄÖåäöØøÆæÉéÈèÜüß]", name_candidate):
-    #                 continue
-
-    #             any_bold = any(
-    #                 (BOLD_RE.search((w.get("fontname") or "")) is not None)
-    #                 for w in line_words[: max(1, len(name_tokens))]
-    #             )
-    #             if any_bold:
-    #                 bold_name_keys.add(normalize_key(name_candidate))
-    # finally:
-    #     pdf.close()
-
     def _try_match(line: str):
         # Try in order: with ID, no ID, wide-spaces fallback
         for rx in (PART_WITH_ID_RE, PART_NO_ID_RE, PART_WIDE_SPACES_RE):
@@ -554,32 +468,6 @@ def parse_players_pdf(
     )
 
     return participants, effective_expected, seed_counter-1
-
-
-# def find_club(
-#         cursor,
-#         clubname_raw: str, 
-#         club_map: Dict[str, Club], 
-#         logger: OperationLogger, 
-#         item_key: str
-#     ) -> Optional[Club]:
-#     norm = normalize_key(clubname_raw)
-#     club = club_map.get(norm)
-#     if not club and len(norm) >= 5:
-#         prefix_keys = [k for k in club_map if k.startswith(norm)]
-#         if len(prefix_keys) == 1:
-#             club = club_map[prefix_keys[0]]
-#             logger.warning(item_key, "Club name matched by prefix")
-#             # Log aliases if needed
-#     if not club:
-#         original_item_key = item_key  # Save original for logging to file (assuming it's player/context)
-#         club = Club.get_by_id(cursor, 9999) # Unknown club
-#         item_key = clubname_raw
-#         logger.warning(item_key, f"Club not found. Using 'Unknown club (id: 9999)'")
-#         with open('missing_clubs.txt', 'a') as f:
-#             f.write(f"Player/Context: {original_item_key}, Club Raw: {clubname_raw}\n")
-#     return club
-
 
 def match_player(
         cursor, 
@@ -670,7 +558,7 @@ def match_by_name(
             break
 
     if not valid:
-        warnings.append("Player did not have a valid license in the club on the day of the tournament")
+        warnings.append("Matched by name, but player did not have a valid license in the club on the day of the tournament")
 
     return pid, "unique_name"
 
@@ -840,13 +728,13 @@ def fallback_unverified(
         logger: OperationLogger, 
         item_key: str
     ) -> Optional[int]:
-    clean = " ".join(fullname_raw.strip().split())
+    clean = normalize_key(fullname_raw)
     existing = player_unverified_name_map.get(clean)
     if existing is not None:
         return existing
 
-    # Create new unverified player (assume Player has insert_unverified)
-    new_id = Player.insert_unverified(cursor, clean)
+    # Create new unverified player
+    new_id = Player.insert_unverified(cursor, fullname_raw)  # Still insert with raw
     if new_id:
         player_unverified_name_map[clean] = new_id
         logger.warning(item_key, "Created new unverified player")
@@ -857,18 +745,10 @@ def get_name_candidates(
         fullname_raw: str, 
         player_name_map: Dict[str, List[int]]
     ) -> List[int]:
-    clean = normalize_key(fullname_raw)
-    parts = clean.split()
-    keys = [
-        normalize_key(f"{fn} {ln}")
-        for i in range(1, len(parts))
-        for ln in [" ".join(parts[:i])]
-        for fn in [" ".join(parts[i:])]
-    ]
+    keys = name_keys_for_lookup_all_splits(fullname_raw)
     matches = set()
     for k in keys:
         matches.update(player_name_map.get(k, []))
-    
     return list(matches)
 
 def parse_raw_participant(
@@ -897,22 +777,11 @@ def parse_raw_participant(
         logger.error(item_key, f"Missing name or club in raw data: {e}")
         return None
 
-    # seed            = (int(v) if (v := raw.get("seed")) not in (None, "", "-", "—") and str(v).strip().isdigit() else None)
-    # t_ptcp_id_ext   = raw.get("tournament_participant_id_ext", "").strip() or None
-
     v = raw.get("seed")
     seed = int(v) if isinstance(v, (int, str)) and str(v).strip().isdigit() else None
 
     val = raw.get("tournament_participant_id_ext")
     t_ptcp_id_ext = (val.strip() if isinstance(val, str) and val.strip() else None)
-
-    # club = find_club(
-    #     cursor, 
-    #     clubname_raw, 
-    #     club_map, 
-    #     logger, 
-    #     item_key
-    # )
 
     club = Club.resolve(cursor, clubname_raw, club_map, logger, item_key, allow_prefix=True)
 

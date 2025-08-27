@@ -21,7 +21,7 @@ from upd_tournaments import upd_tournaments
 from upd_tournament_classes import upd_tournament_classes
 
 from upd_participants import upd_participants
-from upd_player_positions import upd_player_positions
+from upd_participant_positions import upd_player_positions
 from upd_tournament_group_stage import upd_tournament_group_stage
 from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes, create_triggers, create_views, compact_sqlite, execute_custom_sql
 
@@ -69,9 +69,9 @@ def main():
             # 'player_ranking_raw',
 
             # # License, ranking, transitions
-            # 'player_license',                      # FK player (validated), club, season, license
-            # 'player_ranking',                     # FK player (validated)
-            # 'player_ranking_group',               # FK player (validated), ranking_group
+            # 'player_license',                     # FK player (verified), club, season, license
+            # 'player_ranking',                     # FK player (verified)
+            # 'player_ranking_group',               # FK player (verified), ranking_group
             # 'player_transition',                  # FK player, club
 
             # # Game and match-related
@@ -84,7 +84,7 @@ def main():
             
             # # Tournament participants
             # 'participant',                        # FK tournament_class
-            # 'participant_player',                 # FK participant, player, club
+            # 'participant_player',                 # FK participant, player (verified, unverified), club
 
             # # Group and standing
             # 'tournament_class_group',             # FK tournament_class
@@ -101,7 +101,7 @@ def main():
             # 'club',
 
             # # Player
-            # 'player_id_ext',                       # References player
+            # 'player_id_ext',                       # References player (verified)
             # 'player'
 
             # # Debugging tables (no FKs assumed)
@@ -137,9 +137,7 @@ def main():
         # upd_clubs()
         # upd_players_verified()
 
-
-
-        # upd_player_licenses()
+        upd_player_licenses()
         # upd_player_transitions()
         # upd_player_ranking_groups()
 
@@ -149,8 +147,8 @@ def main():
         # upd_tournaments()
         # upd_tournament_classes()
 
-        # upd_participants()
-        upd_player_positions()
+        upd_participants()
+        # upd_player_positions()
         # upd_tournament_group_stage()
 
     except Exception as e:
