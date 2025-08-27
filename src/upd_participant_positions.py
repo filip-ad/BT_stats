@@ -129,16 +129,20 @@ def upd_player_positions():
             conn.commit()
             continue
 
-        # # Update positions
-        # updated = skipped = 0
-        # for pos, fullname, club_raw in rows:
+        # Update positions
+        updated = skipped = 0
+        for pos, fullname, club_raw in rows:
         #     # NEW: Resolve club
-        #     club = Club.resolve(cursor, club_raw, club_map, logger, item_key, allow_prefix=True)
-        #     if not club:
-        #         logger.skipped(item_key, f"Skipping position {pos}: Club not found for '{club_raw}'")
-        #         skipped += 1
-        #         continue
-        #     club_id = club.club_id
+            club = Club.resolve(cursor, club_raw, club_map, logger, item_key, allow_prefix=True)
+            if not club:
+                logger.skipped(item_key, f"Skipping position {pos}: Club not found for '{club_raw}'")
+                skipped += 1
+                continue
+            club_id = club.club_id
+
+            logging.info(f"{fullname}, {club_raw} (id: {club_id}), final position: {pos}")
+
+            
 
         #     # NEW: Use match_player to get player_id
         #     for pos, fullname, club_raw in rows:

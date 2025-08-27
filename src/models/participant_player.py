@@ -1,14 +1,9 @@
 # src/models/participant_player.py
 
-from ast import List, Tuple
-from collections import defaultdict
 from dataclasses import dataclass
-import logging
 from typing import Optional, Dict, Any
 import sqlite3
 from models.cache_mixin import CacheMixin
-from models.club import Club
-from utils import name_keys_for_lookup_all_splits
 
 @dataclass
 class ParticipantPlayer(CacheMixin):
@@ -84,71 +79,3 @@ class ParticipantPlayer(CacheMixin):
                 "status": "failed",
                 "reason": f"Participating player insert failed: {e}"
             }
-
-
-    @classmethod
-    def find_participant_id_by_name_club(
-        cls,
-        cursor,
-        tournament_class_id: int,
-        fullname_raw: str,
-        clubname_raw: str,
-        club_map: Dict[str, Club],
-        cache_key_extra: Optional[str] = None  # For cached_query
-    ) -> Optional[int]:
-        """
-        Find participant_id for a given tournament_class_id by matching normalized fullname and club.
-        Uses name_keys_for_lookup_all_splits for variations, resolves club_id.
-        Returns participant_id if unique match, None otherwise.
-        """
-        # Resolve club
-        club = Club.resolve(cursor, clubname_raw, club_map, logger=logging.getLogger(), item_key="", allow_prefix=True)  # Logger optional or pass if needed
-        if not club:
-            logging.warning(f"Club resolution failed for raw clubname '{clubname_raw}' in class {tournament_class_id}")
-            return None
-        club_id = club.club_id
-        logging.info(f"Resolved club '{clubname_raw}' to club_id {club_id} ({club.shortname}) for class {tournament_class_id}")
-
-        # Get all participants for class (cached)
-        sql = """
-            SELECT pp.participant_id, p.fullname_raw, pp.club_id
-            FROM participant_player pp
-            JOIN participant part ON pp.participant_id = part.participant_id
-            JOIN player p ON pp.player_id = p.player_id
-            WHERE part.tournament_class_id = ?
-        """
-        rows = cls.cached_query(cursor, sql, (tournament_class_id,), cache_key_extra)
-        class_participants = rows  # Already list[dict] from cached_query
-        logging.info(f"Found {len(class_participants)} stored participants for class {tournament_class_id}")
-
-        # Build in-memory map: normalized fullname keys -> participant_id (grouped by club_id)
-        participant_map: Dict[Tuple[str, int], List[int]] = defaultdict(list)
-        for entry in class_participants:
-            fullname = entry['fullname_raw']
-            if not fullname:
-                continue
-            keys = name_keys_for_lookup_all_splits(fullname)
-            for k in keys:
-                key = (k, entry['club_id'])
-                participant_map[key].append(entry['participant_id'])
-        logging.info(f"Built participant_map with {len(participant_map)} unique keys for class {tournament_class_id}")
-
-        # Lookup
-        keys = name_keys_for_lookup_all_splits(fullname_raw)
-        logging.info(f"Generated lookup keys for '{fullname_raw}': {keys}")
-        candidates = set()
-        for k in keys:
-            key = (k, club_id)
-            if key in participant_map:
-                candidates.update(participant_map[key])
-
-        if len(candidates) == 1:
-            participant_id = list(candidates)[0]
-            logging.info(f"Unique match for '{fullname_raw}' in club {clubname_raw} (club_id {club_id}): participant_id {participant_id}")
-            return participant_id
-        elif len(candidates) > 1:
-            logging.warning(f"Ambiguous match for fullname '{fullname_raw}' in club {clubname_raw} (club_id {club_id}) for class {tournament_class_id}: candidates {candidates}")
-            return None  # Or return first, but strict for now
-        else:
-            logging.warning(f"No match for '{fullname_raw}' in club {clubname_raw} (club_id {club_id}) for class {tournament_class_id}. Keys tried: {keys}")
-            return None
