@@ -4,11 +4,13 @@ from typing import List, Dict, Optional, Tuple
 import pdfplumber
 
 from db import get_conn
-from utils import print_db_insert_results, normalize_key, name_keys_for_lookup_all_splits
+from utils import parse_date, print_db_insert_results, name_keys_for_lookup_all_splits
 from config import (
     SCRAPE_PARTICIPANTS_MAX_CLASSES,
     SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+    SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
     SCRAPE_PARTICIPANTS_ORDER,
+    SCRAPE_PARTICIPANTS_CUTOFF_DATE,
 )
 from models.club import Club
 from models.player import Player
@@ -17,6 +19,7 @@ from models.participant import Participant
 from models.tournament_group import TournamentGroup
 from models.match import Match
 from models.tournament_stage import TournamentStage
+from models.participant_player import ParticipantPlayer
 
 RESULTS_URL_TMPL = "https://resultat.ondata.se/ViewClassPDF.php?classID={class_id}&stage=3"
 
@@ -26,30 +29,25 @@ def upd_tournament_group_stage():
     conn, cur = get_conn()
     t0 = time.perf_counter()
 
-    classes_by_ext = TournamentClass.cache_by_id_ext(cur)
-    if SCRAPE_PARTICIPANTS_CLASS_ID_EXTS != 0:
-        tc = classes_by_ext.get(SCRAPE_PARTICIPANTS_CLASS_ID_EXTS)
-        classes = [tc] if tc else []
-    else:
-        classes = list(classes_by_ext.values())
+    cutoff_date = parse_date(SCRAPE_PARTICIPANTS_CUTOFF_DATE) if SCRAPE_PARTICIPANTS_CUTOFF_DATE else None
 
-    order = (SCRAPE_PARTICIPANTS_ORDER or "").lower()
-    if order == "newest":
-        classes.sort(key=lambda tc: tc.date or datetime.date.min, reverse=True)
-    elif order == "oldest":
-        classes.sort(key=lambda tc: tc.date or datetime.date.min)
-
-    if SCRAPE_PARTICIPANTS_MAX_CLASSES and SCRAPE_PARTICIPANTS_MAX_CLASSES > 0:
-        classes = classes[:SCRAPE_PARTICIPANTS_MAX_CLASSES]
-
-    # Filter for singles and tournament type 1 and 2 (Groups + KO and Groups only)
-    classes = [tc for tc in classes if (tc.structure_id in (1, 2))]
+    classes = TournamentClass.get_filtered_classes(
+        cursor=cur,
+        class_id_exts       = SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,          # accept single id or list
+        tournament_id_exts  = SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,           # NEW: filter by tournament(s) when provided
+        data_source_id      = 1 if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else None,
+        cutoff_date         = cutoff_date,                                 # optional: omit or keep as you need
+        require_ended       = False,                                       # group stage often exists before KO finishes
+        allowed_type_ids    = [1],                                         # singles only
+        allowed_structure_ids = [1, 2],                                    # NEW: Groups+KO or Groups-only (group games)
+        max_classes         = SCRAPE_PARTICIPANTS_MAX_CLASSES,
+        order               = SCRAPE_PARTICIPANTS_ORDER,
+    )
 
     print(f"ℹ️  Updating tournament GROUP STAGE for {len(classes)} classes…")
     logging.info(f"Updating tournament GROUP STAGE for {len(classes)} classes")
-
     club_map = Club.cache_name_map(cur)
-    part_by_class_fast = PlayerParticipant.cache_by_class_name_fast(cur)
+    part_by_class_fast = ParticipantPlayer.cache_by_class_name_fast(cur)
 
     totals = {"groups": 0, "matches": 0, "kept": 0, "skipped": 0}
     db_results = []
@@ -113,13 +111,17 @@ def upd_tournament_group_stage():
             pool_name = g["name"]
 
             # 1) Upsert the pool row and get a real group_id
-            group = TournamentGroup(
-                group_id=None,
-                tournament_class_id=tc.tournament_class_id,
-                name=pool_name,
-                sort_order=g_idx
-            ).upsert(cur)
-            group_id = group.group_id
+            for g_idx, g in enumerate(groups, 1):
+                group_desc = g["name"]  # e.g. "Pool 1"
+
+                group = TournamentGroup(
+                    tournament_class_group_id=None,
+                    tournament_class_id=tc.tournament_class_id,
+                    description=group_desc,
+                    sort_order=g_idx
+                ).upsert(cur)
+
+                group_id = group.tournament_class_group_id
 
             # Collect unique participant_ids in this pool
             member_pids: set[int] = set()
@@ -166,8 +168,14 @@ def upd_tournament_group_stage():
                 p1_code      = mm.get("p1_code")
                 p2_code      = mm.get("p2_code")
 
-                p1_pid, how1 = resolve_fast(p1_code, mm["p1"]["name"], mm["p1"]["club"])
-                p2_pid, how2 = resolve_fast(p2_code, mm["p2"]["name"], mm["p2"]["club"])
+                p1_pid, how1 = resolve_participant(
+                    p1_code, mm["p1"]["name"], mm["p1"]["club"],
+                    by_code, by_name_club, by_name_only, club_map
+                )
+                p2_pid, how2 = resolve_participant(
+                    p2_code, mm["p2"]["name"], mm["p2"]["club"],
+                    by_code, by_name_club, by_name_only, club_map
+                )
 
                 if not p1_pid or not p2_pid:
                     skipped += 1
@@ -400,12 +408,12 @@ def resolve_participant(
     by_name_club: dict[tuple[str, int], int],
     by_name_only: dict[str, list[int]],
     club_map: dict[str, Club],
-) -> int | None:
+) -> tuple[Optional[int], str]:
     # 1) Code (strongest)
     if code:
         pid = by_code.get(code) or by_code.get(code.lstrip("0") or "0")
         if pid:
-            return pid
+            return pid, "code"
 
     # 2) Name + club
     keys = name_keys_for_lookup_all_splits(name)
@@ -415,35 +423,15 @@ def resolve_participant(
             for k in keys:
                 pid = by_name_club.get((k, cobj.club_id))
                 if pid:
-                    return pid
+                    return pid, "name+club"
 
     # 3) Name-only (only if unique)
     for k in keys:
         lst = by_name_only.get(k, [])
         if len(lst) == 1:
-            return lst[0]
-    return None
+            return lst[0], "name-only"
 
-def _resolve_fast(
-        name: str, 
-        club: Optional[str],
-        by_name_club: Dict[Tuple[str, int], int],
-        by_name_only: Dict[str, List[int]],
-        club_map: Dict[str, Club]
-    ) -> Optional[int]:
-    keys = name_keys_for_lookup_all_splits(name)
-    if club:
-        club_obj = club_map.get(Club._normalize(club))
-        if club_obj:
-            for k in keys:
-                pid = by_name_club.get((k, club_obj.club_id))
-                if pid:
-                    return pid
-    for k in keys:
-        lst = by_name_only.get(k, [])
-        if len(lst) == 1:
-            return lst[0]
-    return None
+    return None, "unmatched"
 
 def _score_summary_games_won(tokens: list[str]) -> str:
     """

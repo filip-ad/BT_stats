@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any
 import sqlite3
 from models.cache_mixin import CacheMixin
+from utils import name_keys_for_lookup_all_splits
 
 @dataclass
 class ParticipantPlayer(CacheMixin):
@@ -79,3 +80,67 @@ class ParticipantPlayer(CacheMixin):
                 "status": "failed",
                 "reason": f"Participating player insert failed: {e}"
             }
+
+
+    @classmethod
+    def cache_by_class_name_fast(cls, cursor: sqlite3.Cursor) -> Dict[int, Dict[str, Any]]:
+        """
+        Build fast, in-memory indices per class:
+
+        {
+            class_id: {
+            "by_code": { "077": participant_id, "77": participant_id, ... },
+            "by_name_club": { (name_key, club_id): participant_id, ... },
+            "by_name_only": { name_key: [participant_id, ...], ... },
+            },
+            ...
+        }
+
+            NOTE: `by_code` uses participant_player.participant_player_id_ext as the PDF “code”.
+            If that field isn’t used in your data source, resolution gracefully falls back
+            to name+club and name-only.
+        """
+        sql = """
+            SELECT 
+                p.tournament_class_id,
+                pp.participant_id,
+                pp.participant_player_id_ext AS code,
+                pl.player_id,
+                COALESCE(TRIM(pl.firstname || ' ' || pl.lastname), pl.fullname_raw) AS full_name,
+                pp.club_id
+            FROM participant p
+            JOIN participant_player pp ON pp.participant_id = p.participant_id
+            JOIN player pl            ON pl.player_id = pp.player_id
+        """
+        rows = cls.cached_query(cursor, sql, (), cache_key_extra="cache_by_class_name_fast")
+
+        out: Dict[int, Dict[str, Any]] = {}
+        for r in rows:
+            class_id = r["tournament_class_id"]
+            d = out.setdefault(class_id, {
+                "by_code": {},
+                "by_name_club": {},
+                "by_name_only": {},
+            })
+            pid   = r["participant_id"]
+            code  = (r.get("code") or "").strip()
+            cid   = r.get("club_id")
+            fname = (r.get("full_name") or "").strip()
+
+            # by_code (store both raw and de-zero-left variant)
+            if code:
+                d["by_code"][code] = pid
+                dezero = code.lstrip("0") or "0"
+                d["by_code"].setdefault(dezero, pid)
+
+            # names (all splits / order variants)
+            for nk in name_keys_for_lookup_all_splits(fname):
+                if cid:  # name+club
+                    d["by_name_club"][(nk, cid)] = pid
+                # name-only list
+                lst = d["by_name_only"].setdefault(nk, [])
+                if pid not in lst:
+                    lst.append(pid)
+
+        return out
+
