@@ -48,12 +48,18 @@ def upd_tournament_classes():
         start_time = time.time()
         classes_processed = 0
 
-        # Fetch tournaments by status and filter by cutoff date and list of tournament ext_ids
         # =============================================================================
-        if SCRAPE_CLASSES_TOURNAMENT_ID_EXTS != 0 or SCRAPE_CLASSES_MAX_TOURNAMENTS is not None:
-            filtered_tournaments = Tournament.get_by_ext_ids(cursor, logger, SCRAPE_CLASSES_TOURNAMENT_ID_EXTS)
+        # Fetch tournaments by status and filter by cutoff date or ext_ids
+        # =============================================================================
+        if SCRAPE_CLASSES_TOURNAMENT_ID_EXTS:  # treat empty list or None as False
+            filtered_tournaments = Tournament.get_by_ext_ids(
+                cursor, logger, SCRAPE_CLASSES_TOURNAMENT_ID_EXTS
+            )
             limit = SCRAPE_CLASSES_MAX_TOURNAMENTS or len(filtered_tournaments)
-            print(f"ℹ️  Filtered to {len(filtered_tournaments)} specific tournaments via SCRAPE_CLASSES_TOURNAMENT_ID_EXT (overriding cutoff).")
+            print(
+                f"ℹ️  Filtered to {len(filtered_tournaments)} specific tournaments "
+                f"via SCRAPE_CLASSES_TOURNAMENT_ID_EXT (overriding cutoff)."
+            )
         else:
             tournaments = Tournament.get_by_status(cursor, ["ONGOING", "ENDED"])
             if not tournaments:
@@ -67,10 +73,13 @@ def upd_tournament_classes():
             if not filtered_tournaments:
                 print("⚠️  No tournaments after cutoff date.")
                 return
+
             limit = SCRAPE_CLASSES_MAX_TOURNAMENTS or len(filtered_tournaments)
 
-        
-        print(f"ℹ️  Found {len(filtered_tournaments)} tournaments after cutoff. Scraping classes for up to {limit} tournaments...")
+        print(
+            f"ℹ️  Found {len(filtered_tournaments)} tournaments after cutoff. "
+            f"Scraping classes for up to {limit} tournaments..."
+        )
 
         # Loop through filtered tournaments
         # =============================================================================

@@ -120,11 +120,19 @@ class Player(CacheMixin):
         return appearance_map
     
     @staticmethod
-    def link_unverified_appearance(cursor, player_id: int, club_id: int, appearance_date: date):
+    def link_unverified_appearance(cursor, player_id: int, club_id: int, appearance_date: date) -> str:
+        """
+        Link an unverified player to an appearance.
+        Returns: "created" if new row inserted, "duplicate" if already existed.
+        """
         cursor.execute("""
             INSERT OR IGNORE INTO player_unverified_appearance (player_id, club_id, appearance_date)
             VALUES (?, ?, ?)
         """, (player_id, club_id, appearance_date))
+
+        if cursor.rowcount == 1:
+            return "created"
+        return "duplicate"
 
     def save_to_db(
             self, 
@@ -464,9 +472,10 @@ class Player(CacheMixin):
         fullname_raw: str,
         year_born: Optional[int] = None,
         data_source_id: Optional[int] = None
-    ) -> Optional[int]:
+    ) -> Optional[dict]:
         """
-        Insert a new unverified player using fullname_raw and return the new player_id.
+        Insert a new unverified player, or reuse existing if fullname_raw already exists.
+        Returns dict: {"status": "created"|"reused"|"failed", "player_id": int | None}
         """
         player = Player(
             fullname_raw=fullname_raw,
@@ -479,6 +488,8 @@ class Player(CacheMixin):
             data_source_id=data_source_id
         )
 
-        if res["status"] in ("success", "skipped") and "player_id" in res:
-            return res["player_id"]
-        return None
+        if res["status"] == "success" and "player_id" in res:
+            return {"status": "created", "player_id": res["player_id"]}
+        elif res["status"] == "skipped" and "player_id" in res:
+            return {"status": "reused", "player_id": res["player_id"]}
+        return {"status": "failed", "player_id": None}

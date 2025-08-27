@@ -188,7 +188,12 @@ def upd_participants():
                     logger.success(item_key, f"ParticipantPlayer inserted successfully (match type: {match_type})")
 
                     if "unverified" in match_type:
-                        Player.link_unverified_appearance(cursor, player_id, club_id, tc.date)
+                        status = Player.link_unverified_appearance(cursor, player_id, club_id, tc.date)
+                        if status == "created":
+                            logger.success(item_key, "Linked unverified player appearance")
+                        else:
+                            logger.warning(item_key, "Skipped duplicate unverified appearance")
+
 
             except Exception as e:
                 logger.failed(item_key, f"Exception during processing: {e}")
@@ -268,7 +273,7 @@ def match_player(
     )
     if pid:
         extended_key = f"[cid/cid_ext] {participant.tournament_class_id}/{tournament_class_id_ext} [player_id] {pid} [fullname_raw] {fullname_raw} [club] {clubname_raw}"
-        logger.warning(extended_key, "Fallback to unverified player")
+        logger.warning(extended_key, "Matched with unverified player as fallback")
         return pid, "unverified"
     return None, None
 
@@ -498,11 +503,16 @@ def fallback_unverified(
     if existing is not None:
         return existing
 
-    new_id = Player.insert_unverified(cursor, fullname_raw)
-    if new_id:
-        player_unverified_name_map[clean] = new_id
-        logger.warning(item_key, "Created new unverified player")
-        return new_id
+    res = Player.insert_unverified(cursor, fullname_raw)
+    if res["status"] in ("created", "reused") and res["player_id"]:
+        player_unverified_name_map[clean] = res["player_id"]
+        if res["status"] == "created":
+            logger.warning(item_key, "Created new unverified player")
+        else:
+            logger.warning(item_key, "Reused existing unverified player")
+        return res["player_id"]
+
+    logger.failed(item_key, f"Failed to insert/reuse unverified player for {fullname_raw}")
     return None
 
 def get_name_candidates(

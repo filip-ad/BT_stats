@@ -8,10 +8,10 @@ import requests
 import pdfplumber
 import logging
 import traceback
-from collections import defaultdict
 
 from db import get_conn
-from utils import OperationLogger, parse_date, name_keys_for_lookup_all_splits
+from models.participant_player import ParticipantPlayer
+from utils import OperationLogger, parse_date, name_keys_for_lookup_all_splits, normalize_key
 from config import (
     SCRAPE_PARTICIPANTS_CUTOFF_DATE,
     SCRAPE_PARTICIPANTS_CLASS_ID_EXTS, 
@@ -20,8 +20,10 @@ from config import (
     SCRAPE_PARTICIPANTS_TNMT_ID_EXTS
 )
 from models.club import Club
+from models.player import Player
 from models.tournament_class import TournamentClass
 from models.participant import Participant
+from models.player_license import PlayerLicense  # NEW: For license cache in match_player
 
 RESULTS_URL_TMPL = "https://resultat.ondata.se/ViewClassPDF.php?classID={class_id}&stage=6"
 
@@ -70,6 +72,10 @@ def upd_player_positions():
 
     # 2) Build static caches
     club_map                    = Club.cache_name_map(cursor)
+    license_name_club_map       = PlayerLicense.cache_name_club_map(cursor)  # NEW: For match_player validity checks
+    player_name_map             = Player.cache_name_map_verified(cursor)
+    unverified_name_map         = Player.cache_name_map_unverified(cursor)
+    unverified_appearance_map   = Player.cache_unverified_appearances(cursor)  # NEW: For unverified club matching in match_player
     part_by_class_player        = Participant.cache_by_class_player(cursor)
 
     # 3) Process classes
@@ -78,7 +84,6 @@ def upd_player_positions():
 
         item_key = f"Class id ext: {tc.tournament_class_id_ext}"
         label = f"{tc.shortname or tc.longname or tc.tournament_class_id}, {tc.date} (ext:{tc.tournament_class_id_ext})"
-
 
         if not tc or not tc.tournament_class_id_ext:
             logger.skipped(item_key, f"Skipping: Missing class or external class_id")
@@ -94,34 +99,6 @@ def upd_player_positions():
         cleared = Participant.clear_final_positions(cursor, tc.tournament_class_id)
         logging.info(f"Cleared final_position for {cleared} participants (class_id={tc.tournament_class_id})")
 
-        # Load class participants with names for matching
-        sql = """
-            SELECT pp.participant_id, pp.player_id, pp.club_id, 
-                   pl.fullname_raw, pl.first_name, pl.last_name
-            FROM participant part
-            JOIN participant_player pp ON part.participant_id = pp.participant_id
-            JOIN player pl ON pp.player_id = pl.player_id
-            WHERE part.tournament_class_id = ?
-        """
-        cursor.execute(sql, (tc.tournament_class_id,))
-        class_participants = cursor.fetchall()
-
-        # Build participant_map: normalized key + club_id -> list of participant_ids
-        participant_map = defaultdict(list)
-        for row_tup in class_participants:
-            row = dict(zip(['participant_id', 'player_id', 'club_id', 'fullname_raw', 'first_name', 'last_name'], row_tup))
-            fullname = row['fullname_raw']
-            if not fullname and row['first_name'] and row['last_name']:
-                fullname = f"{row['first_name']} {row['last_name']}".strip()
-                logging.info(f"Using fallback fullname '{fullname}' for player_id {row['player_id']} in class {tc.tournament_class_id}")
-            if not fullname:
-                continue
-            keys = name_keys_for_lookup_all_splits(fullname)
-            for k in keys:
-                key = (k, row['club_id'])
-                participant_map[key].append(row['participant_id'])
-        logging.info(f"Built participant_map with {len(participant_map)} unique keys for class {tc.tournament_class_id}")
-
         # Download PDF
         url = RESULTS_URL_TMPL.format(class_id=tc.tournament_class_id_ext)
         try:
@@ -136,7 +113,6 @@ def upd_player_positions():
         # Parse PDF
         try:
             rows = _parse_positions(r.content)
-            logging.info(f"Parsed rows for class {tc.tournament_class_id_ext}: {rows}")
         except Exception as e:
             stack_trace = traceback.format_exc()
             logger.failed(item_key, f"PDF parsing failed: {e}\nStack trace:\n{stack_trace}")
@@ -153,49 +129,52 @@ def upd_player_positions():
             conn.commit()
             continue
 
-        # Update positions
-        updated = skipped = 0
-        for pos, fullname_raw, club_raw in rows:
-            club = Club.resolve(cursor, club_raw, club_map, logger=logging.getLogger(), item_key=item_key, allow_prefix=True)
-            if not club:
-                logger.skipped(item_key, f"Skipping position {pos}: Club resolution failed for '{club_raw}'")
-                skipped += 1
-                continue
-            club_id = club.club_id
-            logging.info(f"Resolved club '{club_raw}' to club_id {club_id} ({club.clubname}) for class {tc.tournament_class_id}")
+        # # Update positions
+        # updated = skipped = 0
+        # for pos, fullname, club_raw in rows:
+        #     # NEW: Resolve club
+        #     club = Club.resolve(cursor, club_raw, club_map, logger, item_key, allow_prefix=True)
+        #     if not club:
+        #         logger.skipped(item_key, f"Skipping position {pos}: Club not found for '{club_raw}'")
+        #         skipped += 1
+        #         continue
+        #     club_id = club.club_id
 
-            keys = name_keys_for_lookup_all_splits(fullname_raw)
-            logging.info(f"Generated lookup keys for '{fullname_raw}': {keys}")
-            candidates = set()
-            for k in keys:
-                key = (k, club_id)
-                if key in participant_map:
-                    candidates.update(participant_map[key])
+        #     # NEW: Use match_player to get player_id
+        #     for pos, fullname, club_raw in rows:
+        #         participant_id = ParticipantPlayer.find_participant_id_by_name_club(
+        #             cursor, tc.tournament_class_id, fullname, club_raw, club_map
+        #         )
+        #         if participant_id is None:
+        #             logger.skipped(item_key, f"Skipping position {pos}: No match for '{fullname}' in '{club_raw}'")
+        #             skipped += 1
+        #             continue
 
-            if len(candidates) == 1:
-                participant_id = list(candidates)[0]
-                result = Participant.update_final_position(cursor, participant_id, pos)
-                if result["status"] == "success":
-                    logger.success(item_key, f"Position {pos} updated for participant_id {participant_id}")
-                    updated += 1
-                else:
-                    logger.skipped(item_key, f"Position {pos} update skipped: {result['reason']}")
-                    skipped += 1
-            elif len(candidates) > 1:
-                logging.warning(f"Ambiguous match for fullname '{fullname_raw}' in club {club_raw} for class {tc.tournament_class_id}")
-                logger.skipped(item_key, f"Skipping position {pos}: Ambiguous match")
-                skipped += 1
-            else:
-                logging.warning(f"No match for '{fullname_raw}' in club {club_raw} for class {tc.tournament_class_id}. Keys tried: {keys}")
-                logger.skipped(item_key, f"Skipping position {pos}: No match")
-                skipped += 1
+        #         # Update by participant_id (simpler than by player_id, since singles)
+        #         result = Participant.update_final_position(cursor, participant_id, pos)
+        #         if result["status"] == "success":
+        #             logger.success(item_key, f"Position {pos} updated for participant_id {participant_id}")
+        #             updated += 1
+        #         else:
+        #             logger.skipped(item_key, f"Position {pos} update skipped: {result['reason']}")
+        #             skipped += 1
 
-        logging.info(f"[{idx}/{len(classes)}] Processed class {label} date={tc.date}. Cleared {cleared} positions, parsed {parsed_count}, updated {updated}, skipped {skipped}.")
-        print(f"ℹ️  [{idx}/{len(classes)}] Processed class {label} date={tc.date}. Cleared {cleared} positions, parsed {parsed_count}, updated {updated}, skipped {skipped}.")
+        #     # NEW: Update by player_id (add this method to Participant model if not present)
+        #     result = Participant.update_final_position_by_player_id(cursor, tc.tournament_class_id, player_id, pos)
+        #     if result["status"] == "success":
+        #         logger.success(item_key, f"Position {pos} updated for player_id {player_id} (match_type: {match_type})")
+        #         updated += 1
+        #     else:
+        #         logger.skipped(item_key, f"Position {pos} update skipped for player_id {player_id}: {result['reason']}")
+        #         skipped += 1
+
+        # logging.info(f"[{idx}/{len(classes)}] Processed class {label} date={tc.date}. Cleared {cleared} positions, parsed {parsed_count}, updated {updated}, skipped {skipped}.")
+        # print(f"ℹ️  [{idx}/{len(classes)}] Processed class {label} date={tc.date}. Cleared {cleared} positions, parsed {parsed_count}, updated {updated}, skipped {skipped}.")
+        print(f"ℹ️  [{idx}/{len(classes)}] Processed class {label} date={tc.date}. Cleared {cleared} positions, parsed {parsed_count}.")
 
         conn.commit()
-        total_updated += updated
-        total_skipped += skipped
+        # total_updated += updated
+        # total_skipped += skipped
 
     # 4) Summary
     t1 = time.perf_counter()

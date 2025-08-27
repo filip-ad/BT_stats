@@ -8843,3 +8843,588 @@ Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
 Context: , Club Raw: Lübecker TS - DE
 Context: , Club Raw: Lübecker TS - DE
 Context: , Club Raw: Lübecker TS - DE
+Context: Class id ext: 29923, Club Raw: Lübecker TS - DE
+Context: , Club Raw: Lübecker TS - DE
+Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE
+Context: Fredag (id: 27935, ext_id: 29915), Club Raw: Lübecker TS - DE
+Context: Fredag (id: 27935, ext_id: 29915), Club Raw: Lübecker TS - DE
+Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Context: M1300 (id: 27856, ext_id: 29166), Club Raw: Islands Bordte
+Context: M850 (id: 27858, ext_id: 29134), Club Raw: Islands Bordtenni
+Context: M850 (id: 27858, ext_id: 29134), Club Raw: Islands Bordt
+Context: M700 (id: 27862, ext_id: 29227), Club Raw: Islands Bordtenni
+Context: M1150 (id: 27863, ext_id: 29133), Club Raw: Islands Bordte
+Context: PF9 (id: 27866, ext_id: 29179), Club Raw: Islands Bordt
+Context: M1600 (id: 27843, ext_id: 29185), Club Raw: Islands Bordte
+Context: M750 (id: 27846, ext_id: 29132), Club Raw: Islands Bordtenni
+Context: M750 (id: 27846, ext_id: 29132), Club Raw: Islands Bordt
+Context: M650 (id: 27851, ext_id: 29180), Club Raw: Islands Bordtenni
+Context: M650 (id: 27851, ext_id: 29180), Club Raw: Islands Bordt
+Context: M1400 (id: 27854, ext_id: 29181), Club Raw: Islands Bordte
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: OB Bordtennis, Odense
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Trelleborg Table Tennis Club
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Nykøbing Falst
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: OB Bordtennis, Odense
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: M1199 (id: 27830, ext_id: 29189), Club Raw: Islands Bordte
+Context: M599 (id: 27833, ext_id: 29188), Club Raw: Islands Bordtenni
+Context: M599 (id: 27833, ext_id: 29188), Club Raw: Islands Bordt
+Context: M699 (id: 27838, ext_id: 29126), Club Raw: Islands Bordtenni
+Context: M699 (id: 27838, ext_id: 29126), Club Raw: Islands Bordt
+Context: M999 (id: 27839, ext_id: 29128), Club Raw: Islands Bordte
+Context: U21 Elite DS (id: 27868, ext_id: 29863), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis,
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 6
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Virum-Sorgenfri Bordten
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Trelleborg Table Tennis Club
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis,
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Trelleborg Table Tennis Club
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking C (id: 27827, ext_id: 29842), Club Raw: Bærums Verk
+Context: Ranking C-PL (id: 27829, ext_id: 29847), Club Raw: Bærums Verk
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Sandefjord TIF-BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Husøy og Foynland IF
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Randesund IL - BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Randesund IL - BTG
+Context: Nyb~B (id: 27797, ext_id: 29837), Club Raw: Husøy og Foynland IF
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Sandefjord TIF-BTG
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Imås, IL
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Randesund IL - BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Husøy og Foynland IF
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Imås, IL
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Randesund IL - BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Sandefjord TIF-BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Sandefjord TIF-BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Sandefjord TIF-BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: ElJr (id: 27783, ext_id: 29757), Club Raw: Randesund IL - BTG
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Husøy og Foynland I
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Husøy og Foynland IF
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Sandefjord TIF-BTG
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Randesund IL - BTG
+Context: G11~B (id: 27785, ext_id: 29834), Club Raw: Sandefjord TIF-BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Husøy og Foynland IF
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Husøy og Foynland IF
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Bærums Verk
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Bærums Verk
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Bærums Verk
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Randesund IL - BTG
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Sandefjord TIF-BTG
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Bærums Verk
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Sandefjord TIF-BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Randesund IL - BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Randesund IL - BTG
+Context: G13B (id: 27792, ext_id: 29835), Club Raw: Husøy og Foynland IF
+Context: DÅ (id: 27805, ext_id: 29720), Club Raw: Bærums Verk
+Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE
+Context: Fredag (id: 27935, ext_id: 29915), Club Raw: Lübecker TS - DE
+Context: Fredag (id: 27935, ext_id: 29915), Club Raw: Lübecker TS - DE
+Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Context: M1300 (id: 27856, ext_id: 29166), Club Raw: Islands Bordte
+Context: M850 (id: 27858, ext_id: 29134), Club Raw: Islands Bordtenni
+Context: M850 (id: 27858, ext_id: 29134), Club Raw: Islands Bordt
+Context: M700 (id: 27862, ext_id: 29227), Club Raw: Islands Bordtenni
+Context: M1150 (id: 27863, ext_id: 29133), Club Raw: Islands Bordte
+Context: PF9 (id: 27866, ext_id: 29179), Club Raw: Islands Bordt
+Context: M1600 (id: 27843, ext_id: 29185), Club Raw: Islands Bordte
+Context: M750 (id: 27846, ext_id: 29132), Club Raw: Islands Bordtenni
+Context: M750 (id: 27846, ext_id: 29132), Club Raw: Islands Bordt
+Context: M650 (id: 27851, ext_id: 29180), Club Raw: Islands Bordtenni
+Context: M650 (id: 27851, ext_id: 29180), Club Raw: Islands Bordt
+Context: M1400 (id: 27854, ext_id: 29181), Club Raw: Islands Bordte
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: OB Bordtennis, Odense
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Trelleborg Table Tennis Club
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Nykøbing Falst
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: OB Bordtennis, Odense
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: M1199 (id: 27830, ext_id: 29189), Club Raw: Islands Bordte
+Context: M599 (id: 27833, ext_id: 29188), Club Raw: Islands Bordtenni
+Context: M599 (id: 27833, ext_id: 29188), Club Raw: Islands Bordt
+Context: M699 (id: 27838, ext_id: 29126), Club Raw: Islands Bordtenni
+Context: M699 (id: 27838, ext_id: 29126), Club Raw: Islands Bordt
+Context: M999 (id: 27839, ext_id: 29128), Club Raw: Islands Bordte
+Context: U21 Elite DS (id: 27868, ext_id: 29863), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis,
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 6
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Virum-Sorgenfri Bordten
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Trelleborg Table Tennis Club
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis,
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Trelleborg Table Tennis Club
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking C (id: 27827, ext_id: 29842), Club Raw: Bærums Verk
+Context: Ranking C-PL (id: 27829, ext_id: 29847), Club Raw: Bærums Verk
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Sandefjord TIF-BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Husøy og Foynland IF
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Randesund IL - BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Randesund IL - BTG
+Context: Nyb~B (id: 27797, ext_id: 29837), Club Raw: Husøy og Foynland IF
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Sandefjord TIF-BTG
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Imås, IL
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Randesund IL - BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Husøy og Foynland IF
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Imås, IL
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Randesund IL - BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Sandefjord TIF-BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Sandefjord TIF-BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Sandefjord TIF-BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: ElJr (id: 27783, ext_id: 29757), Club Raw: Randesund IL - BTG
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Husøy og Foynland I
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Husøy og Foynland IF
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Sandefjord TIF-BTG
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Randesund IL - BTG
+Context: G11~B (id: 27785, ext_id: 29834), Club Raw: Sandefjord TIF-BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Husøy og Foynland IF
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Husøy og Foynland IF
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Bærums Verk
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Bærums Verk
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Bærums Verk
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Randesund IL - BTG
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Sandefjord TIF-BTG
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Bærums Verk
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Sandefjord TIF-BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Randesund IL - BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Randesund IL - BTG
+Context: G13B (id: 27792, ext_id: 29835), Club Raw: Husøy og Foynland IF
+Context: DÅ (id: 27805, ext_id: 29720), Club Raw: Bærums Verk
+Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE
+Context: Fredag (id: 27935, ext_id: 29915), Club Raw: Lübecker TS - DE
+Context: Fredag (id: 27935, ext_id: 29915), Club Raw: Lübecker TS - DE
+Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Context: M1300 (id: 27856, ext_id: 29166), Club Raw: Islands Bordte
+Context: M850 (id: 27858, ext_id: 29134), Club Raw: Islands Bordtenni
+Context: M850 (id: 27858, ext_id: 29134), Club Raw: Islands Bordt
+Context: M700 (id: 27862, ext_id: 29227), Club Raw: Islands Bordtenni
+Context: M1150 (id: 27863, ext_id: 29133), Club Raw: Islands Bordte
+Context: PF9 (id: 27866, ext_id: 29179), Club Raw: Islands Bordt
+Context: M1600 (id: 27843, ext_id: 29185), Club Raw: Islands Bordte
+Context: M750 (id: 27846, ext_id: 29132), Club Raw: Islands Bordtenni
+Context: M750 (id: 27846, ext_id: 29132), Club Raw: Islands Bordt
+Context: M650 (id: 27851, ext_id: 29180), Club Raw: Islands Bordtenni
+Context: M650 (id: 27851, ext_id: 29180), Club Raw: Islands Bordt
+Context: M1400 (id: 27854, ext_id: 29181), Club Raw: Islands Bordte
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: OB Bordtennis, Odense
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Trelleborg Table Tennis Club
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Nykøbing Falst
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: OB Bordtennis, Odense
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: M1199 (id: 27830, ext_id: 29189), Club Raw: Islands Bordte
+Context: M599 (id: 27833, ext_id: 29188), Club Raw: Islands Bordtenni
+Context: M599 (id: 27833, ext_id: 29188), Club Raw: Islands Bordt
+Context: M699 (id: 27838, ext_id: 29126), Club Raw: Islands Bordtenni
+Context: M699 (id: 27838, ext_id: 29126), Club Raw: Islands Bordt
+Context: M999 (id: 27839, ext_id: 29128), Club Raw: Islands Bordte
+Context: U21 Elite DS (id: 27868, ext_id: 29863), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis,
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 6
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Virum-Sorgenfri Bordten
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Trelleborg Table Tennis Club
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis,
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Trelleborg Table Tennis Club
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking C (id: 27827, ext_id: 29842), Club Raw: Bærums Verk
+Context: Ranking C-PL (id: 27829, ext_id: 29847), Club Raw: Bærums Verk
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Sandefjord TIF-BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Husøy og Foynland IF
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Randesund IL - BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Randesund IL - BTG
+Context: Nyb~B (id: 27797, ext_id: 29837), Club Raw: Husøy og Foynland IF
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Sandefjord TIF-BTG
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Imås, IL
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Randesund IL - BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Husøy og Foynland IF
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Imås, IL
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Randesund IL - BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Sandefjord TIF-BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Sandefjord TIF-BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Sandefjord TIF-BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: ElJr (id: 27783, ext_id: 29757), Club Raw: Randesund IL - BTG
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Husøy og Foynland I
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Husøy og Foynland IF
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Sandefjord TIF-BTG
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Randesund IL - BTG
+Context: G11~B (id: 27785, ext_id: 29834), Club Raw: Sandefjord TIF-BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Husøy og Foynland IF
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Husøy og Foynland IF
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Bærums Verk
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Bærums Verk
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Randesund IL - BTG
+Context: Vet (id: 27787, ext_id: 29760), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Randesund IL - BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Sandefjord TIF-BTG
+Context: D (id: 27788, ext_id: 29761), Club Raw: Bærums Verk
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Randesund IL - BTG
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Sandefjord TIF-BTG
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Bærums Verk
+Context: Elite (id: 27789, ext_id: 29762), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Sandefjord TIF-BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Husøy og Foynland IF
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: G13 (id: 27790, ext_id: 29763), Club Raw: Randesund IL - BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Sandefjord TIF-BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Randesund IL - BTG
+Context: Jr (id: 27791, ext_id: 29764), Club Raw: Randesund IL - BTG
+Context: G13B (id: 27792, ext_id: 29835), Club Raw: Husøy og Foynland IF
+Context: DÅ (id: 27805, ext_id: 29720), Club Raw: Bærums Verk
+Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Context: Boys 18 (id: 27937, ext_id: 29917), Club Raw: Lübecker TS - DE
+Context: Boys 16 (id: 27943, ext_id: 29923), Club Raw: Lübecker TS - DE
+Context: MOS (id: 27944, ext_id: 29924), Club Raw: Lübecker TS - DE
+Context: Fredag (id: 27935, ext_id: 29915), Club Raw: Lübecker TS - DE
+Context: Fredag (id: 27935, ext_id: 29915), Club Raw: Lübecker TS - DE
+Context: Friday 2 (id: 27928, ext_id: 29962), Club Raw: Lübecker TS - DE
+Context: Friday 3 (id: 27929, ext_id: 29963), Club Raw: Lübecker TS - DE
+Context: M1300 (id: 27856, ext_id: 29166), Club Raw: Islands Bordte
+Context: M850 (id: 27858, ext_id: 29134), Club Raw: Islands Bordtenni
+Context: M850 (id: 27858, ext_id: 29134), Club Raw: Islands Bordt
+Context: M700 (id: 27862, ext_id: 29227), Club Raw: Islands Bordtenni
+Context: M1150 (id: 27863, ext_id: 29133), Club Raw: Islands Bordte
+Context: PF9 (id: 27866, ext_id: 29179), Club Raw: Islands Bordt
+Context: M1600 (id: 27843, ext_id: 29185), Club Raw: Islands Bordte
+Context: M750 (id: 27846, ext_id: 29132), Club Raw: Islands Bordtenni
+Context: M750 (id: 27846, ext_id: 29132), Club Raw: Islands Bordt
+Context: M650 (id: 27851, ext_id: 29180), Club Raw: Islands Bordtenni
+Context: M650 (id: 27851, ext_id: 29180), Club Raw: Islands Bordt
+Context: M1400 (id: 27854, ext_id: 29181), Club Raw: Islands Bordte
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: OB Bordtennis, Odense
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Trelleborg Table Tennis Club
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Nykøbing Falst
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: OB Bordtennis, Odense
+Context: DSEliteSenior (id: 27872, ext_id: 29866), Club Raw: Roskilde Bordtennis, BTK 61
+Context: M1199 (id: 27830, ext_id: 29189), Club Raw: Islands Bordte
+Context: M599 (id: 27833, ext_id: 29188), Club Raw: Islands Bordtenni
+Context: M599 (id: 27833, ext_id: 29188), Club Raw: Islands Bordt
+Context: M699 (id: 27838, ext_id: 29126), Club Raw: Islands Bordtenni
+Context: M699 (id: 27838, ext_id: 29126), Club Raw: Islands Bordt
+Context: M999 (id: 27839, ext_id: 29128), Club Raw: Islands Bordte
+Context: U21 Elite DS (id: 27868, ext_id: 29863), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis,
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: U21 Elite HS (id: 27869, ext_id: 29864), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 6
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Virum-Sorgenfri Bordten
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Trelleborg Table Tennis Club
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis,
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Trelleborg Table Tennis Club
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: OB Bordtennis, Odense
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: HSEliteSenior (id: 27870, ext_id: 29868), Club Raw: Roskilde Bordtennis, BTK 61
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking (id: 27822, ext_id: 29742), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B (id: 27825, ext_id: 29841), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking B-PL (id: 27826, ext_id: 29845), Club Raw: Bærums Verk
+Context: Ranking C (id: 27827, ext_id: 29842), Club Raw: Bærums Verk
+Context: Ranking C-PL (id: 27829, ext_id: 29847), Club Raw: Bærums Verk
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: GH (id: 27794, ext_id: 29766), Club Raw: Randesund IL - BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Sandefjord TIF-BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Husøy og Foynland IF
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Randesund IL - BTG
+Context: Nyb (id: 27796, ext_id: 29768), Club Raw: Randesund IL - BTG
+Context: Nyb~B (id: 27797, ext_id: 29837), Club Raw: Husøy og Foynland IF
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Sandefjord TIF-BTG
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Imås, IL
+Context: Para (id: 27798, ext_id: 29769), Club Raw: Randesund IL - BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Husøy og Foynland IF
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Sandefjord TIF-BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Imås, IL
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Randesund IL - BTG
+Context: -> 1049 (id: 27800, ext_id: 29771), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Sandefjord TIF-BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Randesund IL - BTG
+Context: 1050-1399 (id: 27801, ext_id: 29772), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Sandefjord TIF-BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Sandefjord TIF-BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Husøy og Foynland IF
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: 1400-1999 (id: 27802, ext_id: 29773), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Randesund IL - BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: E (id: 27782, ext_id: 29756), Club Raw: Sandefjord TIF-BTG
+Context: ElJr (id: 27783, ext_id: 29757), Club Raw: Randesund IL - BTG
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Husøy og Foynland I
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Husøy og Foynland IF
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Sandefjord TIF-BTG
+Context: G11 (id: 27784, ext_id: 29758), Club Raw: Randesund IL - BTG
+Context: G11~B (id: 27785, ext_id: 29834), Club Raw: Sandefjord TIF-BTG
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Husøy og Foynland IF
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Husøy og Foynland IF
+Context: G15 (id: 27786, ext_id: 29759), Club Raw: Randesund IL - BTG
