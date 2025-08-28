@@ -1,200 +1,193 @@
+# src/models/match.py
+from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Tuple, Dict, Any
+import sqlite3
 import logging
-from models.tournament_stage import TournamentStage
 
 @dataclass
 class Match:
-    match_id:                   Optional[int] = None
-    tournament_class_id:        Optional[int] = None    # XOR with fixture_id
-    tournament_match_id_ext:    Optional[int] = None
-    fixture_id:                 Optional[int] = None    # XOR with tournament_class_id
-    tournament_stage_id:        Optional[str] = None    
-    group_id:                   Optional[int] = None
-    best_of:                    Optional[int] = None
-    date:                       Optional[str] = None
-    score_summary:              Optional[str] = None
-    notes:                      Optional[str] = None
+    # Core match
+    match_id: Optional[int] = None
+    best_of: Optional[int] = None
+    date: Optional[str] = None  # 'YYYY-MM-DD' or None
 
-    sides_participants:         List[Tuple[int, int]] = field(default_factory=list)                             # [(side, participant_id)]
-    sides_players:              List[Tuple[int, int, Optional[int]]] = field(default_factory=list)              # [(side, player_id, club_id)]
-    games:                      List[Tuple[int, Optional[int], Optional[int]]] = field(default_factory=list)
+    # External identity (for idempotence)
+    match_id_ext: Optional[str] = None
+    data_source_id: Optional[int] = None  # REQUIRED if match_id_ext is provided
 
-    @staticmethod
-    def from_dict(d: Dict) -> "Match":
-        return Match(
-            match_id                    = d.get("match_id"),
-            tournament_class_id         = d.get("tournament_class_id"),
-            tournament_match_id_ext     = d.get("tournament_match_id_ext"),
-            fixture_id                  = d.get("fixture_id"),
-            tournament_stage_id         = d.get("tournament_stage_id"),
-            group_id                    = d.get("group_id"),
-            best_of                     = d.get("best_of"),
-            date                        = d.get("date"),
-            score_summary               = d.get("score_summary"),
-            notes                       = d.get("notes"),
-            sides_participants          = d.get("sides_participants", []),
-            sides_players               = d.get("sides_players", []),
-            games                       = d.get("games", []),
+    # Competition context (competition_type_id = 1 for TournamentClass)
+    competition_type_id: int = 1                       # fixed for tournament classes
+    tournament_class_id: Optional[int] = None          # REQUIRED when competition_type_id=1
+    tournament_class_group_id: Optional[int] = None    # nullable
+    tournament_class_stage_id: Optional[int] = None    # nullable
+
+    # In-memory buffers to stage sides and games before save
+    _sides: List[Tuple[int, int]] = field(default_factory=list)       # list of (side, participant_id)
+    _games: List[Tuple[int, int]] = field(default_factory=list)       # list of (side1_points, side2_points)
+
+    # ------------- Builders -------------
+
+    def add_side_participant(self, side: int, participant_id: int) -> None:
+        """
+        Stage a side for this match. Side must be 1 or 2.
+        """
+        if side not in (1, 2):
+            raise ValueError("side must be 1 or 2")
+        self._sides.append((side, participant_id))
+
+    def add_game(self, game_no: int, side1_points: int, side2_points: int) -> None:
+        """
+        Stage a game (set). game_no is implicit by insertion order on save.
+        """
+        self._games.append((side1_points, side2_points))
+
+    # ------------- Persistence -------------
+
+    def _find_existing_match_id(self, cursor: sqlite3.Cursor) -> Optional[int]:
+        """
+        If match_id_ext + data_source_id are provided, return existing match_id if mapped.
+        """
+        if not self.match_id_ext or self.data_source_id is None:
+            return None
+        cursor.execute(
+            """
+            SELECT match_id 
+            FROM match_id_ext
+            WHERE match_id_ext = ? AND data_source_id = ?
+            """,
+            (self.match_id_ext, self.data_source_id),
+        )
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+    def _insert_match_row(self, cursor: sqlite3.Cursor) -> int:
+        cursor.execute(
+            """
+            INSERT INTO match (best_of, date)
+            VALUES (?, ?)
+            RETURNING match_id
+            """,
+            (self.best_of, self.date),
+        )
+        mid = cursor.fetchone()[0]
+        return mid
+
+    def _ensure_match_id_ext(self, cursor: sqlite3.Cursor) -> None:
+        """
+        Create link in match_id_ext if we have an ext id. Idempotent via PK.
+        """
+        if not self.match_id_ext or self.data_source_id is None:
+            return
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO match_id_ext (match_id, match_id_ext, data_source_id)
+            VALUES (?, ?, ?)
+            """,
+            (self.match_id, self.match_id_ext, self.data_source_id),
         )
 
-    def add_side_participant(
-            self, 
-            side: int, 
-            participant_id: int
-        ): 
-        self.sides_participants.append((side, participant_id))
+    def _upsert_match_competition(self, cursor: sqlite3.Cursor) -> None:
+        """
+        Upsert row in match_competition keyed by (match_id, competition_type_id).
+        Conforms to your CHECKs:
+          - For competition_type_id=1 we must provide tournament_class_id (not NULL)
+          - Group/stage are optional for TC
+        """
+        if self.competition_type_id != 1:
+            raise NotImplementedError("Only competition_type_id=1 (TournamentClass) is implemented here.")
+        if not self.tournament_class_id:
+            raise ValueError("tournament_class_id is required for competition_type_id=1")
 
-    def add_side_player(
-            self, 
-            side: int, 
-            player_id: int, 
-            club_id: Optional[int] = None
-        ): 
-        self.sides_players.append((side, player_id, club_id))
-
-    def add_game(
-            self, 
-            game_number: int, 
-            s1: Optional[int], 
-            s2: Optional[int]
-        ): 
-        self.games.append((game_number, s1, s2))
-
-    def _validate(
-            self, 
-            cursor
-        ) -> Optional[str]:
-        has_tc = self.tournament_class_id is not None
-        has_fx = self.fixture_id is not None
-        if has_tc == has_fx:
-            return "Exactly one of tournament_class_id or fixture_id must be set."
-
-        # League default
-        if has_fx and not self.tournament_stage_id:
-            self.tournament_stage_id = "LEAGUE"
-
-        if has_tc and not self.tournament_stage_id:
-            return "tournament_stage_id is required for tournament matches."
-
-        if has_tc:
-            if not self.sides_participants or self.sides_players:
-                return "Tournament match must use participant sides only."
-            if len(self.sides_participants) < 2:
-                return "Tournament match requires two participant sides."
-        else:
-            if not self.sides_players or self.sides_participants:
-                return "League match must use player sides only."
-            if len(self.sides_players) < 2:
-                return "League match requires two player sides."
-
-    def save_to_db(
-            self, 
-            cursor
-        ) -> Dict:
-
-        err = self._validate(cursor)
-        if err:
-            return {
-                "status":   "failed", 
-                "code":     "MATCH_VALIDATION_FAILED",
-                "reason":   err
-            }
-        
-        try:
-            # ── Check if match already exists ──
-            # REPLACE WITH CACHE..
-            cursor.execute("""
-                SELECT match_id
-                FROM match
-                WHERE tournament_class_id = ?
-                AND tournament_match_id_ext = ?
-            """, (self.tournament_class_id, self.tournament_match_id_ext))
-            row = cursor.fetchone()
-            if row:
-                return {
-                    "status": "skipped",
-                    "match_id": row[0],
-                    "reason": "Match already exists"
-                }
-
-            cursor.execute("""
-                INSERT INTO match (
-                           tournament_class_id,
-                           tournament_match_id_ext, 
-                           tournament_stage_id, 
-                           group_id, 
-                           best_of, 
-                           date, 
-                           score_summary, 
-                           notes
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (self.tournament_class_id, 
-                  self.tournament_match_id_ext, 
-                  self.tournament_stage_id, 
-                  self.group_id, 
-                  self.best_of, 
-                  self.date, 
-                  self.score_summary, 
-                  self.notes
-                  )
+        cursor.execute(
+            """
+            INSERT INTO match_competition (
+                match_id, competition_type_id, tournament_class_id,
+                fixture_id, tournament_class_group_id, tournament_class_stage_id
             )
-            self.match_id = cursor.lastrowid        
+            VALUES (?, ?, ?, NULL, ?, ?)
+            ON CONFLICT(match_id, competition_type_id) DO UPDATE SET
+                tournament_class_id       = excluded.tournament_class_id,
+                tournament_class_group_id = excluded.tournament_class_group_id,
+                tournament_class_stage_id = excluded.tournament_class_stage_id,
+                row_updated               = CURRENT_TIMESTAMP
+            """,
+            (
+                self.match_id,
+                self.competition_type_id,
+                self.tournament_class_id,
+                self.tournament_class_group_id,
+                self.tournament_class_stage_id,
+            ),
+        )
 
-            if self.tournament_class_id is not None:
-                for side, pid in self.sides_participants:
-                    cursor.execute("""
-                        INSERT INTO match_side_participant (match_id, side, participant_id)
-                        VALUES (?, ?, ?)
-                    """, (self.match_id, side, pid))
-            else:
-                for side, player_id, club_id in self.sides_players:
-                    cursor.execute("""
-                        INSERT INTO match_side_player (match_id, side, player_id, club_id)
-                        VALUES (?, ?, ?, ?)
-                    """, (self.match_id, side, player_id, club_id))
+    def _save_sides(self, cursor: sqlite3.Cursor) -> None:
+        """
+        Insert or replace sides by (match_id, side) uniqueness.
+        """
+        # Optional: ensure at most one entry per side in the staged list
+        latest_for_side: Dict[int, int] = {}
+        for side, pid in self._sides:
+            latest_for_side[side] = pid
 
-            for game_no, s1, s2 in sorted(self.games, key=lambda g: g[0]):
-                winner = 1 if (s1 is not None and s2 is not None and s1 > s2) else (2 if (s1 is not None and s2 is not None) else 1)
-                cursor.execute("""
-                    INSERT INTO game (match_id, game_number, side1_points, side2_points, winner_side)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (self.match_id, game_no, s1, s2, winner))
+        for side in (1, 2):
+            pid = latest_for_side.get(side)
+            if pid is None:
+                continue
+            cursor.execute(
+                """
+                INSERT INTO match_side (match_id, side, participant_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(match_id, side) DO UPDATE SET
+                    participant_id = excluded.participant_id,
+                    row_updated    = CURRENT_TIMESTAMP
+                """,
+                (self.match_id, side, pid),
+            )
 
-            return {
-                "status": "success",
-                "match_id": self.match_id,
-                "reason": f"Games in group added successfully"
-            }
-        except Exception as e:
-            logging.error(f"Error inserting match: {e}")
-            return {"status": "failed", "reason": f"Insertion error: {e}"}
+    def _save_games(self, cursor: sqlite3.Cursor) -> None:
+        """
+        Replace existing games with the staged list.
+        """
+        cursor.execute("DELETE FROM game WHERE match_id = ?", (self.match_id,))
+        for i, (s1, s2) in enumerate(self._games, start=1):
+            winning_side = None
+            if s1 is not None and s2 is not None:
+                if s1 > s2:
+                    winning_side = 1
+                elif s2 > s1:
+                    winning_side = 2
+            cursor.execute(
+                """
+                INSERT INTO game (match_id, game_nbr, side1_points, side2_points, winning_side)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (self.match_id, i, s1, s2, winning_side),
+            )
 
-    @staticmethod
-    def get_by_id(cursor, match_id: int) -> Optional["Match"]:
+    def save_to_db(self, cursor: sqlite3.Cursor) -> Dict[str, Any]:
+        """
+        Idempotent save:
+          1) Reuse existing match via (match_id_ext, data_source_id) if present
+          2) Else insert a new match
+          3) Ensure match_id_ext mapping (if provided)
+          4) Upsert match_competition (TournamentClass context)
+          5) Upsert sides (1/2)
+          6) Replace games
+        """
         try:
-            cursor.execute("""
-                SELECT m.match_id, m.tournament_class_id, m.tournament_match_id_ext, m.fixture_id, s.code, m.group_id,
-                       m.best_of, m.date, m.score_summary, m.notes
-                  FROM match m
-                  JOIN stage s ON s.tournament_stage_id = m.tournament_stage_id
-                 WHERE m.match_id = ?
-            """, (match_id,))
-            row = cursor.fetchone()
-            if not row: return None
-            m = Match(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8], row[9])
-
-            if m.tournament_class_id is not None:
-                cursor.execute("SELECT side, participant_id FROM match_side_participant WHERE match_id=? ORDER BY side", (match_id,))
-                m.sides_participants = [(r[0], r[1]) for r in cursor.fetchall()]
+            existing = self._find_existing_match_id(cursor)
+            if existing:
+                self.match_id = existing
             else:
-                cursor.execute("SELECT side, player_id, club_id FROM match_side_player WHERE match_id=? ORDER BY side", (match_id,))
-                m.sides_players = [(r[0], r[1], r[2]) for r in cursor.fetchall()]
+                self.match_id = self._insert_match_row(cursor)
 
-            cursor.execute("SELECT game_number, side1_points, side2_points FROM game WHERE match_id=? ORDER BY game_number", (match_id,))
-            m.games = [(r[0], r[1], r[2]) for r in cursor.fetchall()]
-            return m
+            self._ensure_match_id_ext(cursor)
+            self._upsert_match_competition(cursor)
+            self._save_sides(cursor)
+            self._save_games(cursor)
+
+            return {"status": "success", "match_id": self.match_id}
         except Exception as e:
-            logging.error(f"Error loading match {match_id}: {e}")
-            return None
+            logging.exception("Error saving match")
+            return {"status": "failed", "reason": str(e)}

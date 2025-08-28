@@ -1,10 +1,10 @@
 from __future__ import annotations
-import io, re, logging, datetime, time, requests
+import io, re, logging, time, requests
 from typing import List, Dict, Optional, Tuple
 import pdfplumber
 
 from db import get_conn
-from utils import parse_date, print_db_insert_results, name_keys_for_lookup_all_splits
+from utils import parse_date, print_db_insert_results, name_keys_for_lookup_all_splits, OperationLogger
 from config import (
     SCRAPE_PARTICIPANTS_MAX_CLASSES,
     SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
@@ -14,11 +14,11 @@ from config import (
 )
 from models.club import Club
 from models.player import Player
-from models.tournament_class import TournamentClass
 from models.participant import Participant
-from models.tournament_group import TournamentGroup
+from models.tournament_class import TournamentClass
+from models.tournament_class_group import TournamentClassGroup
+from models.tournament_class_stage import TournamentClassStage
 from models.match import Match
-from models.tournament_stage import TournamentStage
 from models.participant_player import ParticipantPlayer
 
 RESULTS_URL_TMPL = "https://resultat.ondata.se/ViewClassPDF.php?classID={class_id}&stage=3"
@@ -26,13 +26,20 @@ RESULTS_URL_TMPL = "https://resultat.ondata.se/ViewClassPDF.php?classID={class_i
 # ───────────────────────── Main entrypoint ─────────────────────────
 
 def upd_tournament_group_stage():
-    conn, cur = get_conn()
+    conn, cursor = get_conn()
     t0 = time.perf_counter()
+
+    logger = OperationLogger(
+    verbosity       = 2, 
+    print_output    = False, 
+    log_to_db       = False, 
+    cursor          = cursor
+    )
 
     cutoff_date = parse_date(SCRAPE_PARTICIPANTS_CUTOFF_DATE) if SCRAPE_PARTICIPANTS_CUTOFF_DATE else None
 
     classes = TournamentClass.get_filtered_classes(
-        cursor=cur,
+        cursor=cursor,
         class_id_exts       = SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,          # accept single id or list
         tournament_id_exts  = SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,           # NEW: filter by tournament(s) when provided
         data_source_id      = 1 if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else None,
@@ -46,8 +53,10 @@ def upd_tournament_group_stage():
 
     print(f"ℹ️  Updating tournament GROUP STAGE for {len(classes)} classes…")
     logging.info(f"Updating tournament GROUP STAGE for {len(classes)} classes")
-    club_map = Club.cache_name_map(cur)
-    part_by_class_fast = ParticipantPlayer.cache_by_class_name_fast(cur)
+    club_map = Club.cache_name_map(cursor)
+    part_by_class_fast = ParticipantPlayer.cache_by_class_name_fast(cursor)
+    stage_cache = TournamentClassStage.cache_all(cursor)  # e.g., {"GROUP": 1, "R16": 5, ...}
+    group_stage_id = stage_cache.get("GROUP")
 
     totals = {"groups": 0, "matches": 0, "kept": 0, "skipped": 0}
     db_results = []
@@ -58,22 +67,16 @@ def upd_tournament_group_stage():
         print(f"ℹ️  [{idx}/{len(classes)}] Class {label} (id_ext: {tc.tournament_class_id_ext}, id: {tc.tournament_class_id})  date={tc.date}")
         logging.info(f"[{idx}/{len(classes)}] Class {label} (id_ext: {tc.tournament_class_id_ext}, id: {tc.tournament_class_id})  date={tc.date}")
 
-        # class_fast = part_by_class_fast.get(tc.tournament_class_id, {})
-        # by_name_club = class_fast.get("by_name_club", {})
-        # by_name_only = class_fast.get("by_name_only", {})
-
         # Set up cache maps
         class_fast   = part_by_class_fast.get(tc.tournament_class_id, {})
         by_code      = class_fast.get("by_code", {})
         by_name_club = class_fast.get("by_name_club", {})
         by_name_only = class_fast.get("by_name_only", {})        
 
+        item_key = f"tid: {tc.tournament_class_id}, tid_ext: {tc.tournament_class_id_ext}"
         if not by_name_club and not by_name_only:
             logging.warning(f"No participants found for class {tc.tournament_class_id} (ext={tc.tournament_class_id_ext})")
-            db_results.append({
-                "status": "skipped", 
-                "reason": f"No participants in class_id", 
-                "warnings": ""})
+            logger.failed(item_key, "No participants found for class")
             continue
 
         url = RESULTS_URL_TMPL.format(class_id=tc.tournament_class_id_ext)
@@ -83,8 +86,7 @@ def upd_tournament_group_stage():
         except Exception as e:
             reason = f"Download failed: {e}"
             print(f"❌ {reason}")
-            logging.error(reason)
-            db_results.append({"status": "failed", "reason": reason, "warnings": ""})
+            logger.failed(item_key, reason)
             conn.commit()
             continue
 
@@ -93,8 +95,7 @@ def upd_tournament_group_stage():
         except Exception as e:
             reason = f"PDF parsing failed: {e}"
             print(f"❌ {reason}")
-            logging.error(reason)
-            db_results.append({"status": "failed", "reason": reason, "warnings": ""})
+            logger.failed(item_key, reason)
             conn.commit()
             continue
 
@@ -107,21 +108,22 @@ def upd_tournament_group_stage():
         kept = skipped = 0
         logging.info(f"PDF URL: {url}")
 
+        # 1) Upsert the pool row and get a real group_id
         for g_idx, g in enumerate(groups, 1):
-            pool_name = g["name"]
+            group_desc = g["name"]  # e.g. "Pool 1"
 
-            # 1) Upsert the pool row and get a real group_id
-            for g_idx, g in enumerate(groups, 1):
-                group_desc = g["name"]  # e.g. "Pool 1"
+            res = TournamentClassGroup(
+                tournament_class_group_id=None,
+                tournament_class_id=tc.tournament_class_id,
+                description=group_desc,
+                sort_order=g_idx
+            ).upsert(cursor)
 
-                group = TournamentGroup(
-                    tournament_class_group_id=None,
-                    tournament_class_id=tc.tournament_class_id,
-                    description=group_desc,
-                    sort_order=g_idx
-                ).upsert(cur)
-
-                group_id = group.tournament_class_group_id
+            group_id = res["tournament_class_group_id"]
+            logging.info(
+                f"   🏷️  Pool {group_desc}: {res['status']} (id={group_id}) "
+                f"[class_id={tc.tournament_class_id}, ext={tc.tournament_class_id_ext}]"
+            )
 
             # Collect unique participant_ids in this pool
             member_pids: set[int] = set()
@@ -132,35 +134,6 @@ def upd_tournament_group_stage():
             _by_name_only_get  = by_name_only.get
             _club_map_get      = club_map.get
             _club_norm         = Club._normalize
-
-            def resolve_fast(code: str | None, name: str, club: str | None):
-                # 1) Participant code (O(1))
-                if code:
-                    pid = _by_code_get(code)
-                    if pid is None:
-                        cz = code.lstrip("0") or "0"   # treat 077 == 77
-                        pid = _by_code_get(cz)
-                    if pid is not None:
-                        return pid, "code"
-
-                # 2) Fallback: name + club (only compute keys on fallback)
-                keys = name_keys_for_lookup_all_splits(name)
-                if club:
-                    cobj = _club_map_get(_club_norm(club))
-                    if cobj:
-                        cid = cobj.club_id
-                        for k in keys:
-                            pid = _by_name_club_get((k, cid))
-                            if pid:
-                                return pid, "name+club"
-
-                # 3) Fallback: name-only (unique only)
-                for k in keys:
-                    lst = _by_name_only_get(k)
-                    if lst and len(lst) == 1:
-                        return lst[0], "name-only"
-
-                return None, "unmatched"
 
             # 2) Iterate matches in this pool
             for i, mm in enumerate(g["matches"], 1):
@@ -191,31 +164,36 @@ def upd_tournament_group_stage():
 
                 best    = _infer_best_of_from_sign(mm['tokens'])
                 games   = _tokens_to_games_from_sign(mm['tokens'])
-                summary = _score_summary_games_won(mm['tokens'])
 
                 # 3) Persist match + sides + games
                 mx = Match(
                     match_id=None,
-                    tournament_class_id     = tc.tournament_class_id,
-                    tournament_match_id_ext = match_id_ext,
-                    fixture_id              = None,
-                    tournament_stage_id     = 1,           # GROUP
-                    group_id                = group_id,
-                    best_of                 = best,
-                    date                    = None,
-                    score_summary           = summary,
-                    notes                   = None,
+                    best_of=best,
+                    date=None,
+
+                    match_id_ext=match_id_ext,                      # from PDF
+                    data_source_id=1,                               # <-- pass YOUR data_source_id explicitly
+
+                    competition_type_id=1,                          # TournamentClass
+                    tournament_class_id=tc.tournament_class_id,
+                    tournament_class_group_id=group_id,             # from TournamentGroup.upsert(...)
+                    tournament_class_stage_id=group_stage_id,       # optional: set if/when you have it
                 )
                 mx.add_side_participant(1, p1_pid)
                 mx.add_side_participant(2, p2_pid)
                 for no, (s1, s2) in enumerate(games, start=1):
                     mx.add_game(no, s1, s2)
 
-                db_results.append(mx.save_to_db(cur))
+                db_results.append(mx.save_to_db(cursor))
 
-            # 4) Upsert pool members once per pool (after processing its matches)
-            for pid in member_pids:
-                group.add_member(cur, pid)
+                # 4) Upsert pool members once per pool (after processing its matches)
+                for pid in member_pids:
+                    TournamentClassGroup(
+                        tournament_class_group_id=group_id,
+                        tournament_class_id=tc.tournament_class_id,
+                        description=group_desc,
+                        sort_order=g_idx
+                    ).add_member(cursor, pid)
 
         totals["kept"] += kept
         totals["skipped"] += skipped
@@ -365,13 +343,13 @@ def _infer_best_of_from_sign(tokens: List[str]) -> Optional[int]:
     return winner_games * 2 - 1
 
 
-def derive_best_of_from_summary(score_summary: str) -> int:
-    try:
-        p1_games, p2_games = map(int, score_summary.split("-"))
-    except ValueError:
-        return None
-    winner_games = max(p1_games, p2_games)
-    return winner_games * 2 - 1
+# def derive_best_of_from_summary(score_summary: str) -> int:
+#     try:
+#         p1_games, p2_games = map(int, score_summary.split("-"))
+#     except ValueError:
+#         return None
+#     winner_games = max(p1_games, p2_games)
+#     return winner_games * 2 - 1
 
 def _tokens_to_games_from_sign(tokens: List[str]) -> List[Tuple[int, int]]:
     """
@@ -432,27 +410,4 @@ def resolve_participant(
             return lst[0], "name-only"
 
     return None, "unmatched"
-
-def _score_summary_games_won(tokens: list[str]) -> str:
-    """
-    Returns score summary in match-game form, e.g. '3-2'.
-    Strict deuce rules apply for interpreting winners from tokens.
-    """
-    p1_games = 0
-    p2_games = 0
-
-    for raw in tokens:
-        s = raw.strip().replace(" ", "")
-        if not re.fullmatch(r"[+-]?\d+", s):
-            continue
-        v = int(s)
-        if v >= 0:
-            p1_games += 1
-        else:
-            p2_games += 1
-
-    return f"{p1_games}-{p2_games}"
-
-
-
 
