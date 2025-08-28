@@ -53,6 +53,7 @@ def upd_tournament_group_stage():
 
     print(f"ℹ️  Updating tournament GROUP STAGE for {len(classes)} classes…")
     logging.info(f"Updating tournament GROUP STAGE for {len(classes)} classes")
+
     club_map = Club.cache_name_map(cursor)
     part_by_class_fast = ParticipantPlayer.cache_by_class_name_fast(cursor)
     stage_cache = TournamentClassStage.cache_all(cursor)  # e.g., {"GROUP": 1, "R16": 5, ...}
@@ -75,7 +76,7 @@ def upd_tournament_group_stage():
 
         item_key = f"tid: {tc.tournament_class_id}, tid_ext: {tc.tournament_class_id_ext}"
         if not by_name_club and not by_name_only:
-            logging.warning(f"No participants found for class {tc.tournament_class_id} (ext={tc.tournament_class_id_ext})")
+            # logging.warning(f"No participants found for class {tc.tournament_class_id} (ext={tc.tournament_class_id_ext})")
             logger.failed(item_key, "No participants found for class")
             continue
 
@@ -122,21 +123,26 @@ def upd_tournament_group_stage():
             group_id = res["tournament_class_group_id"]
             logging.info(
                 f"   🏷️  Pool {group_desc}: {res['status']} (id={group_id}) "
-                f"[class_id={tc.tournament_class_id}, ext={tc.tournament_class_id_ext}]"
+                f"[class_id={tc.tournament_class_id}, class_id_ext={tc.tournament_class_id_ext}]"
             )
 
             # Collect unique participant_ids in this pool
             member_pids: set[int] = set()
 
-            # Local refs (tiny speedups)
-            _by_code_get       = by_code.get
-            _by_name_club_get  = by_name_club.get
-            _by_name_only_get  = by_name_only.get
-            _club_map_get      = club_map.get
-            _club_norm         = Club._normalize
-
             # 2) Iterate matches in this pool
             for i, mm in enumerate(g["matches"], 1):
+
+                status = mm.get("status")
+                if status == "WO":
+                # Handle walkover: e.g., set winner if known, or skip saving games
+                    best = None
+                    games = []
+                    item_key = f"mid: {mm['match_id_ext']}, p1: {mm['p1']['name']}, p2: {mm['p2']['name']}"
+                    logger.warning(item_key, "WO detected for match")
+                else:
+                    best = _infer_best_of_from_sign(mm['tokens'])
+                    games = _tokens_to_games_from_sign(mm['tokens'])
+
                 match_id_ext = mm.get("match_id_ext")
                 p1_code      = mm.get("p1_code")
                 p2_code      = mm.get("p2_code")
@@ -169,7 +175,7 @@ def upd_tournament_group_stage():
                 mx = Match(
                     match_id=None,
                     best_of=best,
-                    date=None,
+                    date=tc.date,
 
                     match_id_ext=match_id_ext,                      # from PDF
                     data_source_id=1,                               # <-- pass YOUR data_source_id explicitly
@@ -184,16 +190,31 @@ def upd_tournament_group_stage():
                 for no, (s1, s2) in enumerate(games, start=1):
                     mx.add_game(no, s1, s2)
 
-                db_results.append(mx.save_to_db(cursor))
+                res = mx.save_to_db(cursor)
 
-                # 4) Upsert pool members once per pool (after processing its matches)
-                for pid in member_pids:
-                    TournamentClassGroup(
-                        tournament_class_group_id=group_id,
-                        tournament_class_id=tc.tournament_class_id,
-                        description=group_desc,
-                        sort_order=g_idx
-                    ).add_member(cursor, pid)
+                item_key = f"match_id_ext={mx.match_id_ext or 'N/A'}"
+
+                status = res.get("status")
+
+                if status in ("inserted", "updated", "success"):
+                    logger.success(item_key, f"Match {status}")
+                elif status == "failed":
+                    logger.failed(item_key, f"Match save failed: {res.get('reason')}")
+                elif status == "skipped":
+                    logger.skipped(item_key, "Skipped match")
+                elif status == "warning":
+                    logger.warning(item_key, res.get("reason", "Match saved with warnings"))
+                else:
+                    logger.warning(item_key, f"Unknown match save status: {status}")
+
+            # 4) Upsert pool members once per pool (after processing its matches)
+            for pid in member_pids:
+                TournamentClassGroup(
+                    tournament_class_group_id=group_id,
+                    tournament_class_id=tc.tournament_class_id,
+                    description=group_desc,
+                    sort_order=g_idx
+                ).add_member(cursor, pid)
 
         totals["kept"] += kept
         totals["skipped"] += skipped
@@ -204,7 +225,7 @@ def upd_tournament_group_stage():
     print(f"ℹ️  Group stage parse complete in {elapsed:.2f}s")
     print(f"ℹ️  Totals — pools: {totals['groups']}, matches parsed: {totals['matches']}, kept: {totals['kept']}, skipped: {totals['skipped']}")
     print("")
-    print_db_insert_results(db_results)
+    logger.summarize()
     print("")
     conn.close()
 
@@ -213,13 +234,13 @@ def upd_tournament_group_stage():
 
 _RE_POOL = re.compile(r"\bPool\s+\d+\b", re.IGNORECASE)
 
-_RE_MATCH_LEFT = re.compile(
-    # r"^(?P<mid>\d{3})\s+"
-    r"^(?P<mid>\d{1,3})\s+"
-    r"(?P<p1code>\d{3})\s+(?P<p1>.+?)\s*-\s*"
-    r"(?P<p2code>\d{3})\s+(?P<p2>.+?)"
-    r"(?:\s+(?P<rest>[0-9,\s+\-:]+))?$"
-)
+# _RE_MATCH_LEFT = re.compile(
+#     # r"^(?P<mid>\d{3})\s+"
+#     r"^(?P<mid>\d{1,3})\s+"
+#     r"(?P<p1code>\d{3})\s+(?P<p1>.+?)\s*-\s*"
+#     r"(?P<p2code>\d{3})\s+(?P<p2>.+?)"
+#     r"(?:\s+(?P<rest>[0-9,\s+\-:]+))?$"
+# )
 
 _RE_NAME_CLUB = re.compile(r"^(?P<name>.+?)(?:,\s*(?P<club>.+))?$")
 _RE_LEADING_CODE = re.compile(r"^\s*(?:\d{1,3})\s+(?=\S)")
@@ -243,45 +264,6 @@ _RE_MATCH_NO_CODES = re.compile(
     r"^\s*(?P<mid>\d{1,3})\s+(?P<p1>.+?)\s*[-–]\s*(?P<p2>.+?)"
     r"(?:\s+(?P<rest>[\d,\s:+-]+))?$"
 )
-
-# def _parse_groups_pdf(
-#         pdf_bytes: bytes
-#     ) -> List[Dict]:
-#     rows = _extract_rows_group_stage(pdf_bytes)
-#     groups: List[Dict] = []
-#     current: Optional[Dict] = None
-
-#     for row in rows:
-#         m_pool = _RE_POOL.search(row)
-#         if m_pool:
-#             current = {"name": m_pool.group(0), "matches": []}
-#             groups.append(current)
-#             continue
-
-#         m = _RE_MATCH_LEFT.match(row)
-
-#         if m and current:
-
-#             match_id_ext    = m.group("mid").strip()
-#             p1_code         = m.group("p1code")
-#             p2_code         = m.group("p2code")
-#             p1              = _split_name_club(m.group("p1").strip())
-#             p2              = _split_name_club(m.group("p2").strip())
-#             rest            = m.group("rest") or ""
-#             tokens          = _tokenize_right(rest)
-
-#             current["matches"].append(
-#                 {
-#                 "match_id_ext": match_id_ext,
-#                 "p1_code":      p1_code,
-#                 "p2_code":      p2_code,
-#                 "p1":           p1,
-#                 "p2":           p2,
-#                 "tokens":       tokens
-#                 }
-#             )
-
-#     return groups
 
 def _parse_groups_pdf(pdf_bytes: bytes) -> List[Dict]:
     rows = _extract_rows_group_stage_with_attrs(pdf_bytes)
@@ -307,52 +289,78 @@ def _parse_groups_pdf(pdf_bytes: bytes) -> List[Dict]:
         mid = row["bold_mid"]
         tail = row["tail_text"]
 
+        # --- Branch A: bold MID ---
         if mid:
-            # We have a bold match id; parse the remainder of the line
             m = _RE_REMAINDER_WITH_CODES.match(tail) or _RE_REMAINDER_NO_CODES.match(tail)
             if not m:
                 _debug_unmatched(text)
                 continue
+
+            p1_str, p2_str = m.group("p1").strip(), m.group("p2").strip()
+
+            # Guards: must look like "Name, Club - Name, Club"; skip footers/links
+            lt = text.lower()
+            if "," not in p1_str or "," not in p2_str:
+                continue
+            if "tt coordinator" in lt or "programlicens" in lt or "http://" in lt or "https://" in lt:
+                continue
+
             p1code = m.groupdict().get("p1code")
             p2code = m.groupdict().get("p2code")
             rest   = m.group("rest") or ""
+
             current["matches"].append({
-                "match_id_ext": mid,                             # bold mid
-                "p1_code":      p1code,
-                "p2_code":      p2code,
-                "p1":           _split_name_club(m.group("p1").strip()),
-                "p2":           _split_name_club(m.group("p2").strip()),
-                "tokens":       _tokenize_right(rest),
+                "match_id_ext": mid,
+                "p1_code": p1code,
+                "p2_code": p2code,
+                "p1": _split_name_club(p1_str),
+                "p2": _split_name_club(p2_str),
+                "tokens": _tokenize_right(rest),
             })
             continue
 
-        # No bold mid → try lines that start with MID in plain font
+        # --- Branch B: plain MID at row start ---
         m = _RE_MATCH_WITH_CODES.match(text) or _RE_MATCH_NO_CODES.match(text)
         if m:
+            p1_str, p2_str = m.group("p1").strip(), m.group("p2").strip()
+            lt = text.lower()
+            if "," not in p1_str or "," not in p2_str:
+                continue
+            if "tt coordinator" in lt or "programlicens" in lt or "http://" in lt or "https://" in lt:
+                continue
+
             match_id_ext = m.group("mid").strip()
             p1code = m.groupdict().get("p1code")
             p2code = m.groupdict().get("p2code")
             rest   = m.group("rest") or ""
+
             current["matches"].append({
-                "match_id_ext": match_id_ext,                    # plain mid
-                "p1_code":      p1code,
-                "p2_code":      p2code,
-                "p1":           _split_name_club(m.group("p1").strip()),
-                "p2":           _split_name_club(m.group("p2").strip()),
-                "tokens":       _tokenize_right(rest),
+                "match_id_ext": match_id_ext,
+                "p1_code": p1code,
+                "p2_code": p2code,
+                "p1": _split_name_club(p1_str),
+                "p2": _split_name_club(p2_str),
+                "tokens": _tokenize_right(rest),
             })
             continue
 
-        # Truly no MID at all → try name-only parse and save with match_id_ext=None
+        # --- Branch C: truly no MID; parse names anyway ---
         m2 = _RE_REMAINDER_WITH_CODES.match(text) or _RE_REMAINDER_NO_CODES.match(text)
         if m2:
+            p1_str, p2_str = m2.group("p1").strip(), m2.group("p2").strip()
+            lt = text.lower()
+            if "," not in p1_str or "," not in p2_str:
+                continue
+            if "tt coordinator" in lt or "programlicens" in lt or "http://" in lt or "https://" in lt:
+                continue
+
             rest = m2.group("rest") or ""
             current["matches"].append({
-                "match_id_ext": None,                            # no external id available
+                "match_id_ext": None,
                 "p1_code":      m2.groupdict().get("p1code"),
                 "p2_code":      m2.groupdict().get("p2code"),
-                "p1":           _split_name_club(m2.group("p1").strip()),
-                "p2":           _split_name_club(m2.group("p2").strip()),
+                "p1":           _split_name_club(p1_str),
+                "p2":           _split_name_club(p2_str),
                 "tokens":       _tokenize_right(rest),
             })
             continue
@@ -361,42 +369,6 @@ def _parse_groups_pdf(pdf_bytes: bytes) -> List[Dict]:
 
     return groups
 
-
-def _extract_rows_group_stage(pdf_bytes: bytes) -> list[str]:
-    """
-    Extracts each visual row from the PDF in exact left-to-right order.
-    Used for group stage parsing where match id must stay at the start.
-    """
-    rows = []
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        for page in pdf.pages:
-            words = page.extract_words(
-                x_tolerance=2,
-                y_tolerance=3,
-                keep_blank_chars=False
-            ) or []
-            if not words:
-                continue
-
-            # group words into rows by vertical position
-            row_map: dict[int, list[dict]] = {}
-            rid, last_top = 0, None
-            for w in sorted(words, key=lambda w: (round(w["top"], 1), w["x0"])):
-                top = round(w["top"], 1)
-                if last_top is None or abs(top - last_top) > 3.0:
-                    rid += 1
-                    last_top = top
-                    row_map[rid] = []
-                row_map[rid].append(w)
-
-            # join words left-to-right for each row
-            for words_in_row in row_map.values():
-                words_in_row.sort(key=lambda w: w["x0"])
-                row_text = " ".join(w["text"] for w in words_in_row).strip()
-                if row_text:
-                    rows.append(row_text)
-    return rows
-
 def _split_name_club(raw: str) -> Dict[str, Optional[str]]:
     s = _RE_LEADING_CODE.sub("", raw.strip())
     m = _RE_NAME_CLUB.match(s)
@@ -404,10 +376,18 @@ def _split_name_club(raw: str) -> Dict[str, Optional[str]]:
     club = (m.group("club") if m else None)
     return {"raw": raw, "name": name, "club": (club.strip() if club else None)}
 
+# def _tokenize_right(s: str) -> List[str]:
+#     if not s:
+#         return []
+#     return [t.replace(" ", "") for t in re.findall(r"\d+\s*-\s*\d+|[+-]?\d+|\d+\s*:\s*\d+", s)]
+
 def _tokenize_right(s: str) -> List[str]:
     if not s:
         return []
-    return [t.replace(" ", "") for t in re.findall(r"\d+\s*-\s*\d+|[+-]?\d+|\d+\s*:\s*\d+", s)]
+    # Normalize commas to spaces, trim extras
+    s = re.sub(r"\s*,\s*", " ", s.strip())
+    # Find signed or unsigned digits (for signed scores)
+    return re.findall(r"[+-]?\d+", s)
 
 def _infer_best_of_from_sign(tokens: List[str]) -> Optional[int]:
     """

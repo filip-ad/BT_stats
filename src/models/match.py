@@ -42,6 +42,17 @@ class Match:
         """
         self._games.append((side1_points, side2_points))
 
+    def _update_match_row(self, cursor: sqlite3.Cursor) -> None:
+        cursor.execute(
+            """
+            UPDATE match
+            SET best_of = ?, date = ?, row_updated = CURRENT_TIMESTAMP
+            WHERE match_id = ?
+            """,
+            (self.best_of, self.date, self.match_id),
+        )
+
+
     # ------------- Persistence -------------
 
     def _find_existing_match_id(self, cursor: sqlite3.Cursor) -> Optional[int]:
@@ -167,27 +178,36 @@ class Match:
 
     def save_to_db(self, cursor: sqlite3.Cursor) -> Dict[str, Any]:
         """
-        Idempotent save:
-          1) Reuse existing match via (match_id_ext, data_source_id) if present
-          2) Else insert a new match
-          3) Ensure match_id_ext mapping (if provided)
-          4) Upsert match_competition (TournamentClass context)
-          5) Upsert sides (1/2)
-          6) Replace games
+        Idempotent upsert:
+        1) Reuse existing match via (match_id_ext, data_source_id) if present; update core fields
+        2) Else insert new match
+        3) Ensure match_id_ext mapping (if provided)
+        4) Upsert match_competition
+        5) Upsert sides
+        6) Replace games
         """
         try:
             existing = self._find_existing_match_id(cursor)
+            created = False
             if existing:
                 self.match_id = existing
+                # keep core fields fresh on re-runs
+                self._update_match_row(cursor)
             else:
                 self.match_id = self._insert_match_row(cursor)
+                created = True
 
             self._ensure_match_id_ext(cursor)
             self._upsert_match_competition(cursor)
             self._save_sides(cursor)
             self._save_games(cursor)
 
-            return {"status": "success", "match_id": self.match_id}
+            return {
+                "status": "inserted" if created else "updated",
+                "match_id": self.match_id,
+                "sides": len(self._sides),
+                "games": len(self._games),
+            }
         except Exception as e:
             logging.exception("Error saving match")
             return {"status": "failed", "reason": str(e)}
