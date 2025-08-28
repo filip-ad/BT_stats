@@ -213,13 +213,6 @@ def upd_tournament_group_stage():
 
 _RE_POOL = re.compile(r"\bPool\s+\d+\b", re.IGNORECASE)
 
-# _RE_MATCH_LEFT = re.compile(
-#     r"^\s*(?P<mid>\d{1,5})\s+(?P<p1>.+?)\s*-\s*(?P<p2>.+?)\s*$"
-# )
-# _RE_MATCH_LEFT = re.compile(
-#     r"^(?P<mid>\d{3})\s+(?P<p1code>\d{3})\s+(?P<p1>.+?)\s*-\s*(?P<p2code>\d{3})\s+(?P<p2>.+?)$"
-# )
-
 _RE_MATCH_LEFT = re.compile(
     # r"^(?P<mid>\d{3})\s+"
     r"^(?P<mid>\d{1,3})\s+"
@@ -231,44 +224,143 @@ _RE_MATCH_LEFT = re.compile(
 _RE_NAME_CLUB = re.compile(r"^(?P<name>.+?)(?:,\s*(?P<club>.+))?$")
 _RE_LEADING_CODE = re.compile(r"^\s*(?:\d{1,3})\s+(?=\S)")
 
-def _parse_groups_pdf(
-        pdf_bytes: bytes
-    ) -> List[Dict]:
-    rows = _extract_rows_group_stage(pdf_bytes)
+# After we've stripped MID (if any), parse with or without player codes:
+_RE_REMAINDER_WITH_CODES = re.compile(
+    r"^\s*(?P<p1code>\d{1,3})\s+(?P<p1>.+?)\s*[-–]\s*(?P<p2code>\d{1,3})\s+(?P<p2>.+?)"
+    r"(?:\s+(?P<rest>[\d,\s:+-]+))?$"
+)
+_RE_REMAINDER_NO_CODES = re.compile(
+    r"^\s*(?P<p1>.+?)\s*[-–]\s*(?P<p2>.+?)"
+    r"(?:\s+(?P<rest>[\d,\s:+-]+))?$"
+)
+
+# Fallback patterns that *include* MID at start (when no bold_mid detected)
+_RE_MATCH_WITH_CODES = re.compile(
+    r"^\s*(?P<mid>\d{1,3})\s+(?P<p1code>\d{1,3})\s+(?P<p1>.+?)\s*[-–]\s*(?P<p2code>\d{1,3})\s+(?P<p2>.+?)"
+    r"(?:\s+(?P<rest>[\d,\s:+-]+))?$"
+)
+_RE_MATCH_NO_CODES = re.compile(
+    r"^\s*(?P<mid>\d{1,3})\s+(?P<p1>.+?)\s*[-–]\s*(?P<p2>.+?)"
+    r"(?:\s+(?P<rest>[\d,\s:+-]+))?$"
+)
+
+# def _parse_groups_pdf(
+#         pdf_bytes: bytes
+#     ) -> List[Dict]:
+#     rows = _extract_rows_group_stage(pdf_bytes)
+#     groups: List[Dict] = []
+#     current: Optional[Dict] = None
+
+#     for row in rows:
+#         m_pool = _RE_POOL.search(row)
+#         if m_pool:
+#             current = {"name": m_pool.group(0), "matches": []}
+#             groups.append(current)
+#             continue
+
+#         m = _RE_MATCH_LEFT.match(row)
+
+#         if m and current:
+
+#             match_id_ext    = m.group("mid").strip()
+#             p1_code         = m.group("p1code")
+#             p2_code         = m.group("p2code")
+#             p1              = _split_name_club(m.group("p1").strip())
+#             p2              = _split_name_club(m.group("p2").strip())
+#             rest            = m.group("rest") or ""
+#             tokens          = _tokenize_right(rest)
+
+#             current["matches"].append(
+#                 {
+#                 "match_id_ext": match_id_ext,
+#                 "p1_code":      p1_code,
+#                 "p2_code":      p2_code,
+#                 "p1":           p1,
+#                 "p2":           p2,
+#                 "tokens":       tokens
+#                 }
+#             )
+
+#     return groups
+
+def _parse_groups_pdf(pdf_bytes: bytes) -> List[Dict]:
+    rows = _extract_rows_group_stage_with_attrs(pdf_bytes)
     groups: List[Dict] = []
     current: Optional[Dict] = None
 
+    def _debug_unmatched(row_text: str):
+        if re.match(r"^\s*\d+\s+\S", row_text) or " - " in row_text or " – " in row_text:
+            logging.debug(f"[group-parse] unmatched row: {row_text}")
+
     for row in rows:
-        m_pool = _RE_POOL.search(row)
+        text = row["text"]
+
+        # Pool header?
+        m_pool = _RE_POOL.search(text)
         if m_pool:
             current = {"name": m_pool.group(0), "matches": []}
             groups.append(current)
             continue
+        if not current:
+            continue
 
-        m = _RE_MATCH_LEFT.match(row)
+        mid = row["bold_mid"]
+        tail = row["tail_text"]
 
-        if m and current:
+        if mid:
+            # We have a bold match id; parse the remainder of the line
+            m = _RE_REMAINDER_WITH_CODES.match(tail) or _RE_REMAINDER_NO_CODES.match(tail)
+            if not m:
+                _debug_unmatched(text)
+                continue
+            p1code = m.groupdict().get("p1code")
+            p2code = m.groupdict().get("p2code")
+            rest   = m.group("rest") or ""
+            current["matches"].append({
+                "match_id_ext": mid,                             # bold mid
+                "p1_code":      p1code,
+                "p2_code":      p2code,
+                "p1":           _split_name_club(m.group("p1").strip()),
+                "p2":           _split_name_club(m.group("p2").strip()),
+                "tokens":       _tokenize_right(rest),
+            })
+            continue
 
-            match_id_ext    = m.group("mid").strip()
-            p1_code         = m.group("p1code")
-            p2_code         = m.group("p2code")
-            p1              = _split_name_club(m.group("p1").strip())
-            p2              = _split_name_club(m.group("p2").strip())
-            rest            = m.group("rest") or ""
-            tokens          = _tokenize_right(rest)
+        # No bold mid → try lines that start with MID in plain font
+        m = _RE_MATCH_WITH_CODES.match(text) or _RE_MATCH_NO_CODES.match(text)
+        if m:
+            match_id_ext = m.group("mid").strip()
+            p1code = m.groupdict().get("p1code")
+            p2code = m.groupdict().get("p2code")
+            rest   = m.group("rest") or ""
+            current["matches"].append({
+                "match_id_ext": match_id_ext,                    # plain mid
+                "p1_code":      p1code,
+                "p2_code":      p2code,
+                "p1":           _split_name_club(m.group("p1").strip()),
+                "p2":           _split_name_club(m.group("p2").strip()),
+                "tokens":       _tokenize_right(rest),
+            })
+            continue
 
-            current["matches"].append(
-                {
-                "match_id_ext": match_id_ext,
-                "p1_code":      p1_code,
-                "p2_code":      p2_code,
-                "p1":           p1,
-                "p2":           p2,
-                "tokens":       tokens
-                }
-            )
+        # Truly no MID at all → try name-only parse and save with match_id_ext=None
+        m2 = _RE_REMAINDER_WITH_CODES.match(text) or _RE_REMAINDER_NO_CODES.match(text)
+        if m2:
+            rest = m2.group("rest") or ""
+            current["matches"].append({
+                "match_id_ext": None,                            # no external id available
+                "p1_code":      m2.groupdict().get("p1code"),
+                "p2_code":      m2.groupdict().get("p2code"),
+                "p1":           _split_name_club(m2.group("p1").strip()),
+                "p2":           _split_name_club(m2.group("p2").strip()),
+                "tokens":       _tokenize_right(rest),
+            })
+            continue
+
+        _debug_unmatched(text)
 
     return groups
+
 
 def _extract_rows_group_stage(pdf_bytes: bytes) -> list[str]:
     """
@@ -342,15 +434,6 @@ def _infer_best_of_from_sign(tokens: List[str]) -> Optional[int]:
     winner_games = max(p1_games, p2_games)
     return winner_games * 2 - 1
 
-
-# def derive_best_of_from_summary(score_summary: str) -> int:
-#     try:
-#         p1_games, p2_games = map(int, score_summary.split("-"))
-#     except ValueError:
-#         return None
-#     winner_games = max(p1_games, p2_games)
-#     return winner_games * 2 - 1
-
 def _tokens_to_games_from_sign(tokens: List[str]) -> List[Tuple[int, int]]:
     """
     Strict deuce:
@@ -375,6 +458,57 @@ def _tokens_to_games_from_sign(tokens: List[str]) -> List[Tuple[int, int]]:
             p2 = max(11, loser + 2)  # winner on side2
             games.append((p1, p2))
     return games
+
+def _extract_rows_group_stage_with_attrs(pdf_bytes: bytes) -> list[dict]:
+    """
+    Returns a list of rows with attributes:
+      { "text": "...", "words": [pdfplumber word dict...], "bold_mid": "123" or None, "tail_text": "..." }
+    - bold_mid: first 1–3 digit token that is bold and sits at the start of the row
+    - tail_text: row text after removing the bold_mid token (if present)
+    """
+    rows: list[dict] = []
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        for page in pdf.pages:
+            words = page.extract_words(x_tolerance=2, y_tolerance=3, keep_blank_chars=False) or []
+            if not words:
+                continue
+
+            # group words into rows by y position
+            row_map: dict[int, list[dict]] = {}
+            rid, last_top = 0, None
+            for w in sorted(words, key=lambda w: (round(w["top"], 1), w["x0"])):
+                top = round(w["top"], 1)
+                if last_top is None or abs(top - last_top) > 3.0:
+                    rid += 1
+                    last_top = top
+                    row_map[rid] = []
+                row_map[rid].append(w)
+
+            for words_in_row in row_map.values():
+                words_in_row.sort(key=lambda w: w["x0"])
+                row_text = " ".join(w["text"] for w in words_in_row).strip()
+                if not row_text:
+                    continue
+
+                # find bold 1–3 digit token at row start (tolerate 1st token)
+                bold_mid = None
+                tail_words = words_in_row[:]
+                if tail_words:
+                    w0 = tail_words[0]
+                    font = w0.get("fontname", "")
+                    if w0["text"].isdigit() and 1 <= len(w0["text"]) <= 3 and ("Bold" in font or "bold" in font.lower()):
+                        bold_mid = w0["text"]
+                        tail_words = tail_words[1:]
+
+                tail_text = " ".join(w["text"] for w in tail_words).strip()
+                rows.append({
+                    "text": row_text,
+                    "words": words_in_row,
+                    "bold_mid": bold_mid,
+                    "tail_text": tail_text,
+                })
+    return rows
+
 
 # ───────────────────────── Resolving helpers ─────────────────────────
 

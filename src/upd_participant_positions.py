@@ -25,10 +25,7 @@ from models.tournament_class import TournamentClass
 from models.participant import Participant
 from models.player_license import PlayerLicense  # NEW: For license cache in match_player
 
-RESULTS_URL_TMPL = "https://resultat.ondata.se/ViewClassPDF.php?classID={class_id}&stage=6"
-
-_PLACERING_HDR_RE = re.compile(r"^\s*(placering|placeringar|plassering|plasseringer|sijoitus|sijoitukset|position|positions?|placement|placements?|results?|ranking)\s*$", re.IGNORECASE)
-_PLACERING_LINE_RE = re.compile(r"^\s*(\d+)\s+(.+?)\s*,\s*(.+?)\s*$")
+RESULTS_URL_TMPL = "https://resultat.ondata.se/ViewClassPDF.php?classID={class_id}&stage={stage}"
 
 def upd_player_positions():
     conn, cursor = get_conn()
@@ -55,7 +52,7 @@ def upd_player_positions():
         cutoff_date=cutoff_date,
         require_ended=True,
         allowed_type_ids=[1],  # Singles only (type_id 1)
-        allowed_structure_ids=[1, 3],  # NEW: Groups_and_KO or KO_only
+        allowed_structure_ids=[1, 2, 3],  # KO only, Group Only, Group + KO
         max_classes=SCRAPE_PARTICIPANTS_MAX_CLASSES,
         order=SCRAPE_PARTICIPANTS_ORDER
     )
@@ -72,16 +69,13 @@ def upd_player_positions():
 
     # 2) Build static caches
     club_map                    = Club.cache_name_map(cursor)
-    license_name_club_map       = PlayerLicense.cache_name_club_map(cursor)  # NEW: For match_player validity checks
-    player_name_map             = Player.cache_name_map_verified(cursor)
-    unverified_name_map         = Player.cache_name_map_unverified(cursor)
-    unverified_appearance_map   = Player.cache_unverified_appearances(cursor)  # NEW: For unverified club matching in match_player
     part_by_class_player        = Participant.cache_by_class_player(cursor)
 
     # 3) Process classes
     total_parsed = total_updated = total_skipped = 0
     for idx, tc in enumerate(classes, 1):
 
+        label = f"{tc.shortname or tc.longname}, {tc.date} (id: {tc.tournament_class_id}, ext:{tc.tournament_class_id_ext})"
         item_key = f"Class id ext: {tc.tournament_class_id_ext}"
 
         if not tc or not tc.tournament_class_id_ext:
@@ -99,7 +93,8 @@ def upd_player_positions():
         logging.info(f"Cleared final_position for {cleared} participants (class_id={tc.tournament_class_id})")
 
         # Download PDF
-        url = RESULTS_URL_TMPL.format(class_id=tc.tournament_class_id_ext)
+        stage = 4 if tc.tournament_class_structure_id == 2 else 6
+        url = RESULTS_URL_TMPL.format(class_id=tc.tournament_class_id_ext, stage=stage)
         try:
             r = requests.get(url, timeout=30)
             r.raise_for_status()
@@ -111,7 +106,10 @@ def upd_player_positions():
 
         # Parse PDF
         try:
-            rows = _parse_positions(r.content)
+            if tc.tournament_class_structure_id == 2:
+                rows = _parse_group_positions(r.content)
+            else:
+                rows = _parse_positions(r.content)
         except Exception as e:
             stack_trace = traceback.format_exc()
             logger.failed(item_key, f"PDF parsing failed: {e}\nStack trace:\n{stack_trace}")
@@ -171,7 +169,6 @@ def upd_player_positions():
                 logger.skipped(item_key, f"Position update skipped: {result.get('reason')}")
                 skipped += 1
 
-        label = f"{tc.shortname or tc.longname}, {tc.date} (id: {tc.tournament_class_id}, ext:{tc.tournament_class_id_ext})"
         logging.info(f"[{idx}/{len(classes)}] Processed class {label}. Cleared {cleared} positions, parsed {parsed_count}, updated {updated}, skipped {skipped}.")
         print(f"ℹ️  [{idx}/{len(classes)}] Processed class {label}. Cleared {cleared} positions, parsed {parsed_count}, updated {updated}, skipped {skipped}.")
         conn.commit()
@@ -189,6 +186,9 @@ def upd_player_positions():
 def _parse_positions(pdf_bytes: bytes) -> List[Tuple[int, str, str]]:
     """Parse positions from PDF, attempting table extraction first, then falling back to text."""
     out = []
+    _PLACERING_HDR_RE = re.compile(r"^\s*(placering|placeringar|plassering|plasseringer|sijoitus|sijoitukset|position|positions?|placement|placements?|results?|ranking)\s*$", re.IGNORECASE)
+    _PLACERING_LINE_RE = re.compile(r"^\s*(\d+)\s+(.+?)\s*,\s*(.+?)\s*$")
+
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
             # Try table extraction
@@ -200,8 +200,10 @@ def _parse_positions(pdf_bytes: bytes) -> List[Tuple[int, str, str]]:
                             out.append((int(row[0]), row[1].strip(), row[2].strip()))
                         except (ValueError, AttributeError):
                             continue
-            if out:
-                return out  # Return if table extraction succeeded
+            
+            # Note: I recommend removing the if out: return out to collect from all pages/tables, similar to groups, but that's optional.
+            # if out:
+            #     return out  # Return if table extraction succeeded
 
             # Fallback to text parsing
             text = page.extract_text() or ""
@@ -220,5 +222,79 @@ def _parse_positions(pdf_bytes: bytes) -> List[Tuple[int, str, str]]:
                     try:
                         out.append((int(m.group(1)), m.group(2).strip(), m.group(3).strip()))
                     except ValueError:
+                        continue
+    return out
+
+def _parse_group_positions(pdf_bytes: bytes) -> List[Tuple[int, str, str]]:
+    """Parse positions from groups-only PDF (stage=4), handling combined pos/name/club in first cell and multiple groups."""
+    out = []
+    # Local regexes for groups-only
+    GROUP_HDR_RE = re.compile(r"poolresultat|gruppresultat", re.IGNORECASE)
+    GROUP_LINE_RE = re.compile(r"^\s*(?:[\d/.-]+\s+)*(\d+)\s+(.+?)\s*,\s*(.+?)(?:\s+[\d/.-].*)?$", re.IGNORECASE)
+    
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        for page in pdf.pages:
+            # Try table extraction (collect all, no early return)
+            tables = page.extract_tables()
+            # logging.info(f"Found {len(tables)} tables on page {page.page_number}")
+            for table in tables:
+                for row in table[1:]:  # Skip header
+                    if not row or not row[0]:
+                        continue
+                    
+                    s = row[0].strip()
+                    # logging.info(f"Processing row first cell: '{s}'")
+                    
+                    # Try combined format first (e.g., "10 1 Name, Club")
+                    m = GROUP_LINE_RE.match(s)
+                    if m:
+                        try:
+                            logging.info(f"Processing combined format: '{s}'")
+                            pos = int(m.group(1))
+                            name = m.group(2).strip()
+                            club_raw = m.group(3).strip()
+                            out.append((pos, name, club_raw))
+                            # logging.info(f" out: {out}")
+                            continue  # Success, skip separate check
+                        except ValueError:
+                            pass
+                    
+                    # Fall back to separate columns (pos in row[0], name in row[1], club in row[2])
+                    if len(row) >= 3 and row[0].strip().isdigit():
+                        try:
+                            pos = int(row[0].strip())
+                            name = row[1].strip()
+                            club_raw = row[2].strip()
+                            out.append((pos, name, club_raw))
+                        except ValueError:
+                            pass
+
+            # Fallback to text parsing
+            text = page.extract_text() or ""
+            lines = text.splitlines()
+            try:
+                start_idx = next(i for i, ln in enumerate(lines) if GROUP_HDR_RE.search(ln))
+                # logging.info(f"Found results header at line {start_idx}: '{lines[start_idx]}'")
+            except StopIteration:
+                # logging.info(f"No results header found on page {page.page_number}")
+                continue
+            parsed_from_text = 0
+            for ln in lines[start_idx + 1:]:
+                s = (ln or "").strip()
+                if not s:
+                    continue  # Skip empty lines
+                if s.lower().startswith("setsiffror"):
+                    break
+                m = GROUP_LINE_RE.match(s)
+                if m:
+                    try:
+                        pos = int(m.group(1))
+                        name = m.group(2).strip()
+                        club_raw = m.group(3).strip()
+                        out.append((pos, name, club_raw))
+                        parsed_from_text += 1
+                        # logging.info(f"Parsed from text: pos={pos}, name='{name}', club='{club_raw}'")
+                    except ValueError:
+                        logging.info(f"Failed to parse int pos from text line: '{s}'")
                         continue
     return out
