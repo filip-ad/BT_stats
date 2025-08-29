@@ -7,9 +7,9 @@ import random, time
 import pdfplumber
 import re
 from io import BytesIO
-from datetime import date, datetime
+from datetime import date
 import time
-from typing import Any, List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple
 from db import get_conn
 from utils import name_keys_for_lookup_all_splits, parse_date, OperationLogger, normalize_key
 from config import (
@@ -25,6 +25,8 @@ from models.player_license import PlayerLicense
 from models.player import Player
 from models.participant import Participant
 from models.participant_player import ParticipantPlayer
+import statistics as stats  # NEW: for robust font-size baselines
+
 
 PDF_BASE = "https://resultat.ondata.se/ViewClassPDF.php"
 
@@ -84,6 +86,9 @@ def upd_participants():
         player_unverified_name_map  = Player.cache_name_map_unverified(cursor)
         unverified_appearance_map   = Player.cache_unverified_appearances(cursor)
 
+        partial_classes = 0
+        partial_participants = 0
+
         for i, tc in enumerate(classes, 1):
             item_key = f"{tc.shortname} (id: {tc.tournament_class_id}, ext_id: {tc.tournament_class_id_ext})"
 
@@ -94,6 +99,10 @@ def upd_participants():
                     continue
 
                 raw_participants, expected_count, seeded_count = parse_players_pdf(pdf_bytes, logger, item_key)
+                found = len(raw_participants)
+                if expected_count is not None and found != expected_count:
+                    partial_classes += 1
+                    partial_participants += abs(found - expected_count)
                 if not raw_participants:
                     logger.skipped(item_key, "No participants parsed from PDF")
                     continue
@@ -210,6 +219,11 @@ def upd_participants():
         else:
             msg = f"ℹ️  Participants update completed in {e:.2f} seconds."
         print(msg)
+        if partial_classes > 0:
+            print(f"⚠️  Partially parsed classes: {partial_classes} (participants impacted: {partial_participants})")
+            logging.warning(f"Partially parsed classes: {partial_classes}, participants impacted: {partial_participants}")
+        else:
+            print("✅ No partial parses detected.")
         logger.summarize()
 
     except Exception as e:
@@ -588,6 +602,15 @@ def parse_players_pdf(
     # For identifying invalid players, and decreasing expected players count
     PLACEHOLDER_NAME_RE = re.compile(r"\b(vakant|vacant|reserv|reserve)\b", re.I)
 
+    # --- Exclusion guard: player-name blacklist (extend as needed) ---
+    EXCLUDED_NAME_PATTERNS = [
+        r"^kval\.\s*top\s*12\b.*åkirke?by",   # matches "Kval. Top 12 - 2017 i Åkirkeby" (Åkirkeby / Akirkeby)
+        r"^kval\b",                           # any generic "Kval..." lines
+        # r"^grupp\s*[a-z0-9]+$",             # example: "Grupp A", if needed
+    ]
+    EXCLUDED_NAME_RES = [re.compile(p, re.I) for p in EXCLUDED_NAME_PATTERNS]   
+
+
 
     def _strip_above_and_header(block: str) -> tuple[str, int | None]:
         m = EXPECTED_PARTICIPANT_COUNT_RE.search(block)
@@ -753,6 +776,12 @@ def parse_players_pdf(
             raw_name                        = m.group('name').strip()
             club_name                       = m.group('club').strip()
 
+            # --- EXCLUSION GUARD (player-name blacklist) ---
+            if any(rx.search(raw_name) for rx in EXCLUDED_NAME_RES):
+                logger.warning(item_key, f"Skipping excluded name pattern")
+                continue
+
+
             # Skip category tokens
             if club_name and club_name.lower() in CATEGORY_TOKENS:
                 logger.failed(item_key, f"Skipping participant with 'klass' or 'class' in club name")
@@ -765,7 +794,7 @@ def parse_players_pdf(
                 
             # Club can't be just a number    
             if re.match(r'^\d+$', club_name):  
-                logger.failed(item_key, f"Skipping participant with purely numeric club name")
+                logger.warning(item_key, f"Skipping participant with purely numeric club name")
                 continue
 
             # # Check if names and club names are too short

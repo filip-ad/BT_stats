@@ -38078,3 +38078,268 @@ Context: (5, 'Svensson Moa', 'Vara SK'), Club Raw: Vakant BTK
 Context: (5, 'Arvidsson Moa', 'Norrtulls SK'), Club Raw: Vakant BTK
 Context: (10, 'Olsson Linn', 'BTK Frej'), Club Raw: Vakant BTK
 Context: (11, 'Vakant 1 F/D Grupp A', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (3, 'Sara Bentsen', 'Roskilde Bordtennis, BTK 61'), Club Raw: Vakant (10150)
+Context: (5, 'Christensen Ann-Christine Rosager', 'BTK Viby'), Club Raw: Virum Sorgenfri BTK
+Context: (5, 'Christensen Ann-Christine Rosager', 'BTK Viby'), Club Raw: Virum Sorgenfri BTK
+Context: (2, 'Rosenmeier Stella', 'Amager BTK'), Club Raw: Virum Sorgenfri BTK
+Context: (3, 'Voong Chelinda Mac', 'Brøndby BC'), Club Raw: Holstebro Bordtennisklub af 1974
+Context: (1, 'Skarsholm Patrick', 'Hillerød GI'), Club Raw: Virum Sorgenfri BTK
+Context: (3, 'Samuolis Dominykas', 'Hillerød GI'), Club Raw: Virum Sorgenfri BTK
+Context: (9, 'Havsteen Johan Engberg', 'Amager BTK'), Club Raw: Virum Sorgenfri BTK
+Context: (3, 'Højslet Gustav', 'Ribe BTK'), Club Raw: Virum Sorgenfri BTK
+Context: (100, 'Haglund Sara', 'Ängby SK'), Club Raw: BTK Vakant
+Context: (52, 'Koson Mellstrand Sonia', 'Norrtulls SK'), Club Raw: BTK Vakant
+Context: (9, 'Cruseman John', 'Djurgårdens IF BTF'), Club Raw: BTK Vakant
+Context: (120, 'Vakant 4 Vakant', 'BTK Vakant'), Club Raw: BTK Vakant
+Context: (116, 'Hägglund Selimson Wilgot', 'Ängby SK'), Club Raw: BTK Vakant
+Context: (118, 'Vakant 2 Vakant', 'BTK Vakant'), Club Raw: BTK Vakant
+Context: (121, 'Vakant 5 Vakant', 'BTK Vakant'), Club Raw: BTK Vakant
+Context: (15, 'Dittlau Hannah', 'IFK Täby BTK'), Club Raw: Uppsala Life IF
+Context: (76, 'Två Vakant', 'Uppsala Life IF'), Club Raw: Uppsala Life IF
+Context: (75, 'Tre Vakant', 'Sunnersta AIF'), Club Raw: Uppsala Life IF
+Context: (76, 'Två Vakant', 'Uppsala Life IF'), Club Raw: Uppsala Life IF
+Context: (52, 'Bergqvist David', 'Norrtulls SK'), Club Raw: Vakant
+Context: (56, 'Mansén Ludvig', 'Norrtulls SK'), Club Raw: Vakant
+Context: (104, 'Öström Gustav', 'Ängby SK'), Club Raw: Vakant
+Context: (87, 'Gradin Emil', 'Ås IF'), Club Raw: Vakant
+Context: (40, 'Svanström Alvin', 'Lyckeby BTK'), Club Raw: Vakant
+Context: (5, 'Ericson Isabella', 'Oskarshamns BTK'), Club Raw: Vakant
+Context: (5, 'Thangklang Nopphawan', 'Eslövs AI BTK'), Club Raw: Vakant
+Context: (10, 'Thangklang Nopphawan', 'Eslövs AI BTK'), Club Raw: Vakant
+Context: (11, 'Vakant 1', 'Vakant'), Club Raw: Vakant
+Context: (5, 'Alvarado David', 'LinnePartille PK'), Club Raw: Vakant
+Context: (5, 'Hedberg Emil', 'IFK Falköping BTK'), Club Raw: Vakant
+Context: (10, 'Hedberg Emil', 'IFK Falköping BTK'), Club Raw: Vakant
+Context: (11, 'Vakant1 Vakant1', 'Vakant'), Club Raw: Vakant
+Context: (12, 'Hedberg Roos Jonatan', 'Hammarby IF BTF'), Club Raw: Vakant
+Context: (20, 'Axelqvist Jacob', 'IFK Täby BTK'), Club Raw: Vakant
+Context: (4, 'Taus Felix', 'Vaggeryds BTK'), Club Raw: Vakant BTK
+Context: (5, 'Vakant 3 P/H Grupp D', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (5, 'Hagberg Samuel', 'Carlstads BTK'), Club Raw: Vakant BTK
+Context: (9, 'Wallerstedt Carl', 'Askims BTK'), Club Raw: Vakant BTK
+Context: (10, 'Vakant 1 P/H Grupp D', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (11, 'Vakant 2 P/H Grupp D', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (4, 'Szerman Felicia', 'Västers BTK'), Club Raw: Vakant BTK
+Context: (5, 'Vakant 1 F/D Grupp C', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (5, 'Kullingsjö Isabelle', 'IFK Falköping BTK'), Club Raw: Vakant BTK
+Context: (9, 'Szerman Felicia', 'Västers BTK'), Club Raw: Vakant BTK
+Context: (10, 'Vakant 1 F/D Grupp C', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (11, 'Vakant 2 F/D Grupp C', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (5, 'Holmqvist Jens', 'Ängby SK'), Club Raw: Vakant BTK
+Context: (5, 'Hannersund Johan', 'Norrtulls SK'), Club Raw: Vakant BTK
+Context: (10, 'Hannersund Johan', 'Norrtulls SK'), Club Raw: Vakant BTK
+Context: (11, 'Vakant 1 P/H Grupp C', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (4, 'Zetterling Selma', 'Eskilstuna BTK'), Club Raw: Vakant BTK
+Context: (5, 'Vakant 1 F/D Grupp B', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (4, 'Deland Julia', 'Värmskogs SK'), Club Raw: Vakant BTK
+Context: (8, 'Fred Amanda', 'Mariedals IK'), Club Raw: Vakant BTK
+Context: (9, 'Vakant 1 F/D Grupp B', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (10, 'Vakant 2 F/D Grupp B', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (5, 'Schoug Loa', 'Åstorps BTK'), Club Raw: Vakant BTK
+Context: (5, 'Widing Charlie', 'KFUM Jönköping IA'), Club Raw: Vakant BTK
+Context: (10, 'Gummesson Svensson Hannes', 'BTK Frej'), Club Raw: Vakant BTK
+Context: (11, 'Vakant 2 P/H Grupp B', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: (5, 'Svensson Moa', 'Vara SK'), Club Raw: Vakant BTK
+Context: (5, 'Arvidsson Moa', 'Norrtulls SK'), Club Raw: Vakant BTK
+Context: (10, 'Olsson Linn', 'BTK Frej'), Club Raw: Vakant BTK
+Context: (11, 'Vakant 1 F/D Grupp A', 'Vakant BTK'), Club Raw: Vakant BTK
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Holstebro Bordtennisklub af 1974
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: Vakant 1
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: Virum Sorgenfri BTK
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Tuse IF, Bordtennis
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Triton, Odense
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Holstebro Bordtennisklub af 1974
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: Vakant 1
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: Virum Sorgenfri BTK
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Tuse IF, Bordtennis
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Triton, Odense
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Holstebro Bordtennisklub af 1974
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: Vakant 1
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: Virum Sorgenfri BTK
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Tuse IF, Bordtennis
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Triton, Odense
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Holstebro Bordtennisklub af 1974
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: Vakant 1
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: Virum Sorgenfri BTK
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Tuse IF, Bordtennis
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Triton, Odense
+Context: P16 GP (id: 27008, ext_id: 28739), Club Raw: får endast användas
+Context: P16 GP (id: 27008, ext_id: 28739), Club Raw: - http://.com
+Context: DS3Senior (id: 25919, ext_id: 27637), Club Raw: må kun bruges ved
+Context: DS3Senior (id: 25919, ext_id: 27637), Club Raw: - http://.com
+Context: DS3Senior (id: 25919, ext_id: 27637), Club Raw: Odense.
+Context: K2 (id: 25112, ext_id: 26579), Club Raw: får endast användas
+Context: K2 (id: 25112, ext_id: 26579), Club Raw: - http://.com
+Context: DSEliteU 21 (id: 22773, ext_id: 23655), Club Raw: må kun bruges ved
+Context: DSEliteU 21 (id: 22773, ext_id: 23655), Club Raw: - http://.com
+Context: DSEliteU 21 (id: 22773, ext_id: 23655), Club Raw: Odense.
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: må kun
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: - http://.com
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: må kun
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: - http://.com
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Holstebro Bordtennisklub af 1974
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: må kun
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: - http://.com
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: må kun
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: - http://.com
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: må kun
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: - http://.com
+Context: Flickor 29-32 (id: 17506, ext_id: 17456), Club Raw: får endast användas
+Context: Flickor 29-32 (id: 17506, ext_id: 17456), Club Raw: - http://.com
+Context: Pojkar 75-76 (id: 17539, ext_id: 17486), Club Raw: får endast användas
+Context: Pojkar 75-76 (id: 17539, ext_id: 17486), Club Raw: - http://.com
+Context: Flickor steg 2B-1 (id: 17491, ext_id: 17438), Club Raw: får endast användas
+Context: Flickor steg 2B-1 (id: 17491, ext_id: 17438), Club Raw: - http://.com
+Context: Flickor steg 2B-2 (id: 17492, ext_id: 17439), Club Raw: får endast användas
+Context: Flickor steg 2B-2 (id: 17492, ext_id: 17439), Club Raw: - http://.com
+Context: Pojkar steg 2E-1 (id: 17497, ext_id: 17446), Club Raw: får endast användas
+Context: Pojkar steg 2E-1 (id: 17497, ext_id: 17446), Club Raw: - http://.com
+Context: Pojkar steg 2E-2 (id: 17498, ext_id: 17447), Club Raw: får endast användas
+Context: Pojkar steg 2E-2 (id: 17498, ext_id: 17447), Club Raw: - http://.com
+Context: F 13 (id: 17354, ext_id: 17101), Club Raw: får endast användas
+Context: F 13 (id: 17354, ext_id: 17101), Club Raw: - http://.com
+Context: F 13 (id: 17354, ext_id: 17101), Club Raw: Uppsala Life IF.
+Context: DSEliteU 21 (id: 16742, ext_id: 15437), Club Raw: må kun bruges ved
+Context: DSEliteU 21 (id: 16742, ext_id: 15437), Club Raw: - http://.com
+Context: Delt (id: 16657, ext_id: 16072), Club Raw: S pårvägens BTK
+Context: Delt (id: 16657, ext_id: 16072), Club Raw: får endast användas
+Context: Delt (id: 16657, ext_id: 16072), Club Raw: - http://.com
+Context: E (id: 16658, ext_id: 16204), Club Raw: får endast användas
+Context: E (id: 16658, ext_id: 16204), Club Raw: - http://.com
+Context: F 15 (id: 15917, ext_id: 15155), Club Raw: får endast användas
+Context: F 15 (id: 15917, ext_id: 15155), Club Raw: - http://.com
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: Vakant 1
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: får endast
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: - http://.com
+Context: P14 (id: 15035, ext_id: 14257), Club Raw: får endast användas
+Context: P14 (id: 15035, ext_id: 14257), Club Raw: - http://.com
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: Virum Sorgenfri BTK
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: må kun
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: - http://.com
+Context: F15 (id: 13983, ext_id: 12916), Club Raw: får endast användas
+Context: F15 (id: 13983, ext_id: 12916), Club Raw: - http://.com
+Context: DJUN (id: 13916, ext_id: 12911), Club Raw: må kun bruges ved
+Context: DJUN (id: 13916, ext_id: 12911), Club Raw: - http://.com
+Context: F 13 (id: 13693, ext_id: 12664), Club Raw: får endast användas
+Context: F 13 (id: 13693, ext_id: 12664), Club Raw: - http://.com
+Context: DJ 17-20 (id: 13697, ext_id: 12663), Club Raw: får endast användas
+Context: DJ 17-20 (id: 13697, ext_id: 12663), Club Raw: - http://.com
+Context: DSEliteU 21 (id: 12310, ext_id: 10816), Club Raw: må kun bruges ved
+Context: DSEliteU 21 (id: 12310, ext_id: 10816), Club Raw: - http://.com
+Context: 47-48 (id: 11930, ext_id: 10883), Club Raw: får endast användas
+Context: 47-48 (id: 11930, ext_id: 10883), Club Raw: - http://.com
+Context: Pool P (id: 11953, ext_id: 10833), Club Raw: får endast användas
+Context: Pool P (id: 11953, ext_id: 10833), Club Raw: - http://.com
+Context: Pool S (id: 11956, ext_id: 10836), Club Raw: får endast användas
+Context: Pool S (id: 11956, ext_id: 10836), Club Raw: - http://.com
+Context: P-D (id: 11739, ext_id: 10582), Club Raw: får endast användas
+Context: P-D (id: 11739, ext_id: 10582), Club Raw: - http://.com
+Context: F-C (id: 11740, ext_id: 10583), Club Raw: får endast användas
+Context: F-C (id: 11740, ext_id: 10583), Club Raw: - http://.com
+Context: P-C (id: 11741, ext_id: 10584), Club Raw: får endast användas
+Context: P-C (id: 11741, ext_id: 10584), Club Raw: - http://.com
+Context: F-B (id: 11742, ext_id: 10585), Club Raw: får endast användas
+Context: F-B (id: 11742, ext_id: 10585), Club Raw: - http://.com
+Context: P-B (id: 11743, ext_id: 10586), Club Raw: får endast användas
+Context: P-B (id: 11743, ext_id: 10586), Club Raw: - http://.com
+Context: F-A (id: 11744, ext_id: 10587), Club Raw: får endast användas
+Context: F-A (id: 11744, ext_id: 10587), Club Raw: - http://.com
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Tuse IF, Bordtennis
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Triton, Odense
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: må kun bruges ved
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: - http://.com
+Context: DSAJunior (id: 11662, ext_id: 10389), Club Raw: må kun bruges ved
+Context: DSAJunior (id: 11662, ext_id: 10389), Club Raw: - http://.com
+Context: F12-20B (id: 11391, ext_id: 10111), Club Raw: får endast användas
+Context: F12-20B (id: 11391, ext_id: 10111), Club Raw: - http://.com
+Context: P12-20B (id: 11393, ext_id: 10113), Club Raw: får endast användas
+Context: P12-20B (id: 11393, ext_id: 10113), Club Raw: - http://.com
+Context: P12-20C (id: 11394, ext_id: 10114), Club Raw: får endast användas
+Context: P12-20C (id: 11394, ext_id: 10114), Club Raw: - http://.com
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Holstebro Bordtennisklub af 1974
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: Vakant 1
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: Virum Sorgenfri BTK
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Tuse IF, Bordtennis
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Triton, Odense
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Holstebro Bordtennisklub af 1974
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: Vakant 1
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: Virum Sorgenfri BTK
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Tuse IF, Bordtennis
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Triton, Odense
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Holstebro Bordtennisklub af 1974
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: Vakant 1
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: Virum Sorgenfri BTK
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Tuse IF, Bordtennis
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Triton, Odense
