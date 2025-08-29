@@ -81,18 +81,36 @@ def upd_tournament_group_stage():
             continue
 
         url = RESULTS_URL_TMPL.format(class_id=tc.tournament_class_id_ext)
-        try:
-            r = requests.get(url, timeout=30)
-            r.raise_for_status()
-        except Exception as e:
-            reason = f"Download failed: {e}"
+        # try:
+        #     r = requests.get(url, timeout=30)
+        #     r.raise_for_status()
+        # except Exception as e:
+        #     reason = f"Download failed: {e}"
+        #     print(f"❌ {reason}")
+        #     logger.failed(item_key, reason)
+        #     conn.commit()
+        #     continue
+
+        # try:
+        #     groups = _parse_groups_pdf(r.content)
+        # except Exception as e:
+        #     reason = f"PDF parsing failed: {e}"
+        #     print(f"❌ {reason}")
+        #     logger.failed(item_key, reason)
+        #     conn.commit()
+        #     continue
+
+        pdf_bytes = fetch_pdf(url)
+
+        if not pdf_bytes:
+            reason = f"Download failed after retries: {url}"
             print(f"❌ {reason}")
             logger.failed(item_key, reason)
             conn.commit()
             continue
 
         try:
-            groups = _parse_groups_pdf(r.content)
+            groups = _parse_groups_pdf(pdf_bytes)
         except Exception as e:
             reason = f"PDF parsing failed: {e}"
             print(f"❌ {reason}")
@@ -149,12 +167,20 @@ def upd_tournament_group_stage():
 
                 p1_pid, how1 = resolve_participant(
                     p1_code, mm["p1"]["name"], mm["p1"]["club"],
-                    by_code, by_name_club, by_name_only, club_map
+                    by_code, by_name_club, by_name_only, club_map,
+                    cursor=cursor,
+                    logger=logger,
+                    item_key=f"{tc.shortname or tc.tournament_class_id} (ext:{tc.tournament_class_id_ext})"
                 )
+
                 p2_pid, how2 = resolve_participant(
                     p2_code, mm["p2"]["name"], mm["p2"]["club"],
-                    by_code, by_name_club, by_name_only, club_map
+                    by_code, by_name_club, by_name_only, club_map,
+                    cursor=cursor,
+                    logger=logger,
+                    item_key=f"{tc.shortname or tc.tournament_class_id} (ext:{tc.tournament_class_id_ext})"
                 )
+
 
                 if not p1_pid or not p2_pid:
                     skipped += 1
@@ -492,6 +518,43 @@ def _extract_rows_group_stage_with_attrs(pdf_bytes: bytes) -> list[dict]:
 
 # ───────────────────────── Resolving helpers ─────────────────────────
 
+# def resolve_participant(
+#     code: str | None,
+#     name: str,
+#     club: str | None,
+#     by_code: dict[str, int],
+#     by_name_club: dict[tuple[str, int], int],
+#     by_name_only: dict[str, list[int]],
+#     club_map: dict[str, Club],
+# ) -> tuple[Optional[int], str]:
+#     # 1) Code (strongest)
+#     if code:
+#         pid = by_code.get(code) or by_code.get(code.lstrip("0") or "0")
+#         if pid:
+#             return pid, "code"
+
+#     # 2) Name + club
+#     keys = name_keys_for_lookup_all_splits(name)
+#     if club:
+#         cobj = club_map.get(Club._normalize(club))
+#         if cobj:
+#             for k in keys:
+#                 pid = by_name_club.get((k, cobj.club_id))
+#                 if pid:
+#                     return pid, "name+club"
+
+#     # 3) Name-only (only if unique)
+#     for k in keys:
+#         lst = by_name_only.get(k, [])
+#         if len(lst) == 1:
+#             return lst[0], "name-only"
+
+#     return None, "unmatched"
+
+from models.club import Club
+from utils import name_keys_for_lookup_all_splits
+from typing import Optional, Tuple
+
 def resolve_participant(
     code: str | None,
     name: str,
@@ -500,7 +563,18 @@ def resolve_participant(
     by_name_club: dict[tuple[str, int], int],
     by_name_only: dict[str, list[int]],
     club_map: dict[str, Club],
-) -> tuple[Optional[int], str]:
+    *,
+    cursor,                          # NEW: pass db cursor
+    logger,                          # NEW: pass OperationLogger
+    item_key: str = ""               # optional context for logging
+) -> Tuple[Optional[int], str]:
+    """
+    Resolve a participant to a player_id using multiple strategies:
+      1) Tournament participant code
+      2) Name + club (via Club.resolve)
+      3) Name only (if unique)
+    Returns (player_id, strategy)
+    """
     # 1) Code (strongest)
     if code:
         pid = by_code.get(code) or by_code.get(code.lstrip("0") or "0")
@@ -510,8 +584,15 @@ def resolve_participant(
     # 2) Name + club
     keys = name_keys_for_lookup_all_splits(name)
     if club:
-        cobj = club_map.get(Club._normalize(club))
-        if cobj:
+        cobj = Club.resolve(
+            cursor=cursor,
+            clubname_raw=club,
+            club_map=club_map,
+            logger=logger,
+            item_key=item_key or f"resolve_participant:{name}",
+            allow_prefix=True
+        )
+        if cobj and cobj.club_id != 9999:  # skip "Unknown club"
             for k in keys:
                 pid = by_name_club.get((k, cobj.club_id))
                 if pid:
@@ -525,3 +606,21 @@ def resolve_participant(
 
     return None, "unmatched"
 
+
+def fetch_pdf(url: str, retries: int = 3, timeout: int = 30) -> bytes | None:
+    """Download a PDF with exponential backoff + jitter."""
+    import random, time
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; BTstats/1.0)"}
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            return resp.content
+        except requests.exceptions.Timeout:
+            delay = 2 ** attempt + random.uniform(0, 1)
+            logging.warning(f"Timeout fetching {url} (attempt {attempt}/{retries}), retrying in {delay:.1f}s")
+            time.sleep(delay)
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed ({url}): {e}")
+            break
+    return None

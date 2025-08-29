@@ -8,6 +8,7 @@ import requests
 import pdfplumber
 import logging
 import traceback
+import random
 
 from db import get_conn
 from models.participant_player import ParticipantPlayer
@@ -92,27 +93,50 @@ def upd_player_positions():
         cleared = Participant.clear_final_positions(cursor, tc.tournament_class_id)
         logging.info(f"Cleared final_position for {cleared} participants (class_id={tc.tournament_class_id})")
 
-        # Download PDF
+        # # Download PDF
+        # stage = 4 if tc.tournament_class_structure_id == 2 else 6
+        # url = RESULTS_URL_TMPL.format(class_id=tc.tournament_class_id_ext, stage=stage)
+        # try:
+        #     r = requests.get(url, timeout=30)
+        #     r.raise_for_status()
+        # except Exception as e:
+        #     reason = f"Download failed: {e}"
+        #     logger.failed(item_key, reason)
+        #     conn.commit()
+        #     continue
+
+        # # Parse PDF
+        # try:
+        #     if tc.tournament_class_structure_id == 2:
+        #         rows = _parse_group_positions(r.content)
+        #     else:
+        #         rows = _parse_positions(r.content)
+        # except Exception as e:
+        #     stack_trace = traceback.format_exc()
+        #     logger.failed(item_key, f"PDF parsing failed: {e}\nStack trace:\n{stack_trace}")
+        #     print(f"❌ PDF parsing failed for {label}: {e}")
+        #     conn.commit()
+        #     continue
+
+        # Download PDF with retry/backoff
         stage = 4 if tc.tournament_class_structure_id == 2 else 6
         url = RESULTS_URL_TMPL.format(class_id=tc.tournament_class_id_ext, stage=stage)
-        try:
-            r = requests.get(url, timeout=30)
-            r.raise_for_status()
-        except Exception as e:
-            reason = f"Download failed: {e}"
-            logger.failed(item_key, reason)
+
+        pdf_bytes = fetch_pdf(url)
+        if not pdf_bytes:
+            logger.failed(item_key, f"Download failed after retries: {url}")
             conn.commit()
             continue
 
         # Parse PDF
         try:
             if tc.tournament_class_structure_id == 2:
-                rows = _parse_group_positions(r.content)
+                rows = _parse_group_positions(pdf_bytes)
             else:
-                rows = _parse_positions(r.content)
+                rows = _parse_positions(pdf_bytes)
         except Exception as e:
             stack_trace = traceback.format_exc()
-            logger.failed(item_key, f"PDF parsing failed: {e}\nStack trace:\n{stack_trace}")
+            logger.failed(item_key, f"PDF parsing failed")
             print(f"❌ PDF parsing failed for {label}: {e}")
             conn.commit()
             continue
@@ -132,8 +156,10 @@ def upd_player_positions():
         for pos, fullname, club_raw in rows:
             # 1) Resolve club_id from the PDF club name (already in your code)
             club = Club.resolve(cursor, club_raw, club_map, logger, item_key, allow_prefix=True)
+            item_key = (pos, fullname, club_raw)
             if not club:
                 logger.skipped(item_key, f"Skipping position {pos}: Club not found for '{club_raw}'")
+                logger.warning(item_key, f"Skipping position: Club not found")
                 skipped += 1
                 continue
             club_id = club.club_id
@@ -157,6 +183,7 @@ def upd_player_positions():
 
             if participant_id is None:
                 logger.skipped(item_key, f"Skipping position: No unique match for 'name / club' in class roster")
+                logger.warning(item_key, f"Skipping position: No unique match for 'name / club' in class roster")
                 skipped += 1
                 continue
 
@@ -298,3 +325,21 @@ def _parse_group_positions(pdf_bytes: bytes) -> List[Tuple[int, str, str]]:
                         logging.info(f"Failed to parse int pos from text line: '{s}'")
                         continue
     return out
+
+
+def fetch_pdf(url: str, retries: int = 3, timeout: int = 30) -> bytes | None:
+    """Download a PDF with exponential backoff and jitter."""
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; BTstats/1.0)"}
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            return resp.content
+        except requests.exceptions.Timeout:
+            delay = 2 ** attempt + random.uniform(0, 1)
+            logging.warning(f"Timeout fetching {url} (attempt {attempt}/{retries}), retrying in {delay:.1f}s")
+            time.sleep(delay)
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Request failed ({url}): {e}")
+            break
+    return None

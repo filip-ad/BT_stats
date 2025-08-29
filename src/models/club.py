@@ -6,6 +6,7 @@ import logging
 import re
 import unicodedata
 from models.cache_mixin import CacheMixin
+from utils import normalize_key
 
 @dataclass
 class Club(CacheMixin):
@@ -54,58 +55,152 @@ class Club(CacheMixin):
             aliases=data.get("aliases", [])
         )
     
+    # @classmethod
+    # def resolve(
+    #     cls,
+    #     cursor,
+    #     clubname_raw:       str,
+    #     club_map:           Dict[str, "Club"],
+    #     logger,
+    #     item_key:           str,
+    #     *,
+    #     allow_prefix:       bool = False,
+    #     min_ratio:          float = 0.8,
+    #     unknown_club_id:    int = 9999,
+    # ) -> "Club":
+    #     norm = cls._normalize(clubname_raw)
+    #     club = club_map.get(norm)
+
+    #     # optional prefix similarity
+    #     if not club and allow_prefix and len(norm) >= 5:
+    #         club = cls._prefix_match(norm, club_map, min_ratio=min_ratio)
+    #         if club:
+    #             logger.warning(item_key, f"Club matched by prefix similarity")
+
+    #     if not club:
+    #         club = cls.get_by_id(cursor, unknown_club_id)
+    #         logger.warning(clubname_raw, f"Club not found. Using 'Unknown club (id: {unknown_club_id})'")
+    #         with open("missing_clubs.txt", "a", encoding="utf-8") as f:
+    #             f.write(f"Context: {item_key}, Club Raw: {clubname_raw}\n")
+
+    #     return club
+
     @classmethod
     def resolve(
         cls,
         cursor,
-        clubname_raw:       str,
-        club_map:           Dict[str, "Club"],
+        clubname_raw: str,
+        club_map: Dict[str, "Club"],
         logger,
-        item_key:           str,
+        item_key: str,
         *,
-        allow_prefix:       bool = False,
-        min_ratio:          float = 0.8,
-        unknown_club_id:    int = 9999,
+        allow_prefix: bool = False,
+        min_ratio: float = 0.8,
+        unknown_club_id: int = 9999,
     ) -> "Club":
-        norm = cls._normalize(clubname_raw)
-        club = club_map.get(norm)
+        """
+        Resolve a club name to a Club object.
 
-        # optional prefix similarity
-        if not club and allow_prefix and len(norm) >= 5:
-            club = cls._prefix_match(norm, club_map, min_ratio=min_ratio)
+        Resolution stages:
+        1) Exact match with diacritics preserved
+        2) Exact match with relaxed normalization (strip diacritics, preserve nordic)
+        3) Optional prefix match (first strict, then relaxed)
+            - if multiple candidates tie at the best score → log ambiguity and return None
+        4) Fallback to Unknown club (id=9999)
+        """
+
+        # --- Stage 1: exact strict (diacritics preserved)
+        norm_strict = normalize_key(clubname_raw, preserve_diacritics=True)
+        club = club_map.get(norm_strict)
+        if club:
+            return club
+
+        # --- Stage 2: exact relaxed (strip diacritics, keep åäöø)
+        norm_ascii = normalize_key(clubname_raw, preserve_diacritics=False, preserve_nordic=True)
+        club = club_map.get(norm_ascii)
+        if club:
+            logger.warning(item_key, "Matched club by relaxed ASCII normalization")
+            return club
+
+        # --- Stage 3: prefix similarity (only if allowed)
+        if allow_prefix and len(norm_strict) >= 3:
+            # Try strict first
+            club = cls._prefix_match(norm_strict, club_map, min_ratio=min_ratio, mode="strict")
+            if not club:
+                # Then relaxed
+                club = cls._prefix_match(norm_ascii, club_map, min_ratio=min_ratio, mode="ascii")
             if club:
-                logger.warning(item_key, f"Club matched by prefix similarity")
+                logger.warning(item_key, "Club matched by prefix similarity")
+                return club
 
-        if not club:
-            club = cls.get_by_id(cursor, unknown_club_id)
-            logger.warning(clubname_raw, f"Club not found. Using 'Unknown club (id: {unknown_club_id})'")
-            with open("missing_clubs.txt", "a", encoding="utf-8") as f:
-                f.write(f"Context: {item_key}, Club Raw: {clubname_raw}\n")
-
+        # --- Stage 4: unknown club
+        club = cls.get_by_id(cursor, unknown_club_id)
+        logger.warning(clubname_raw, f"Club not found. Using 'Unknown club (id: {unknown_club_id})'")
+        with open("missing_clubs.txt", "a", encoding="utf-8") as f:
+            f.write(f"Context: {item_key}, Club Raw: {clubname_raw}\n")
         return club
 
+
+    # @staticmethod
+    # def _prefix_match(norm: str, club_map: Dict[str, "Club"], min_ratio: float = 0.75) -> Optional["Club"]:
+    #     """
+    #     Find best club whose normalized key shares at least `min_ratio`
+    #     of prefix characters with `norm`.
+    #     Example: 'lubeckertsde' vs 'lubeckerts' → ratio ≈ 0.83 → match.
+    #     """
+    #     best, best_ratio = None, 0.0
+    #     for key, club in club_map.items():
+    #         common = 0
+    #         for a, b in zip(norm, key):
+    #             if a != b:
+    #                 break
+    #             common += 1
+    #         # ratio = common / max(len(norm), len(key))
+    #         ratio = common / len(norm) 
+    #         if ratio > best_ratio:
+    #             best, best_ratio = club, ratio
+    #     logging.info(f"Prefix match for '{norm}': {best} (ratio: {best_ratio})")
+    #     return best if best_ratio >= min_ratio else None
+
     @staticmethod
-    def _prefix_match(norm: str, club_map: Dict[str, "Club"], min_ratio: float = 0.75) -> Optional["Club"]:
+    def _prefix_match(norm: str, club_map: Dict[str, "Club"], min_ratio: float = 0.75, mode: str = "strict"):
         """
-        Find best club whose normalized key shares at least `min_ratio`
-        of prefix characters with `norm`.
-        Example: 'lubeckertsde' vs 'lubeckerts' → ratio ≈ 0.83 → match.
+        Hybrid prefix match:
+        - score = average of (query coverage, candidate coverage)
+        - if multiple clubs tie for best score, return None (ambiguous)
         """
-        best, best_ratio = None, 0.0
+        best_score = 0.0
+        best_clubs = []
+
         for key, club in club_map.items():
             common = 0
             for a, b in zip(norm, key):
                 if a != b:
                     break
                 common += 1
-            ratio = common / max(len(norm), len(key))
-            if ratio > best_ratio:
-                best, best_ratio = club, ratio
-        logging.info(f"Prefix match for '{norm}': {best} (ratio: {best_ratio})")
-        return best if best_ratio >= min_ratio else None
+
+            ratio_query     = common / len(norm) if norm else 0
+            ratio_candidate = common / len(key) if key else 0
+            score = (ratio_query + ratio_candidate) / 2
+
+            if score > best_score:
+                best_score = score
+                best_clubs = [club]
+            elif score == best_score and score >= min_ratio:
+                best_clubs.append(club)
+
+        if best_score >= min_ratio:
+            if len(best_clubs) == 1:
+                logging.info(f"Prefix match ({mode}) for '{norm}': {best_clubs[0]} (score: {best_score:.2f})")
+                return best_clubs[0]
+            else:
+                logging.warning(f"Ambiguous prefix match ({mode}) for '{norm}': {[c.shortname for c in best_clubs]} (score: {best_score:.2f})")
+                return None
+        return None
+
 
     
-    # --- NEW ---
+
     @classmethod
     def cache_name_map(cls, cursor) -> Dict[str, "Club"]:
         """
@@ -125,7 +220,8 @@ class Club(CacheMixin):
                     names.append(alias["alias"])
 
             for name in names:
-                norm_key = cls._normalize(name)   # instead of normalize_key(name)
+                # norm_key = cls._normalize(name)   # instead of normalize_key(name)
+                norm_key = normalize_key(name, preserve_diacritics=True)  # strict map
                 if not norm_key:
                     continue
                 if norm_key in club_map and club_map[norm_key].club_id != club.club_id:
@@ -265,11 +361,11 @@ class Club(CacheMixin):
 
 
     
-    @classmethod
-    def get_by_name(cls, cursor, raw_name: str) -> Optional["Club"]:
-        """
-        Normalize the input and create a cache of club names.
-        Then look up the normalized name in the cache.
-        """
-        normalized_name = cls._normalize(raw_name)
-        return cls.cache_name_map(cursor).get(normalized_name)
+    # @classmethod
+    # def get_by_name(cls, cursor, raw_name: str) -> Optional["Club"]:
+    #     """
+    #     Normalize the input and create a cache of club names.
+    #     Then look up the normalized name in the cache.
+    #     """
+    #     normalized_name = cls._normalize(raw_name)
+    #     return cls.cache_name_map(cursor).get(normalized_name)

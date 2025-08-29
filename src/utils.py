@@ -171,28 +171,67 @@ def sanitize_name(name: str) -> str:
     """
     return ' '.join(word.strip().title() for word in name.split())
 
-def normalize_key(name: str) -> str:
+# def normalize_key(name: str) -> str:
+#     """
+#     Updated: Produce a matching key by:
+#         1) stripping and collapsing whitespace
+#         2) lowercasing
+#         3) decomposing Unicode and removing diacritics *except* for Nordic letters (ÅÄÖåäö), which are preserved as-is.
+#     Example: 'Harry Hamrén ÅÄÖ' -> 'harry hamren åäö'
+#     """
+#     s = name.strip()
+#     s = re.sub(r"\s+", " ", s)
+#     s = s.lower()  # Lowercase first to simplify
+
+#     # Decompose and remove combining only for non-Nordic
+#     normalized = []
+#     for ch in s:
+#         if ch in 'åäö':  # Preserve lowercase Nordic as-is
+#             normalized.append(ch)
+#         else:
+#             decomp = unicodedata.normalize("NFKD", ch)
+#             normalized.append("".join(c for c in decomp if not unicodedata.combining(c)))
+    
+#     return "".join(normalized)
+
+def normalize_key(
+    name: str,
+    *,
+    preserve_diacritics: bool = False,
+    preserve_nordic: bool = True
+) -> str:
     """
-    Updated: Produce a matching key by:
-        1) stripping and collapsing whitespace
-        2) lowercasing
-        3) decomposing Unicode and removing diacritics *except* for Nordic letters (ÅÄÖåäö), which are preserved as-is.
-    Example: 'Harry Hamrén ÅÄÖ' -> 'harry hamren åäö'
+    Normalize for matching.
+
+    Parameters
+    ----------
+    preserve_diacritics : bool
+        If True, keep all diacritics (Å, Ä, Ö, Ø, É, etc.)
+    preserve_nordic : bool
+        When stripping diacritics, optionally preserve å, ä, ö, ø
+
+    Examples
+    --------
+    "Virum"             -> "virum"
+    "Nørre"             -> "norre"  (unless preserve_diacritics=True)
+    "Åby"               -> "åby"    (if preserve_nordic=True)
     """
     s = name.strip()
     s = re.sub(r"\s+", " ", s)
-    s = s.lower()  # Lowercase first to simplify
+    s = s.lower()
 
-    # Decompose and remove combining only for non-Nordic
+    if preserve_diacritics:
+        return s
+
     normalized = []
     for ch in s:
-        if ch in 'åäö':  # Preserve lowercase Nordic as-is
+        if preserve_nordic and ch in "åäöø":
             normalized.append(ch)
         else:
             decomp = unicodedata.normalize("NFKD", ch)
             normalized.append("".join(c for c in decomp if not unicodedata.combining(c)))
-    
     return "".join(normalized)
+
 
 def name_keys_for_lookup_all_splits(name: str) -> List[str]:
     """

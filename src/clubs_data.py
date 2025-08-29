@@ -312,7 +312,7 @@ CLUB_ALIASES = [
 (1007, 'B75 Hirtshals', 'short'),
 (1007, 'B75 DEN', 'short'),
 (1007, 'DBTU/B75/Dk', 'short'),
-(1008, 'Husøy og Føynland IF', 'short'),
+(1008, 'Husøy og Foynland IF', 'short'),
 (1011, 'B-72', 'short'),
 (1011, 'B 72', 'short'),
 (1011, 'B72', 'short'),
@@ -356,6 +356,9 @@ CLUB_ALIASES = [
 (1032, 'Hardanger Bordtennisklubb', 'short'),
 (1032, 'Hardanger BTK', 'short'),
 (1032, 'Hardanger BTK NOR', 'short'),
+(1033, 'OB Bordtennis, Odense', 'long'),
+(1033, 'OB Bordtennis', 'short'),
+(1033, 'OB', 'short'),
 (1034, 'Hvidovre Bordtennis', 'short'),
 (1034, 'Hvidovre BTK', 'short'),
 (1034, 'Hvidovre BTK/Dk', 'short'),
@@ -380,6 +383,7 @@ CLUB_ALIASES = [
 (1038, 'HGI Bordtennis', 'short'),
 (1038, 'HGI Hillerød Dan', 'short'),
 (1038, 'Hillerød DEN', 'short'),
+(1039, 'Virum', 'short'),
 (1040, 'Brønshøj Bordtennis', 'short'),
 (1040, 'Brønshøj BTK', 'short'),
 (1040, 'Brønshøj BT DEN', 'short'),
@@ -407,6 +411,10 @@ CLUB_ALIASES = [
 (1045, 'Sisu/MBK', 'short'),
 (1045, 'Sisu MBK', 'short'),
 (1046, 'Herlev IF', 'short'),
+(1047, 'Roskilde Bordtennis', 'long'),
+(1047, 'Roskilde Bordtennis, BTK 61', 'long'),
+(1047, 'BTK 61', 'short'),
+(1047, 'BTK 61 Roskilde', 'short'),
 (1052, 'Grantham', 'short'),
 (1052, 'Grantham TTC', 'short'),
 (1052, 'Grantham TTC ENG', 'short'),
@@ -424,7 +432,9 @@ CLUB_ALIASES = [
 (1055, 'Allrød/Dk', 'short'),
 (1055, 'Alerød Bordtennisklub', 'short'),
 (1058, 'Club Novakartana', 'short'),
+(1061, 'Team Egedal / Ølstykke', 'long'),
 (1064, 'DT Hostert-Folschette', 'short'),
+(1065, 'Team Nordschleswig - DK', 'long'),
 (1066, 'Gribskov Bordtennis', 'short'),
 (1066, 'Gribskov BTK', 'short'),
 (1070, 'Japan University', 'short'),
@@ -459,6 +469,9 @@ CLUB_ALIASES = [
 (1103, 'Hauketo', 'short'),
 (1107, 'Borgen Idrettslag', 'short'),
 (1107, 'Borgen IL', 'short'),
+(1109, 'Slangerup BTK', 'short'),
+(1109, 'Ølstykke/Slangerup Bordtennisklub', 'long'),
+(1109, 'Slangerup Bordtennisklub', 'short'),
 (1111, 'Aarhus Bordtennisklub', 'short'),
 (1111, 'Aarhus BTK', 'short'),
 (1111, 'Århus BTK', 'short'),
@@ -637,6 +650,7 @@ CLUB_ALIASES = [
 (1294, 'Jelling FS', 'short'),
 (1298, 'Fakse Ladeplads Idrettsforening', 'short'),
 (1298, 'Fakse Ladeplads IF', 'short'),
+(1299, 'Viborg', 'short'),
 (1304, 'Grindsted Bordtennisklub', 'short'),
 (1304, 'Grindsted BTK', 'short'),
 (1309, 'Dal Idrettslag', 'short'),
@@ -730,8 +744,8 @@ CLUB_ALIASES = [
 (1422, 'Kolding Bordtennisklub', 'short'),
 (1422, 'Kolding BTK', 'short'),
 (1422, 'Kolding', 'short'),
-(1065, 'Team Nordschleswig - DK', 'long')
-
+(1433, 'Hep, Ringe', 'short'),
+(1434, 'Triton', 'short')
 
 ]
 
@@ -3573,7 +3587,7 @@ CLUBS = [
 (1238, 'PT Espoo', 'PT Espoo', 1, None, 'FIN', None, None, None, None),
 (1240, 'Hovseter BTK', 'Hovseter Bordtennisklubb', 1, None, 'NOR', None, None, None, None),
 (1241, 'Hasle IF', 'Hasle Idrettsforening', 1, None, 'DEN', None, None, None, None),
-(1242, 'BTK 61 Roskilde', 'BTK 61', 1, None, 'DEN', None, None, None, None),
+# (1242, 'BTK 61 Roskilde', 'BTK 61', 1, None, 'DEN', None, None, None, None),
 (1243, 'Bournemouth BTK', 'Bournemouth Bordtennisklub', 1, None, 'ENG', None, None, None, None),
 (1244, 'Greenhouse', 'Greenhouse Table Tennis', 1, None, 'ENG', None, None, None, None),
 (1245, 'Vestegnen BTK', 'Vestegnen Bordtennisklub', 1, None, 'DEN', None, None, None, None),
@@ -3696,7 +3710,7 @@ CLUBS = [
 (1406, 'IFK Mariehamn', 'IFK Mariehamn', 1, None, 'FIN', None, None, None, None),
 (1407, 'Comité Alpes-Maritimes', 'Comité Alpes-Maritimes', 2, None, 'FRA', None, None, None, None),
 (1408, 'England South West', 'England South West', 2, None, 'ENG', None, None, None, None),
-(1409, 'Slangerup BTK', 'Slangerup Bordtennisklub', 1, None, 'DEN', None, None, None, None),
+# (1409, 'Slangerup BTK', 'Slangerup Bordtennisklub', 1, None, 'DEN', None, None, None, None),
 (1410, 'Mälarenergi BTK', 'Mälarenergi Bordtennisklubb', 1, None, 'SWE', None, None, None, None),
 (1411, 'BTK Kvik Næstved', 'BTK Kvik Næstved', 1, None, 'DEN', None, None, None, None),
 (1412, 'Frederiksberg BTK', 'Frederiksberg Bordtennisklub', 1, None, 'DEN', None, None, None, None),
@@ -3713,6 +3727,9 @@ CLUBS = [
 (1428, 'Örgryte IS', 'Örgryte Idrottssällskap', 1, None, 'SWE', None, None, None, None),
 (1429, 'Team Stiga Göteborg', 'Team Stiga Göteborg', 1, None, 'SWE', None, None, None, None),
 (1430, 'Västra Frölunda BTK', 'Västra Frölunda Bordtennisklubb', 1, None, 'SWE', None, None, None, None),
-(1431, 'Vinnö IF', 'Vinnö Idrottsförening', 1, None, 'SWE', None, None, None, None)
+(1431, 'Vinnö IF', 'Vinnö Idrottsförening', 1, None, 'SWE', None, None, None, None),
+(1432, 'Højby S & G', 'Højby Fodboldklub', 1, None, 'DEN', None, None, None, None),
+(1433, 'HEP Ringe', 'Bordtennisklubben HEP Ringe', 1, None, 'DEN', None, None, None, None),
+(1434, 'BTK Triton', 'Bordtennisklubben Triton', 1, None, 'DEN', None, None, None, None)
 ]
 

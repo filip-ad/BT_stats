@@ -1,7 +1,9 @@
 # src/upd_participants.py
 
 import logging
+import unicodedata
 import requests
+import random, time
 import pdfplumber
 import re
 from io import BytesIO
@@ -191,8 +193,8 @@ def upd_participants():
                         status = Player.link_unverified_appearance(cursor, player_id, club_id, tc.date)
                         if status == "created":
                             logger.success(item_key, "Linked unverified player appearance")
-                        else:
-                            logger.warning(item_key, "Skipped duplicate unverified appearance")
+                        # else:
+                        #     logger.warning(item_key, "Skipped duplicate unverified appearance")
 
 
             except Exception as e:
@@ -525,10 +527,7 @@ def get_name_candidates(
         matches.update(player_name_map.get(k, []))
     return list(matches)
 
-def download_pdf(pdf_url: str, retries: int = 3, timeout: int = 30) -> Optional[bytes]:
-    """
-    Download a PDF with retry logic.
-    """
+def download_pdf(pdf_url, retries=3, timeout=30):
     headers = {"User-Agent": "Mozilla/5.0 (compatible; BTstats/1.0)"}
     for attempt in range(1, retries + 1):
         try:
@@ -536,8 +535,9 @@ def download_pdf(pdf_url: str, retries: int = 3, timeout: int = 30) -> Optional[
             resp.raise_for_status()
             return resp.content
         except requests.exceptions.Timeout:
-            logging.warning(f"Timeout fetching {pdf_url} (attempt {attempt}/{retries})")
-            time.sleep(2)
+            delay = 2 ** attempt + random.uniform(0, 1)
+            logging.warning(f"Timeout {attempt}/{retries}, retrying in {delay:.1f}s")
+            time.sleep(delay)
         except requests.exceptions.RequestException as e:
             logging.error(f"Request failed ({pdf_url}): {e}")
             break
@@ -768,9 +768,19 @@ def parse_players_pdf(
                 logger.failed(item_key, f"Skipping participant with purely numeric club name")
                 continue
 
-            # Check if names and club names are too short
-            if len(raw_name) < 3 or len(club_name) < 3:  # Too short to be valid
-                logger.failed(item_key, f"Skipping participant with name or club name < 3 characters")
+            # # Check if names and club names are too short
+            # if len(raw_name) < 3 or len(club_name) < 3:  # Too short to be valid
+            #     logger.failed(item_key, f"Skipping participant with name or club name < 3 characters")
+            #     print(item_key, f"Skipping participant with short field: raw_name='{raw_name}', club='{club_name}'")
+            #     continue
+
+            if len(raw_name) < 3:
+                logger.failed(item_key, f"Skipping participant with too short name: '{raw_name}' (club='{club_name}')")
+                continue
+
+            # --- validate club_name (looser, allow short clubs like OB, AIK)
+            if not any(unicodedata.category(ch).startswith("L") for ch in club_name):
+                logger.failed(item_key, f"Skipping participant with suspicious club: '{club_name}' (name='{raw_name}')")
                 continue
 
             # NEW: skip placeholder entries like "vakant vakant"
