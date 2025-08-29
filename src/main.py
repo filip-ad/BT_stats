@@ -147,7 +147,7 @@ def main():
         # upd_tournaments()
         # upd_tournament_classes()
 
-        upd_participants()
+        # upd_participants()
         # upd_player_positions()
         # upd_tournament_group_stage()
 

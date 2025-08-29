@@ -38343,3 +38343,17 @@ Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: Vakant 1
 Context: Djun (id: 14665, ext_id: 13539), Club Raw: Virum Sorgenfri BTK
 Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Tuse IF, Bordtennis
 Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Triton, Odense
+Context: DSEliteJunior (id: 19273, ext_id: 19523), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteU 21 (id: 19274, ext_id: 19524), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Virum Sorgenfri BTK
+Context: DSEliteYdr/Ypg (id: 19275, ext_id: 19525), Club Raw: Holstebro Bordtennisklub af 1974
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteJunior (id: 19281, ext_id: 19531), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HSEliteYdr/Ypg (id: 19283, ext_id: 19533), Club Raw: Virum Sorgenfri BTK
+Context: HJ17 (id: 15927, ext_id: 15202), Club Raw: Vakant 1
+Context: Djun (id: 14665, ext_id: 13539), Club Raw: Virum Sorgenfri BTK
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Tuse IF, Bordtennis
+Context: DSADr/Pg (id: 11660, ext_id: 10388), Club Raw: Triton, Odense
