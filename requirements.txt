@@ -29,3 +29,5 @@ urllib3==2.4.0
 webdriver-manager==4.0.2
 websocket-client==1.8.0
 wsproto==1.2.0
+pandas>=2.2.2
+openpyxl>=3.1.2

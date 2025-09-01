@@ -7,9 +7,10 @@ from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 from utils import setup_driver, parse_date
-from config import LICENSES_URL, SCRAPE_TRANSITIONS_NBR_OF_SEASONS, SCRAPE_TRANSITIONS_ORDER
+from config import SCRAPE_TRANSITIONS_NBR_OF_SEASONS, SCRAPE_TRANSITIONS_ORDER
 from db import get_conn
 
+LICENSES_URL = "https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_public.php"
 
 def upd_player_transitions_raw():
     conn, cursor = get_conn()

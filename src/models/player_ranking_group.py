@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import logging
+from typing import Iterable
 
 @dataclass
 class PlayerRankingGroup:
@@ -61,19 +62,18 @@ class PlayerRankingGroup:
             }
         
     @staticmethod
-    def delete_by_player_id(cursor, player_id):
-        try:
-            cursor.execute("""
-                DELETE FROM player_ranking_group WHERE player_id = ?
-            """, (player_id,))
-            return {
-                "status": "success",
-                "player_id": player_id,
-                "reason": f"Deleted {cursor.rowcount} existing ranking group(s) for player_id {player_id}"
-            }
-        except Exception as e:
-            return {
-                "status": "failed",
-                "player_id": player_id,
-                "reason": f"Database error: {str(e)}"
-            }
+    def delete_by_player_ids(cursor, player_ids: Iterable[int]) -> int:
+        """
+        Bulk-delete player_ranking_group rows for the given player IDs.
+        Returns the number of rows deleted.
+        """
+        ids = list(set(player_ids))
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        cursor.execute(
+            f"DELETE FROM player_ranking_group WHERE player_id IN ({placeholders})",
+            ids
+        )
+        return cursor.rowcount
+    

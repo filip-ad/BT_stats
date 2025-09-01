@@ -132,47 +132,34 @@ class PlayerLicense(CacheMixin):
         summarizing skip/insert/fail.
         Aligns with Player.save_to_db pattern but for batch.
         """
-        # 1) Load existing keys to skip duplicates
-        cursor.execute("""
-            SELECT player_id, club_id, season_id, license_id
-            FROM player_license
-        """)
-        existing = {tuple(r) for r in cursor.fetchall()}
+        # Assume all licenses are validated as new; no need to re-fetch existing
 
         to_insert: List[tuple] = []
         results: List[Dict[str, Any]] = []
 
-        # 2) Filter new licenses
+        # Prepare insert data
         for lic in licenses:
             key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
             item_key = f"(player_id: {lic.player_id}, club_id: {lic.club_id}, season_id: {lic.season_id}, license_id: {lic.license_id})"
-            if key in existing:
-                results.append({
-                    "status": "skipped",
-                    "key": item_key,
-                    "reason": "Already exists"
-                })
-                logger.skipped(item_key, "Player license already exists")
-            else:
-                to_insert.append((
-                    lic.player_id,
-                    lic.club_id,
-                    lic.season_id,
-                    lic.license_id,
-                    lic.valid_from,
-                    lic.valid_to
-                ))
-                results.append({
-                    "status": "pending",
-                    "key": item_key,
-                    "reason": "Will insert"
-                })
+            to_insert.append((
+                lic.player_id,
+                lic.club_id,
+                lic.season_id,
+                lic.license_id,
+                lic.valid_from,
+                lic.valid_to
+            ))
+            results.append({
+                "status": "pending",
+                "key": item_key,
+                "reason": "Will insert"
+            })
 
-        # 3) Nothing new?
+        # Nothing to insert?
         if not to_insert:
             return results
 
-        # 4) Chunk size calculation
+        # Chunk size calculation
         MAX_VARS = 999
         COLS_PER_ROW = 6
         chunk_size = MAX_VARS // COLS_PER_ROW  # ~166
@@ -183,7 +170,7 @@ class PlayerLicense(CacheMixin):
             VALUES (?, ?, ?, ?, ?, ?)
         """
 
-        # 5) Execute chunks
+        # Execute chunks
         inserted_count = 0
         for start in range(0, len(to_insert), chunk_size):
             chunk = to_insert[start : start + chunk_size]
@@ -204,7 +191,7 @@ class PlayerLicense(CacheMixin):
 
         logging.info(f"Batch insert completed: {inserted_count} new licenses")
         return results
-    
+
     @staticmethod
     def batch_validate(
         cursor, 
@@ -241,14 +228,13 @@ class PlayerLicense(CacheMixin):
             cursor.execute(f"SELECT club_id FROM club WHERE club_id IN ({placeholders})", chunk)
             valid_clubs.update(r[0] for r in cursor.fetchall())
 
+        # Fetch ALL seasons for reassignment flexibility
         valid_seasons = set()
         season_dates = {}
-        for chunk in chunk_iterable(season_ids, MAX_VARS):
-            placeholders = ",".join("?" * len(chunk))
-            cursor.execute(f"SELECT season_id, start_date, end_date FROM season WHERE season_id IN ({placeholders})", chunk)
-            for sid, sd, ed in cursor.fetchall():
-                valid_seasons.add(sid)
-                season_dates[sid] = (sd, ed)
+        cursor.execute("SELECT season_id, start_date, end_date FROM season")
+        for sid, sd, ed in cursor.fetchall():
+            valid_seasons.add(sid)
+            season_dates[sid] = (sd, ed)
 
         valid_license_ids = set()
         for chunk in chunk_iterable(license_ids, MAX_VARS):
@@ -256,41 +242,42 @@ class PlayerLicense(CacheMixin):
             cursor.execute(f"SELECT license_id FROM license WHERE license_id IN ({placeholders})", chunk)
             valid_license_ids.update(r[0] for r in cursor.fetchall())
 
-        # 2) Fetch existing licenses
-        existing_licenses = set()
-        COLS_PER_ROW_EXIST = 4
-        chunk_size_exist = MAX_VARS // COLS_PER_ROW_EXIST
-        for start in range(0, len(licenses), chunk_size_exist):
-            slice_ = licenses[start : start + chunk_size_exist]
-            placeholders = ",".join("(?,?,?,?)" for _ in slice_)
-            binds = [item for lic in slice_ for item in (lic.player_id, lic.club_id, lic.season_id, lic.license_id)]
-            cursor.execute(
-                f"SELECT player_id, club_id, season_id, license_id FROM player_license WHERE (player_id, club_id, season_id, license_id) IN (VALUES {placeholders})",
-                binds
-            )
-            existing_licenses.update(tuple(r) for r in cursor.fetchall())
+        # --- Fetch existing keys and periods broadly (covers reassignment) ---
+        existing_keys = set()
+        existing_periods = {}  # (pid, lid) -> list[(sid, vf, vt)]
 
-        # 3) Fetch overlapping licenses
-        overlapping_licenses = {}
-        COLS_PER_ROW_OV = 3
-        chunk_size_ov = MAX_VARS // COLS_PER_ROW_OV
-        for start in range(0, len(licenses), chunk_size_ov):
-            slice_ = licenses[start : start + chunk_size_ov]
-            placeholders = ",".join("(?,?,?)" for _ in slice_)
-            binds = [item for lic in slice_ for item in (lic.player_id, lic.season_id, lic.license_id)]
-            cursor.execute(
-                f"SELECT player_id, season_id, license_id, valid_from, valid_to FROM player_license WHERE (player_id, season_id, license_id) IN (VALUES {placeholders})",
-                binds
-            )
-            for pid, sid, lid, vf, vt in cursor.fetchall():
-                overlapping_licenses[(pid, sid, lid)] = (vf, vt)
+        player_ids = {l.player_id for l in licenses if l.player_id}
+        if player_ids:
+            for chunk in chunk_iterable(player_ids, MAX_VARS):
+                q = f"""
+                    SELECT player_id, club_id, season_id, license_id
+                    FROM player_license
+                    WHERE player_id IN ({','.join('?'*len(chunk))})
+                """
+                cursor.execute(q, chunk)
+                existing_keys.update(tuple(r) for r in cursor.fetchall())
+
+            # Overlap periods grouped by (player_id, license_id)
+            pairs = {(l.player_id, l.license_id) for l in licenses if l.player_id and l.license_id}
+            pairs = list(pairs)
+            for c in chunk_iterable(pairs, max(1, MAX_VARS // 2)):
+                placeholders = ",".join("(?,?)" for _ in c)
+                binds = [x for pair in c for x in pair]
+                q = f"""
+                    SELECT player_id, season_id, license_id, valid_from, valid_to
+                    FROM player_license
+                    WHERE (player_id, license_id) IN (VALUES {placeholders})
+                """
+                cursor.execute(q, binds)
+                for pid, sid, lid, vf, vt in cursor.fetchall():
+                    existing_periods.setdefault((pid, lid), []).append((sid, vf, vt))
 
         # 4) Per-license validation
         results = []
         for lic in licenses:
-            key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
-            ov_key = (lic.player_id, lic.season_id, lic.license_id)
-            item_key = f"(player_id: {lic.player_id}, club_id: {lic.club_id}, season_id: {lic.season_id}, license_id: {lic.license_id})"
+            # key = (lic.row_id, lic.player_id, lic.club_id, lic.season_id, lic.license_id)
+            # ov_key = (lic.player_id, lic.season_id, lic.license_id)
+            item_key = f"(row_id: {lic.row_id}, player_id: {lic.player_id}, club_id: {lic.club_id}, season_id: {lic.season_id}, license_id: {lic.license_id})"
 
             # Required fields
             if not all([lic.player_id, lic.club_id, lic.season_id, lic.license_id]):
@@ -321,41 +308,59 @@ class PlayerLicense(CacheMixin):
                 logger.failed(item_key, reason)
                 continue
 
-            # Duplicate check
-            if key in existing_licenses:
-                reason = "Already exists"
+            # --- Season normalization & reassignment ---
+            sd, ed = season_dates.get(lic.season_id, (None, None))
+
+            def find_season_for(d):
+                for sid_, (s, e) in season_dates.items():
+                    if s <= d <= e:
+                        return sid_
+                return None
+
+            if lic.season_id not in season_dates or not (sd <= lic.valid_from <= ed):
+                new_sid = find_season_for(lic.valid_from)
+                if new_sid is None:
+                    reason = "Valid_from outside all seasons"
+                    results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
+                    logger.failed(item_key, reason)
+                    continue
+                if lic.season_id != new_sid:
+                    logger.warning(item_key, f"Reassigned season_id")
+                    lic.season_id = new_sid
+                sd, ed = season_dates[new_sid]
+
+            # if lic.valid_to is None:
+            #     lic.valid_to = ed
+
+            # Final normalized keys
+            final_key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
+            pid_lid_key = (lic.player_id, lic.license_id)
+
+            # Check DB duplicate after reassignment
+            if final_key in existing_keys:
+                reason = "License already exists"
                 results.append({"status": "skipped", "row_id": lic.row_id, "reason": reason})
                 logger.skipped(item_key, reason)
                 continue
 
-            # Season date range
-            sd, ed = season_dates.get(lic.season_id, (None, None))
-            if sd is None or ed is None:
-                reason = "Season dates not found"
-                results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
-                logger.failed(item_key, reason)
-                continue
-            if lic.valid_from < sd or lic.valid_from > ed:
-                if abs((lic.valid_from - ed).days) <= 30:
-                    lic.valid_from = ed
-                    logger.warning(item_key, "Adjusted valid_from to season end (within 30 days)")
-                else:
-                    reason = f"valid_from {lic.valid_from} outside season {sd}-{ed}"
-                    results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
-                    logger.failed(item_key, reason)
+            # Overlap check (same player, license) for normalized season
+            new_start, new_end = lic.valid_from, lic.valid_to
+            overlapped = False
+            for sid_, vf, vt in existing_periods.get(pid_lid_key, []):
+                if sid_ != lic.season_id:
                     continue
-            if lic.valid_from == ed:
-                logger.warning(item_key, "valid_from equals season end date")
-
-            # Overlap check (same player, season, license)
-            if ov_key in overlapping_licenses:
-                of, ot = overlapping_licenses[ov_key]
-                new_start, new_end = lic.valid_from, lic.valid_to
-                if not (new_end < of or new_start > ot):
+                if isinstance(vf, str):
+                    from datetime import date; vf = date.fromisoformat(vf)
+                if isinstance(vt, str):
+                    from datetime import date; vt = date.fromisoformat(vt)
+                if not (new_end < vf or new_start > vt):
                     reason = "Overlaps existing license period"
                     results.append({"status": "failed", "row_id": lic.row_id, "reason": reason})
                     logger.failed(item_key, reason)
-                    continue
+                    overlapped = True
+                    break
+            if overlapped:
+                continue
 
             # Success
             results.append({"status": "success", "row_id": lic.row_id, "reason": "Valid"})

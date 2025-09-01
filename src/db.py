@@ -437,6 +437,33 @@ def create_tables(cursor):
             );
         ''')
 
+        # Generic participant raw tournament table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS participant_raw_tournament (
+                participant_raw_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+
+                -- Provenance
+                tournament_id_ext               TEXT NOT NULL,   -- external tournament ID from source
+                tournament_class_id_ext         TEXT NOT NULL,   -- external class ID from source
+                data_source_id                  INTEGER NOT NULL, -- FK to data_source (1=OnData, 2=Profixio, etc.)
+
+                -- Raw values (unaltered as parsed)
+                fullname_raw                    TEXT NOT NULL,   -- raw player name string
+                clubname_raw                    TEXT,            -- raw club name string
+                seed_raw                        TEXT,            -- raw seed (string, since formats vary)
+                final_position_raw              TEXT,            -- raw final position (string/number, as parsed)
+
+                -- Optional: keep a JSON blob for debugging / unusual fields
+                raw_payload                     TEXT,            -- JSON text with any extra fields
+
+                -- Metadata
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (data_source_id) REFERENCES data_source(data_source_id)
+            );
+        ''')
+
         # Create participant player table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS participant_player (
@@ -1202,19 +1229,33 @@ def create_and_populate_static_tables(cursor):
 
         ############ DEBUG TABLES ######################
 
+        # cursor.execute('''
+        #     CREATE TABLE IF NOT EXISTS log_events (
+        #         row_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        #         run_id              TEXT    NOT NULL,
+        #         function_name       TEXT,
+        #         item_key            TEXT,
+        #         status              TEXT    NOT NULL,
+        #         reason              TEXT,
+        #         message             TEXT,
+        #         row_created         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        #     );
+        # ''')
+
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS log_events (
-                row_id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id              TEXT    NOT NULL,
-                function_name       TEXT,
-                item_key            TEXT,
-                status              TEXT    NOT NULL,
-                reason              TEXT,
-                message             TEXT,
-                row_created         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            CREATE TABLE IF NOT EXISTS log_output (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                function_name TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                context_json TEXT,
+                status TEXT NOT NULL,  -- e.g., 'error', 'warning', 'skipped'
+                message TEXT NOT NULL,
+                msg_id TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP  -- Auto-adds insert time
             );
         ''')
-        
+
         # Create missing clubs table to be mapped later
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS club_missing (
@@ -1255,13 +1296,16 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_id_ext ON tournament_class(tournament_class_id_ext)",
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_date ON tournament_class(date)",
 
-        # Participant (replaced tournament_participant)
+        # Participant 
         "CREATE INDEX IF NOT EXISTS idx_participant_tournament_class_id ON participant(tournament_class_id)",
 
-        # Participant player (replaced tournament_participant_player)
+        # Participant player 
         "CREATE INDEX IF NOT EXISTS idx_participant_player_player_id ON participant_player(player_id)",
         "CREATE INDEX IF NOT EXISTS idx_participant_player_club_id ON participant_player(club_id)",
         "CREATE INDEX IF NOT EXISTS idx_participant_player_participant_id ON participant_player(participant_id)",  # Added for joins to participant
+
+        # Participant raw tournament
+        "CREATE INDEX IF NOT EXISTS idx_prt_class ON participant_raw_tournament(tournament_class_id_ext)",
 
         # Tournament class group (replaced tournament_group)
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_class_id ON tournament_class_group(tournament_class_id)",
@@ -1299,6 +1343,7 @@ def create_indexes(cursor):
 
     except sqlite3.Error as e:
         print(f"Error creating indexes: {e}")
+        logging.error(f"Error creating indexes: {e}")
 
 
 def create_triggers(cursor):

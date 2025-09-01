@@ -1,20 +1,25 @@
 To do
 =======================================================
+- Gör om upd_tournaments till en orchestrator -> call scrape_tournaments_ondata (senare pingisarenan), behövs en tournament_raw class, eller direkt till resolve?
+- Tournament classes - samma sak?
+- Gör om transition, till upd->scrape->resolve
+- Sen börja med participant/partc plyer upd->scrape->resolve (förbered för dubbel med)->resolve 
+  - Först implementera cachade PDF:er. Leta först där, sen online, och om online hittas -> ladda ner
+- Sen final position upd->scrape/resolve(borde vara en o samma)
+  - En participant raw class är bra, sen göra resolve på player mot participant list
+- Sen group games upd->scrape->resolve
+- Speed up scrape_player_licenses
 
-Download all PDF:s?
 
-- Create a script for identifying non verified players that now have a license...?
 
- - Simplify cache functions by creating a generic build_cache(cursor, table_name, key_fields, value_fields="*" function)
-    
+
 
 Improvements long term
 =======================================================
+- How to "upgrade" player to verified? With a separate script?
+  - Create a script for identifying non verified players that now have a license...?    
 - Fix the pathing/packages whatever so everything doesnt have to be in /src
-- Figure out how to deal with transitions
-  Im thinking to create a separate player_license table which can be searched if not "real" license is found
-  This would keep the integrity of the player_license so it only holds real scraped data
-- Should be able to search the transtion and license RAW tables for players not found. Then I can resolve firstname and lastname, even though I dont have player_id_ext!
+- Figure out how to deal with transitions - currently raw transitions are not used 
+  - Should be able to search the transtion RAW tables for players not found. Then I can resolve firstname and lastname, even though I dont have player_id_ext!
 
 
-ℹ️  Participants update completed in 57.0 minutes and 33.45 seconds.

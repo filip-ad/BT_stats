@@ -2,15 +2,13 @@
 # src/main.py
 
 import logging
-from utils import setup_logging
+from utils import setup_logging, export_to_excel, clear_log_output_table
 
 from upd_clubs import upd_clubs
 from upd_players_verified import upd_players_verified
 
-from upd_player_licenses_raw import upd_player_licenses_raw
 from upd_player_licenses import upd_player_licenses
 
-from upd_player_ranking_groups import upd_player_ranking_groups
 from upd_player_rankings_raw import upd_player_rankings_raw
 from upd_player_rankings import upd_player_rankings
 
@@ -107,7 +105,7 @@ def main():
             # # Debugging tables (no FKs assumed)
             # 'club_missing',                       # FK club
             # 'club_name_prefix_match',             # FK club
-            'log_tables'
+            # 'log_output'
         ])
 
         create_and_populate_static_tables(cursor)
@@ -115,7 +113,7 @@ def main():
         create_indexes(cursor)
         create_triggers(cursor)
         create_views(cursor)
-
+        clear_log_output_table(cursor)
         # execute_custom_sql(cursor)
         
 
@@ -124,12 +122,14 @@ def main():
 
         ################################################################################################
 
+
+
         #
         # Describe all functions, what they do, what tables are updated, variables etc etc
         #
 
         # 1 Scrape and populate raw tables.
-        # upd_player_licenses_raw()
+        # upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
         # upd_player_transitions_raw()
         # upd_player_rankings_raw()
 
@@ -137,9 +137,14 @@ def main():
         # upd_clubs()
         # upd_players_verified()
 
-        # upd_player_licenses()
-        # upd_player_transitions()
+        upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
+
+        export_to_excel()
+
+        
         # upd_player_ranking_groups()
+        # upd_player_transitions()
+
 
         ################################################################################################
 
@@ -148,7 +153,7 @@ def main():
         # upd_tournament_classes()
 
         # upd_participants()
-        upd_player_positions()
+        # upd_player_positions()
         # upd_tournament_group_stage()
 
     except Exception as e:

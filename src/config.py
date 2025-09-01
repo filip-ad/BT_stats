@@ -4,10 +4,9 @@ LOG_FILE                                = "../data/logs/log.log"
 LOG_LEVEL                               = "INFO"    # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
 DB_NAME                                 = "../data/table_tennis.db"
 
-SCRAPE_LICENSES_MAX_CLUBS               = 0         # How many clubs to iterate, 0 for all clubs
+SCRAPE_LICENSES_MAX_CLUBS               = 5         # How many clubs to iterate, 0 for all clubs
 SCRAPE_LICENSES_NBR_OF_SEASONS          = 1         # Amount of seasons to iterate for each club, always starting with the oldest, 0 for all seasons
 SCRAPE_LICENSES_ORDER                   = "newest"  # Order of seasons to scrape, "oldest" or "newest"
-LICENSES_URL                            = "https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_public.php"
 
 SCRAPE_RANKINGS_NBR_OF_RUNS             = 1         # How many rankings runs to scrape, 0 for all runs
 SCRAPE_RANKINGS_ORDER                   = "newest"  # Order of ranking runs to scrape, "oldest" or "newest"
@@ -20,103 +19,13 @@ SCRAPE_TOURNAMENTS_ORDER                = "oldest"      # Order of tournaments t
 SCRAPE_TOURNAMENTS_URL_ONDATA           = "https://resultat.ondata.se/?viewAll=1"
 SCRAPE_TOURNAMENT_SBTFOTT_URL           = "https://sbtfott.stupaevents.com/#/events"
 
-SCRAPE_CLASSES_MAX_TOURNAMENTS          = 100         # Maximum number of tournaments to scrape classes from
+SCRAPE_CLASSES_MAX_TOURNAMENTS          = 5         # Maximum number of tournaments to scrape classes from
 SCRAPE_CLASSES_TOURNAMENT_ID_EXTS       = 0
 
 # Update defaults to use None for "no limit/all"
 SCRAPE_PARTICIPANTS_CUTOFF_DATE         = None          # Date format: YYYY-MM-DD, None for all
 SCRAPE_PARTICIPANTS_MAX_CLASSES         = None         # Maximum number of classes to scrape participants from, None for all classes
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS       = ['28739',
-'27637',
-'26579',
-'23655',
-'19523',
-'19524',
-'19525',
-'19531',
-'19533',
-'17456',
-'17486',
-'17438',
-'17439',
-'17446',
-'17447',
-'17101',
-'15437',
-'16072',
-'16204',
-'15155',
-'15202',
-'14257',
-'13539',
-'12916',
-'12911',
-'12664',
-'12663',
-'10816',
-'10883',
-'10833',
-'10836',
-'10582',
-'10583',
-'10584',
-'10585',
-'10586',
-'10587',
-'10388',
-'10389',
-'10111',
-'10113',
-'10114',
-'8207):',
-'7869):',
-'7875):',
-'7876):',
-'7878):',
-'7845):',
-'7846):',
-'7847):',
-'7848):',
-'7923):',
-'7928):',
-'5885):',
-'5886):',
-'5876):',
-'5317):',
-'5466):',
-'5465):',
-'5090):',
-'4002):',
-'3833):',
-'3834):',
-'3835):',
-'3741):',
-'3739):',
-'3753):',
-'3756):',
-'3459):',
-'3463):',
-'3460):',
-'3461):',
-'3040):',
-'2144):',
-'1939):',
-'1921):',
-'1924):',
-'1929):',
-'1931):',
-'1932):',
-'1936):',
-'1913):',
-'1937):',
-'1898):',
-'1560):',
-'1561):',
-'555):',
-'557):',
-
-]
-       # List (TEXT) ['123', '234'], None for all
+SCRAPE_PARTICIPANTS_CLASS_ID_EXTS       = None          # List (TEXT) ['123', '234'], None for all
 SCRAPE_PARTICIPANTS_TNMT_ID_EXTS        = None          # List (TEXT) ['123', '234'], None for all
 SCRAPE_PARTICIPANTS_ORDER               = "newest"      # Order of classes to scrape participants from, "oldest" or "newest"
 
