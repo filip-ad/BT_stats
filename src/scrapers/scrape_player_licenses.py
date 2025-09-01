@@ -27,6 +27,7 @@ def scrape_player_licenses(cursor):
         log_to_db       = True, 
         cursor          = cursor
     )
+    
     driver = setup_driver()
     driver.get(LICENSES_URL)
 
@@ -195,5 +196,5 @@ def scrape_player_licenses(cursor):
         current_club_count = 0
 
     logger.info(f"Scraping completed — Total inserted: {total_inserted}, Total skipped: {total_skipped}", to_console=True)
-
+    driver.quit()
     logger.summarize()

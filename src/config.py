@@ -16,7 +16,7 @@ SCRAPE_TRANSITIONS_ORDER                = "newest"  # Order of seasons to scrape
 
 SCRAPE_TOURNAMENTS_CUTOFF_DATE          = "2000-07-01"  # Date format: YYYY-MM-DD
 SCRAPE_TOURNAMENTS_ORDER                = "oldest"      # Order of tournaments to scrape, "oldest" or "newest"
-SCRAPE_TOURNAMENTS_URL_ONDATA           = "https://resultat.ondata.se/?viewAll=1"
+# SCRAPE_TOURNAMENTS_URL_ONDATA           = "https://resultat.ondata.se/?viewAll=1"
 SCRAPE_TOURNAMENT_SBTFOTT_URL           = "https://sbtfott.stupaevents.com/#/events"
 
 SCRAPE_CLASSES_MAX_TOURNAMENTS          = 5         # Maximum number of tournaments to scrape classes from
@@ -28,7 +28,6 @@ SCRAPE_PARTICIPANTS_MAX_CLASSES         = None         # Maximum number of class
 SCRAPE_PARTICIPANTS_CLASS_ID_EXTS       = None          # List (TEXT) ['123', '234'], None for all
 SCRAPE_PARTICIPANTS_TNMT_ID_EXTS        = None          # List (TEXT) ['123', '234'], None for all
 SCRAPE_PARTICIPANTS_ORDER               = "newest"      # Order of classes to scrape participants from, "oldest" or "newest"
-
 
 DOWNLOAD_PDF_NBR_OF_CLASSES             = 1         # Download PDF:s for max this many classes before breaking
 DOWNLOAD_PDF_TOURNAMENT_ID_EXT          = 678       # Download all PDF:s for this tournament with external ID

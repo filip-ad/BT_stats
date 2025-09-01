@@ -472,7 +472,7 @@ class OperationLogger:
         reason: Optional[str] = None,
         *,
         show_key: bool = True,
-        to_console: Optional[bool] = None,
+        to_console: Optional[bool] = True,
         emoji: str = "ℹ️ ",
     ):
         """
@@ -662,7 +662,7 @@ class OperationLogger:
         context_json = json.dumps(enriched_context)
         
         # Write to log_output table
-        if self.cursor:
+        if self.cursor and self.verbosity >= 3:
             try:
                 self.cursor.execute('''
                     INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)

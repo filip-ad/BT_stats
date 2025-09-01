@@ -12,7 +12,6 @@ from upd_player_licenses import upd_player_licenses
 from upd_player_rankings_raw import upd_player_rankings_raw
 from upd_player_rankings import upd_player_rankings
 
-from upd_player_transitions_raw import upd_player_transitions_raw
 from upd_player_transitions import upd_player_transitions
 
 from upd_tournaments import upd_tournaments
@@ -130,26 +129,25 @@ def main():
 
         # 1 Scrape and populate raw tables.
         # upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
-        # upd_player_transitions_raw()
         # upd_player_rankings_raw()
 
         # 2 update clubs, verified players and player ranking groups
         # upd_clubs()
         # upd_players_verified()
+        # upd_player_licenses(scrape=False, resolve=True, update_ranking_groups=True)
 
-        upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
+        # upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
+        # upd_player_transitions(scrape=True, resolve=True)
 
         export_to_excel()
 
-        
-        # upd_player_ranking_groups()
         # upd_player_transitions()
 
 
         ################################################################################################
 
         # # Get tournaments
-        # upd_tournaments()
+        upd_tournaments(scrape_ondata=False, resolve=True)
         # upd_tournament_classes()
 
         # upd_participants()

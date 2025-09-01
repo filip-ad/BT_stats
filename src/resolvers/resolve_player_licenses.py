@@ -17,7 +17,7 @@ def resolve_player_licenses(cursor) -> List[PlayerLicense]:
     """
 
     logger = OperationLogger(
-        verbosity       = 1, 
+        verbosity       = 2, 
         print_output    = False, 
         log_to_db       = True, 
         cursor          = cursor
@@ -76,20 +76,20 @@ def resolve_player_licenses(cursor) -> List[PlayerLicense]:
     for raw in raw_objects:
 
         logger_keys = {
-                    "row_id":           getattr(raw, "row_id", None),
-                    "season_label":     getattr(raw, "season_label", None),
-                    "player_id":        None,
-                    "player_id_ext":    getattr(raw, "player_id_ext", None),
-                    "firstname":        getattr(raw, "firstname", None),
-                    "lastname":         getattr(raw, "lastname", None),
-                    "year_born":        getattr(raw, "year_born", None),
-                    "gender":           getattr(raw, "gender", None),
-                    "club_id_ext":      getattr(raw, "club_id_ext", None),
-                    "club_id":          None,
-                    "club_name":        getattr(raw, "club_name", None),
-                    "valid_from":       None,
-                    "license_info_raw": getattr(raw, "license_info_raw", None) or "".strip()
-                    }
+            "row_id":           getattr(raw, "row_id", None),
+            "season_label":     getattr(raw, "season_label", None),
+            "player_id":        None,
+            "player_id_ext":    getattr(raw, "player_id_ext", None),
+            "firstname":        getattr(raw, "firstname", None),
+            "lastname":         getattr(raw, "lastname", None),
+            "year_born":        getattr(raw, "year_born", None),
+            "gender":           getattr(raw, "gender", None),
+            "club_id_ext":      getattr(raw, "club_id_ext", None),
+            "club_id":          None,
+            "club_name":        getattr(raw, "club_name", None),
+            "valid_from":       None,
+            "license_info_raw": getattr(raw, "license_info_raw", None) or "".strip()
+        }
 
         item_key = f"{raw.firstname} {raw.lastname} (id ext: {raw.player_id_ext}, club: {raw.club_name}, season: {raw.season_label}, row_id: {raw.row_id})"
         license_info_raw = (raw.license_info_raw or "").strip()

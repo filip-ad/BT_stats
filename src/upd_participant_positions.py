@@ -155,7 +155,7 @@ def upd_player_positions():
         updated = skipped = 0
         for pos, fullname, club_raw in rows:
             # 1) Resolve club_id from the PDF club name (already in your code)
-            club = Club.resolve(cursor, club_raw, club_map, logger, item_key, allow_prefix=True)
+            club = Club.resolve(cursor, club_raw, club_map, logger, item_key, allow_prefix=True, fallback_to_unknown=False)
             item_key = (pos, fullname, club_raw)
             if not club:
                 logger.skipped(item_key, f"Skipping position {pos}: Club not found for '{club_raw}'")

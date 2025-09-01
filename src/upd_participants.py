@@ -136,7 +136,9 @@ def upd_participants():
                     seed = int(raw.get("seed")) if str(raw.get("seed")).isdigit() else None
                     t_ptcp_id_ext = raw.get("tournament_participant_id_ext")
 
-                    club = Club.resolve(cursor, clubname_raw, club_map, logger, item_key, allow_prefix=True)
+                    club = Club.resolve(cursor, clubname_raw, club_map, logger, item_key, allow_prefix=True, fallback_to_unknown=True)
+                    if club.club_id == 9999:
+                         logger.warning(clubname_raw, f"Club not found. Using 'Unknown club (id: {9999})'")
                     if not club:
                         logger.failed(item_key, f"Club not found for '{clubname_raw}'")
                         continue

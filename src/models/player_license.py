@@ -22,13 +22,13 @@ class PlayerLicense(CacheMixin):
     @staticmethod
     def from_dict(data: dict) -> "PlayerLicense":
         return PlayerLicense(
-            player_id=data["player_id"],
-            club_id=data["club_id"],
-            season_id=data["season_id"],
-            license_id=data["license_id"],
-            valid_from=data["valid_from"],
-            valid_to=data["valid_to"],
-            row_id=data.get("row_id")
+            player_id           = data["player_id"],
+            club_id             = data["club_id"],
+            season_id           = data["season_id"],
+            license_id          = data["license_id"],
+            valid_from          = data["valid_from"],
+            valid_to            = data["valid_to"],
+            row_id              = data.get("row_id")
         )
     
     @classmethod
@@ -53,12 +53,12 @@ class PlayerLicense(CacheMixin):
             full_norm = normalize_key(f"{row['firstname'] or ''} {row['lastname'] or ''}").strip()
             key = (full_norm, row['club_id'])
             license_map[key].append({
-                "player_id": row['player_id'],
-                "club_id": row['club_id'],
-                "license_id": row['license_id'],
-                "valid_from": row['valid_from'],
-                "valid_to": row['valid_to'],
-                "season_id": row['season_id']
+                "player_id":    row['player_id'],
+                "club_id":      row['club_id'],
+                "license_id":   row['license_id'],
+                "valid_from":   row['valid_from'],
+                "valid_to":     row['valid_to'],
+                "season_id":    row['season_id']
             })
         return license_map
 

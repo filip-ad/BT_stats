@@ -96,7 +96,7 @@ class Club(CacheMixin):
         *,
         allow_prefix: bool = False,
         min_ratio: float = 0.8,
-        unknown_club_id: int = 9999,
+        fallback_to_unknown: bool = False,
     ) -> "Club":
         """
         Resolve a club name to a Club object.
@@ -134,11 +134,13 @@ class Club(CacheMixin):
                 return club
 
         # --- Stage 4: unknown club
-        club = cls.get_by_id(cursor, unknown_club_id)
-        logger.warning(clubname_raw, f"Club not found. Using 'Unknown club (id: {unknown_club_id})'")
-        with open("missing_clubs.txt", "a", encoding="utf-8") as f:
-            f.write(f"Context: {item_key}, Club Raw: {clubname_raw}\n")
-        return club
+        if fallback_to_unknown:
+            club = cls.get_by_id(cursor, 9999)
+            with open("missing_clubs.txt", "a", encoding="utf-8") as f:
+                f.write(f"Context: {item_key}, Club Raw: {clubname_raw}\n")
+            return club
+       
+        return None
 
 
     # @staticmethod

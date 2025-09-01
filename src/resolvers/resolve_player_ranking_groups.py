@@ -25,7 +25,7 @@ def resolve_player_ranking_groups(cursor) -> dict:
     """
 
     logger = OperationLogger(
-        verbosity       = 1, 
+        verbosity       = 2, 
         print_output    = False, 
         log_to_db       = False, 
         cursor          = cursor

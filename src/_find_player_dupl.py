@@ -25,7 +25,7 @@ def find_cross_season_duplicates(limit=None):
     # club_id_ext -> display name (prefer shortname)
     cursor.execute("""
         SELECT ce.club_id_ext, COALESCE(NULLIF(TRIM(c.shortname),''), c.longname, 'Unknown')
-        FROM club_ext_id ce
+        FROM club_id_ext ce
         JOIN club c ON c.club_id = ce.club_id
     """)
     club_cache = {int(row[0]): row[1] for row in cursor.fetchall()}
