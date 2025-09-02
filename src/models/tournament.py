@@ -1,7 +1,7 @@
 # src/models/tournament.py
 from __future__ import annotations  # <= postpone annotation evaluation (robust)
 
-from typing import List, Optional, Dict, Any, Sequence  # make sure this import exists
+from typing import List, Optional, Dict # make sure this import exists
 from ast import List
 from dataclasses import dataclass
 from datetime import date

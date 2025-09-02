@@ -358,6 +358,28 @@ def create_tables(cursor):
             )
         ''')
 
+        # Create tournament raw table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tournament_raw (
+                row_id                                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id_ext                           TEXT,
+                shortname                                   TEXT,
+                longname                                    TEXT,   
+                startdate                                   DATE,
+                enddate                                     DATE,
+                city                                        TEXT,
+                arena                                       TEXT,
+                country_code                                TEXT,
+                url                                         TEXT,
+                data_source_id                              INTEGER DEFAULT 1,
+                row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (data_source_id)                REFERENCES data_source(data_source_id),
+                UNIQUE (tournament_id_ext, data_source_id),
+                UNIQUE (shortname, startdate, data_source_id)
+            );
+        ''')
+
         # Create tournament class table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class (

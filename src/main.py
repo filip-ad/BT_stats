@@ -64,6 +64,7 @@ def main():
             # 'player_license_raw',
             # 'player_transition_raw',
             # 'player_ranking_raw',
+            # 'tournament_raw'
 
             # # License, ranking, transitions
             # 'player_license',                     # FK player (verified), club, season, license
@@ -147,7 +148,7 @@ def main():
         ################################################################################################
 
         # # Get tournaments
-        upd_tournaments(scrape_ondata=False, resolve=True)
+        upd_tournaments(scrape_ondata=True, resolve=True)
         # upd_tournament_classes()
 
         # upd_participants()
