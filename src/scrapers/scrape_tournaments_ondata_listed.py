@@ -1,4 +1,4 @@
-# src/scrapers/scrape_tournaments_ondata.py
+# src/scrapers/scrape_tournaments_ondata_listed.py
 
 from typing import Optional
 
@@ -11,7 +11,7 @@ from utils import OperationLogger, parse_date
 from models.tournament_raw import TournamentRaw
 
 
-def scrape_raw_tournaments_ondata(cursor) -> None:
+def scrape_tournaments_ondata_listed(cursor) -> None:
     """
     Scrape raw HTML rows from ondata.se tables.
     Upserts raw data into tournament_raw table.

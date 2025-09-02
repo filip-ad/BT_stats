@@ -5,7 +5,8 @@ from utils import parse_date, OperationLogger
 from db import get_conn
 from config import SCRAPE_TOURNAMENTS_CUTOFF_DATE
 from models.tournament import Tournament
-from scrapers.scrape_tournaments_ondata_listed import scrape_raw_tournaments_ondata
+from scrapers.scrape_tournaments_ondata_listed import scrape_tournaments_ondata_listed
+from scrapers.scrape_tournaments_ondata_unlisted import scrape_tournaments_ondata_unlisted
 from resolvers.resolve_tournaments import resolve_tournaments
 
 def upd_tournaments(scrape_ondata=False, resolve=False):
@@ -25,13 +26,19 @@ def upd_tournaments(scrape_ondata=False, resolve=False):
         cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
         logger.info(f"Starting tournament update, cutoff: {cutoff_date}")
 
-        # Scrape all tournaments
+        # Scrape ondata listed tournaments
         # =============================================================================
         if scrape_ondata:
-            scrape_raw_tournaments_ondata(cursor)
-            
+            scrape_tournaments_ondata_listed(cursor)
 
-        # Fetch raw from db
+        # Scrape ondata unlisted tournaments
+        scrape_tournaments_ondata_unlisted(cursor)
+
+        # Scrape other tournament sources
+        # =============================================================================
+        # TODO: Implement scraping for other tournament sources
+
+        # Get raw tournaments
         # =============================================================================
         cursor.execute("SELECT * FROM tournament_raw WHERE data_source_id = 1")
         columns = [col[0] for col in cursor.description]
