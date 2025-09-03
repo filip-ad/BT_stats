@@ -172,14 +172,23 @@ def create_tables(cursor):
         # Create tournament class raw table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_raw (
-                row_id                                  INTEGER PRIMARY KEY AUTOINCREMENT,
-                tournament_class_id                     INTEGER NOT NULL,
-                data_source_id                          INTEGER DEFAULT 1,
-                row_created                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (tournament_class_id)       REFERENCES tournament_class(tournament_class_id)    ON DELETE CASCADE,
-                FOREIGN KEY (data_source_id)            REFERENCES data_source(data_source_id)
-            )
+                row_id                                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_class_id_ext                     TEXT,
+                tournament_id                               INTEGER NOT NULL,
+                tournament_class_type_id                    INTEGER,
+                tournament_class_structure_id               INTEGER,
+                date                                        DATE,
+                longname                                    TEXT,
+                shortname                                   TEXT,
+                gender                                      TEXT,
+                max_rank                                    INTEGER,
+                max_age                                     INTEGER,
+                url                                         TEXT,
+                data_source_id                              INTEGER DEFAULT 1,
+                processed                                   BOOLEAN DEFAULT 0,
+                row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         ''')
 
         # Create tournament group table
