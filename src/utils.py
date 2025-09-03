@@ -522,7 +522,11 @@ class OperationLogger:
         self, 
         context: Union[dict, str], 
         reason: Optional[str] = "Success",
-        msg_id: Optional[str] = None
+        msg_id: Optional[str] = None,
+        *,
+        to_console: Optional[bool] = None,  # Optional console print control
+        emoji: str = "✅ ",  # Optional emoji with checkmark, similar to info() and failed()
+        show_key: bool = True,  # Optional show_key, similar to info() and failed()
     ):
         if isinstance(context, str):
             context = self._parse_context_str(context)
@@ -538,25 +542,32 @@ class OperationLogger:
         enriched_context = self._enrich_context(context)
         context_json = json.dumps(enriched_context)
         
-        # Write to log_output table only if verbosity >= 3
-        if self.cursor and self.verbosity >= 3:
-            try:
-                self.cursor.execute('''
-                    INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (self.run_id, function_name, filename, context_json, 'success', reason, msg_id))
-                self.cursor.connection.commit()
-            except Exception as e:
-                logging.error(f"Error logging success to DB: {e}")
+        # Prepare message
+        if show_key:
+            msg = self._format_msg(enriched_context, reason) if isinstance(enriched_context, dict) else f"{enriched_context}: {reason}"
+        else:
+            msg = reason
         
-        # Console/file output (as before)
+        # DB and file logging controlled by verbosity
         if self.verbosity >= 3:
-            msg = self._format_msg(enriched_context, reason)
+            if self.cursor:
+                try:
+                    self.cursor.execute('''
+                        INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''', (self.run_id, function_name, filename, context_json, 'success', reason, msg_id))
+                    self.cursor.connection.commit()
+                except Exception as e:
+                    logging.error(f"Error logging success to DB: {e}")
+            
             logging.info(msg, stacklevel=2)
-            if self.print_output:
-                print(f"[SUCCESS] {msg}")
         
-        # Store for export/summary (keep, but optional if you don't export successes)
+        # Console printing controlled solely by to_console (print if True, ignore if None or False)
+        should_print = to_console if to_console is not None else False
+        if should_print:
+            print(f"{emoji} {msg}")
+        
+        # Store for export/summary
         self.individual_logs.append({
             'status': 'success',
             'context': enriched_context,
@@ -565,6 +576,54 @@ class OperationLogger:
             'function_name': function_name,
             'filename': filename
         })
+
+    # def success(
+    #     self, 
+    #     context: Union[dict, str], 
+    #     reason: Optional[str] = "Success",
+    #     msg_id: Optional[str] = None
+    # ):
+    #     if isinstance(context, str):
+    #         context = self._parse_context_str(context)
+    #     self.results[str(context)]["success"] += 1
+    #     self.reasons["success"][reason] += 1
+        
+    #     # Get caller info
+    #     frame = inspect.currentframe().f_back
+    #     function_name = frame.f_code.co_name
+    #     filename = os.path.basename(inspect.getfile(frame))
+        
+    #     # Enrich context
+    #     enriched_context = self._enrich_context(context)
+    #     context_json = json.dumps(enriched_context)
+        
+    #     # Write to log_output table only if verbosity >= 3
+    #     if self.cursor and self.verbosity >= 3:
+    #         try:
+    #             self.cursor.execute('''
+    #                 INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
+    #                 VALUES (?, ?, ?, ?, ?, ?, ?)
+    #             ''', (self.run_id, function_name, filename, context_json, 'success', reason, msg_id))
+    #             self.cursor.connection.commit()
+    #         except Exception as e:
+    #             logging.error(f"Error logging success to DB: {e}")
+        
+    #     # Console/file output (as before)
+    #     if self.verbosity >= 3:
+    #         msg = self._format_msg(enriched_context, reason)
+    #         logging.info(msg, stacklevel=2)
+    #         if self.print_output:
+    #             print(f"[SUCCESS] {msg}")
+        
+    #     # Store for export/summary (keep, but optional if you don't export successes)
+    #     self.individual_logs.append({
+    #         'status': 'success',
+    #         'context': enriched_context,
+    #         'message': reason,
+    #         'msg_id': msg_id,
+    #         'function_name': function_name,
+    #         'filename': filename
+    #     })
 
     # def failed(
     #         self, 
@@ -578,12 +637,15 @@ class OperationLogger:
     #         logging.error(msg,stacklevel=2)
     #         if self.print_output:
     #             print(msg)
-
     def failed(
         self, 
-        context: Union[dict, str],  # UPDATED: Allow dict or str for compat
+        context: Union[dict, str],  # Allow dict or str for compat
         reason: Optional[str] = "Failed",
-        msg_id: Optional[str] = None  # NEW: Optional ID
+        msg_id: Optional[str] = None,
+        *,
+        to_console: Optional[bool] = None,  # Optional console print control
+        emoji: str = "❌ ",  # Optional emoji, similar to info()
+        show_key: bool = True,  # Optional show_key, similar to info()
     ):
         if isinstance(context, str):
             context = {'key': context}  # Backward compat: Treat string as simple key
@@ -599,7 +661,7 @@ class OperationLogger:
         enriched_context = self._enrich_context(context)
         context_json = json.dumps(enriched_context)
         
-        # Write to log_output table (structured DB log)
+        # Write to log_output table (structured DB log, always for failed)
         if self.cursor:
             try:
                 self.cursor.execute('''
@@ -610,12 +672,20 @@ class OperationLogger:
             except Exception as e:
                 logging.error(f"Error logging failed to DB: {e}")
         
-        # Keep console/file output (compat)
+        # Prepare message
+        if show_key:
+            msg = self._format_msg(enriched_context, reason) if isinstance(enriched_context, dict) else f"{enriched_context}: {reason}"
+        else:
+            msg = reason
+        
+        # File logging controlled by verbosity
         if self.verbosity >= 1:
-            msg = self._format_msg(context, reason) if isinstance(context, dict) else f"{context}: {reason}"
             logging.error(msg, stacklevel=2)
-            if self.print_output:
-                print(msg)
+        
+        # Console printing controlled solely by to_console (print if True, ignore if None or False)
+        should_print = to_console if to_console is not None else False
+        if should_print:
+            print(f"{emoji} {msg}")
         
         # Store for export/summary
         self.individual_logs.append({
@@ -626,6 +696,53 @@ class OperationLogger:
             'function_name': function_name,
             'filename': filename
         })
+    # def failed(
+    #     self, 
+    #     context: Union[dict, str],  # UPDATED: Allow dict or str for compat
+    #     reason: Optional[str] = "Failed",
+    #     msg_id: Optional[str] = None  # NEW: Optional ID
+    # ):
+    #     if isinstance(context, str):
+    #         context = {'key': context}  # Backward compat: Treat string as simple key
+    #     self.results[str(context)]["failed"] += 1  # Keep for counters (use str(key) for dict)
+    #     self.reasons["failed"][reason] += 1
+        
+    #     # Get caller info (like log_error_to_db)
+    #     frame = inspect.currentframe().f_back
+    #     function_name = frame.f_code.co_name
+    #     filename = os.path.basename(inspect.getfile(frame))
+        
+    #     # Enrich context
+    #     enriched_context = self._enrich_context(context)
+    #     context_json = json.dumps(enriched_context)
+        
+    #     # Write to log_output table (structured DB log)
+    #     if self.cursor:
+    #         try:
+    #             self.cursor.execute('''
+    #                 INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
+    #                 VALUES (?, ?, ?, ?, ?, ?, ?)
+    #             ''', (self.run_id, function_name, filename, context_json, 'error', reason, msg_id))
+    #             self.cursor.connection.commit()
+    #         except Exception as e:
+    #             logging.error(f"Error logging failed to DB: {e}")
+        
+    #     # Keep console/file output (compat)
+    #     if self.verbosity >= 1:
+    #         msg = self._format_msg(context, reason) if isinstance(context, dict) else f"{context}: {reason}"
+    #         logging.error(msg, stacklevel=2)
+    #         if self.print_output:
+    #             print(msg)
+        
+    #     # Store for export/summary
+    #     self.individual_logs.append({
+    #         'status': 'error',
+    #         'context': enriched_context,
+    #         'message': reason,
+    #         'msg_id': msg_id,
+    #         'function_name': function_name,
+    #         'filename': filename
+    #     })
 
     # def skipped(
     #         self, 
@@ -641,11 +758,63 @@ class OperationLogger:
     #         if self.print_output:
     #             print(msg)
 
+    # def skipped(
+    #     self, 
+    #     context: Union[dict, str],
+    #     reason: Optional[str] = "Skipped",
+    #     msg_id: Optional[str] = None 
+    # ):
+    #     if isinstance(context, str):
+    #         context = self._parse_context_str(context)
+    #     self.results[str(context)]["skipped"] += 1
+    #     self.reasons["skipped"][reason] += 1
+        
+    #     # Get caller info
+    #     frame = inspect.currentframe().f_back
+    #     function_name = frame.f_code.co_name
+    #     filename = os.path.basename(inspect.getfile(frame))
+        
+    #     # Enrich context
+    #     enriched_context = self._enrich_context(context)
+    #     context_json = json.dumps(enriched_context)
+        
+    #     # Write to log_output table
+    #     if self.cursor and self.verbosity >= 3:
+    #         try:
+    #             self.cursor.execute('''
+    #                 INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
+    #                 VALUES (?, ?, ?, ?, ?, ?, ?)
+    #             ''', (self.run_id, function_name, filename, context_json, 'skipped', reason, msg_id))
+    #             self.cursor.connection.commit()
+    #         except Exception as e:
+    #             logging.error(f"Error logging skipped to DB: {e}")
+        
+    #     # Console/file output
+    #     if self.verbosity >= 3:
+    #         msg = self._format_msg(enriched_context, reason)
+    #         logging.warning(msg, stacklevel=2)
+    #         if self.print_output:
+    #             print(f"[SKIPPED] {msg}")
+        
+    #     # Store for export/summary
+    #     self.individual_logs.append({
+    #         'status': 'skipped',
+    #         'context': enriched_context,
+    #         'message': reason,
+    #         'msg_id': msg_id,
+    #         'function_name': function_name,
+    #         'filename': filename
+    #     })
+
     def skipped(
         self, 
         context: Union[dict, str],
         reason: Optional[str] = "Skipped",
-        msg_id: Optional[str] = None 
+        msg_id: Optional[str] = None,
+        *,
+        to_console: Optional[bool] = None,  # Optional console print control
+        emoji: str = "⏭️  ",  # Optional emoji for skipped
+        show_key: bool = True,  # Optional show_key, similar to others
     ):
         if isinstance(context, str):
             context = self._parse_context_str(context)
@@ -661,7 +830,13 @@ class OperationLogger:
         enriched_context = self._enrich_context(context)
         context_json = json.dumps(enriched_context)
         
-        # Write to log_output table
+        # Prepare message
+        if show_key:
+            msg = self._format_msg(enriched_context, reason) if isinstance(enriched_context, dict) else f"{enriched_context}: {reason}"
+        else:
+            msg = reason
+        
+        # DB logging controlled by verbosity
         if self.cursor and self.verbosity >= 3:
             try:
                 self.cursor.execute('''
@@ -672,12 +847,14 @@ class OperationLogger:
             except Exception as e:
                 logging.error(f"Error logging skipped to DB: {e}")
         
-        # Console/file output
+        # File logging controlled by verbosity
         if self.verbosity >= 3:
-            msg = self._format_msg(enriched_context, reason)
             logging.warning(msg, stacklevel=2)
-            if self.print_output:
-                print(f"[SKIPPED] {msg}")
+        
+        # Console printing controlled solely by to_console (print if True, ignore if None or False)
+        should_print = to_console if to_console is not None else False
+        if should_print:
+            print(f"{emoji} {msg}")
         
         # Store for export/summary
         self.individual_logs.append({
@@ -751,11 +928,57 @@ class OperationLogger:
     #         'filename': filename
     #     })
 
+    # def warning(
+    #     self, 
+    #     context: Union[dict, str], 
+    #     reason: str,
+    #     msg_id: Optional[str] = None
+    # ):
+    #     if isinstance(context, str):
+    #         context = self._parse_context_str(context)
+    #     self.reasons["warning"][reason] += 1  # Keep for total counts
+        
+    #     frame = inspect.currentframe().f_back
+    #     function_name = frame.f_code.co_name
+    #     filename = os.path.basename(inspect.getfile(frame))
+        
+    #     enriched_context = self._enrich_context(context)
+    #     context_json = json.dumps(enriched_context)
+        
+    #     if self.cursor:
+    #         try:
+    #             self.cursor.execute('''
+    #                 INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
+    #                 VALUES (?, ?, ?, ?, ?, ?, ?)
+    #             ''', (self.run_id, function_name, filename, context_json, 'warning', reason, msg_id))
+    #             self.cursor.connection.commit()
+    #         except Exception as e:
+    #             logging.error(f"Error logging warning to DB: {e}")
+        
+    #     if self.verbosity >= 2:
+    #         msg = self._format_msg(enriched_context, reason)
+    #         logging.warning(msg, stacklevel=2)
+    #         if self.print_output:
+    #             print(msg)
+        
+    #     self.individual_logs.append({
+    #         'status': 'warning',
+    #         'context': enriched_context,
+    #         'message': reason,
+    #         'msg_id': msg_id,
+    #         'function_name': function_name,
+    #         'filename': filename
+    #     })
+
     def warning(
         self, 
         context: Union[dict, str], 
         reason: str,
-        msg_id: Optional[str] = None
+        msg_id: Optional[str] = None,
+        *,
+        to_console: Optional[bool] = None,  # Optional console print control
+        emoji: str = "⚠️  ",  # Optional emoji for warning
+        show_key: bool = True,  # Optional show_key, similar to others
     ):
         if isinstance(context, str):
             context = self._parse_context_str(context)
@@ -768,6 +991,13 @@ class OperationLogger:
         enriched_context = self._enrich_context(context)
         context_json = json.dumps(enriched_context)
         
+        # Prepare message
+        if show_key:
+            msg = self._format_msg(enriched_context, reason) if isinstance(enriched_context, dict) else f"{enriched_context}: {reason}"
+        else:
+            msg = reason
+        
+        # Write to log_output table (always for warning)
         if self.cursor:
             try:
                 self.cursor.execute('''
@@ -778,11 +1008,14 @@ class OperationLogger:
             except Exception as e:
                 logging.error(f"Error logging warning to DB: {e}")
         
+        # File logging controlled by verbosity
         if self.verbosity >= 2:
-            msg = self._format_msg(enriched_context, reason)
             logging.warning(msg, stacklevel=2)
-            if self.print_output:
-                print(msg)
+        
+        # Console printing controlled solely by to_console (print if True, ignore if None or False)
+        should_print = to_console if to_console is not None else False
+        if should_print:
+            print(f"{emoji} {msg}")
         
         self.individual_logs.append({
             'status': 'warning',

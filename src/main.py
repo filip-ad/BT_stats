@@ -91,7 +91,8 @@ def main():
 
             # # Tournament core
             # 'tournament_class',                   # FK tournament, tournament_class_type, tournament_class_structure, data_source
-            # 'tournament',                         # FK data_source, tournament_status
+            # 'tournament_raw'                      # FK data_source, tournament_status
+            # 'tournament'
 
             # # Club
             # 'club_id_ext',                        # References club
@@ -140,8 +141,6 @@ def main():
         # upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
         # upd_player_transitions(scrape=True, resolve=True)
 
-        export_to_excel()
-
         # upd_player_transitions()
 
 
@@ -154,6 +153,8 @@ def main():
         # upd_participants()
         # upd_player_positions()
         # upd_tournament_group_stage()
+
+        export_to_excel()
 
     except Exception as e:
         logging.error(f"Error: {e}", stack_info=True, stacklevel=3, exc_info=True)

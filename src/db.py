@@ -60,246 +60,6 @@ def _register_sqlite_date_time_adapters() -> None:
 
     _ADAPTERS_REGISTERED = True    
 
-def save_to_db_transitions(cursor, transitions):
-    db_results = []
-
-    for t in transitions:
-        try:
-            transition_date = t["transition_date"]
-            season_transition = get_from_db_season(cursor, date_object=transition_date)
-            season_previous = get_from_db_season(cursor, date_object=transition_date - timedelta(days=365)) # Assuming previous season is one year before
-            club_from_name = t.get("club_from")
-            club_from = get_from_db_club(cursor, club_name=club_from_name)
-            club_to_name = t.get("club_to")
-            club_to = get_from_db_club(cursor, club_name=club_to_name)
-            firstname = t.get("firstname")
-            lastname = t.get("lastname")
-            year_born = t.get("year_born")
-
-            # Check if club_from and club_to are valid
-            if not club_from or not club_to:
-                db_results.append({
-                    "status": "failed",
-                    "player": f"{firstname} {lastname} ({year_born}) moving from club {club_from_name} to {club_to_name} on transition date {transition_date}",
-                    "reason": "Could not resolve club(s) from transition data"
-                })
-                continue
-
-            # Check if transition date is valid
-            if not season_transition or not season_previous:
-                db_results.append({
-                    "status": "failed",
-                    "player": f"{firstname} {lastname} ({year_born}) moving from club {club_from_name} to {club_to_name} on transition date {transition_date}",
-                    "reason": "Could not resolve season(s) from transition date"
-                })
-                continue
-            
-            # If transition date is equal to or before the season start date, skip
-            if transition_date <= season_transition.get("season_start_date"):    
-                db_results.append({
-                    "status": "skipped",
-                    "player": f"{firstname} {lastname} ({year_born}) moving from club {club_from_name} to {club_to_name} on transition date {transition_date}",
-                    "reason": "Transition date is equal to or before the season start date"
-                })
-                continue           
-
-            # Search for player(s) with matching name and year born
-            players = search_from_db_players(cursor, firstname, lastname, year_born) # returning tuples
-            player_ids = [row[0] for row in players]  # Extract player_id from tuples
-
-            # Check if any players were found
-            if not players:
-                db_results.append({
-                    "status": "failed",
-                    "player": f"{firstname} {lastname} ({year_born}) moving from club {club_from_name} to {club_to_name} on transition date {transition_date}",
-                    "reason": "No players found with matching name and year born"
-                })
-                continue
-            
-            # Find licenses for these players at the old club for the previous season
-            license_records = search_from_db_player_licenses(
-                cursor,
-                player_ids,
-                club_id=club_from.get("club_id"),
-                season_id=season_previous.get("season_id")            
-                )
-            
-            # If no licenses found from previous season, skip
-            if len(license_records) == 0:
-                db_results.append({
-                    "status": "skipped",
-                    "player": f"{firstname} {lastname}, born {year_born} from club {club_from_name} to {club_to_name} with transition date {transition_date} in season {season_transition.get('season_description', 'unknown')}",
-                    "reason": "No license found for matching player(s) for relevant season at old club. Might indicate break from competition previous season"
-                })
-                continue
-
-            # For each case, 1 or multiple previous licenses and/or unknow future license type, each scenario must be handled
-            # Make sure 2 licenses are created if player had 2 licenses previous season of the same types
-            # If future player license or multiple licenses are know (transition date in the past) - copy that setup for current season gap
-            
-            # Single license found
-            if len(license_records) == 1:
-                player_license = license_records[0]
-                new_license = {
-                    "player_id": player_license.get("player_id"),
-                    "club_id": player_license.get("club_id"),
-                    "season_id": season_transition.get("season_id"),
-                    "license_id": player_license.get("license_id"),
-                    "valid_from": season_transition.get("season_start_date"),
-                    "valid_to": transition_date - timedelta(days=1)  # Valid until the day before transition,
-                }
-
-                # Print log debug info for new_license if single license
-                logging.debug(f"New license will be created for player {firstname} {lastname} "
-                         f"with player_id {new_license.get('player_id')} at club {club_to_name} "
-                         f"({club_to.get('club_id')}) for season {season_transition.get('season_id')} "
-                         f"with license details: type={new_license.get('type')}, "
-                         f"valid_from={new_license.get('valid_from')}, valid_to={new_license.get('valid_to')}, "
-                         f"license_id={new_license.get('license_id')}")
-            
-            # Multiple licenses found    
-            if len(license_records) > 1:
-                logging.info(f"Multiple licenses found for player {firstname} {lastname} with {len(license_records)} records")
-                for(i, record) in enumerate(license_records):
-                    new_license = {
-                        "player_id": record.get("player_id"),
-                        "club_id": club_to.get("club_id"),
-                        "season_id": season_transition.get("season_id"),
-                        "license_id": record.get("license_id"),
-                        "valid_from": season_transition.get("season_start_date"),
-                        "valid_to": transition_date - timedelta(days=1)  # Valid until the day before transition
-                    }
-
-                    # Print log debug info for each new license if multiple licenses
-                    logging.info(f"New license will be created for player {firstname} {lastname} (player_id: {new_license.get('player_id')}) "
-                             f" to club {club_to_name} "
-                             f"({club_to.get('club_id')}) for season {season_transition.get('season_id')} "
-                             f"valid_from={new_license.get('valid_from')}, valid_to={new_license.get('valid_to')}, "
-                             f"license_id={new_license.get('license_id')}")
-
-            #     # insert_license(cursor, new_license)
-            #     logging.info(f"✔️ Inserted license for player {firstname} {lastname} with type '{record.get('type')}'")
-            #     db_results.append({
-            #         "status": "success",
-            #         "player": f"{firstname} {lastname}, born {year_born} from club {club_from_name} to {club_to_name} on {transition_date}",
-            #         "reason": f"Single license inserted with type {record.get('type')}"
-            #     })
-            #     continue
-
-            # ✅ Multiple licenses — check validity
-            # unique_players = set((rec.get("player_id"), rec.get("lastname"), rec.get("firstname"), rec.get("year_born")) for rec in license_records)
-            # unique_clubs = set(rec.get("club_id") for rec in license_records)
-            # unique_seasons = set(rec.get("season_id") for rec in license_records)
-
-            # if len(unique_players) == 1 and len(unique_clubs) == 1 and len(unique_seasons) == 1:
-            #     player_id = list(unique_players)[0][0]
-
-            #     for record in license_records:
-            #         new_license = {
-            #             "player_id": player_id,
-            #             "club_id": club_to.get("club_id"),
-            #             "season_id": season_transition.get("season_id"),
-            #             "type": record.get("type"),
-            #             "license_id": record.get("license_id"),
-            #             "valid_from": transition_date,
-            #             "valid_to": season_transition.get("season_end_date"),
-            #         }
-
-            #         # insert_license(cursor, new_license)
-            #         logging.info(
-            #             f"✔️ Inserted license for player {firstname} {lastname} with type '{record.get('type')}'"
-            #         )
-
-            #     db_results.append({
-            #         "status": "success",
-            #         "player": f"{firstname} {lastname}, born {year_born} from club {club_from_name} to {club_to_name} on {transition_date}",
-            #         "reason": f"Multiple licenses inserted with types: {', '.join([r.get('type') for r in license_records])}"
-            #     })
-            #     continue
-
-            # # ❌ Truly ambiguous
-            # db_results.append({
-            #     "status": "skipped",
-            #     "player": f"{firstname} {lastname}, born {year_born} from club {club_from_name} to {club_to_name} on {transition_date}",
-            #     "reason": "Ambiguous: multiple license records found for same club and season but different players or clubs"
-            # })
-
-
-        
-            # logging.info(
-            #     f"New license will be created for player {t.get('firstname', '')} {t.get('lastname', '')} "
-            #     f"with player_id {license_record.get('player_id')} at club {club_from} ({club_from.get('club_id')})"
-            #     f"for season {season_previous.get('season_id')} with license details: "
-            #     f"player_license_id={license_record.get('player_license_id')}, "
-            #     f"valid_from={license_record.get('valid_from')}, valid_to={license_record.get('valid_to')}, "
-            #     f"license_id={license_record.get('license_id')}"
-            # )
-
-            # # Step 2: Insert new license at old club for current season
-            # cursor.execute("""
-            #     INSERT OR IGNORE INTO player_license (
-            #         player_id, 
-            #         player_id_ext, 
-            #         club_id, 
-            #         club_id_ext, 
-            #         valid_from, 
-            #         valid_to,
-            #         license_id,
-            #         season_id
-            #     )   
-            #     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            # """, (
-            #     player_id, 
-            #     player_id_ext, 
-            #     club_id_from,
-            #     club_id_from_ext,
-            #     valid_from, 
-            #     valid_to,
-            #     license_id,
-            #     current_season_id
-            # ))
-
-            # # Step 3: Insert player transition
-            # cursor.execute("""
-            #     INSERT INTO player_transition (
-            #         player_id,
-            #         player_id_ext,
-            #         club_id_from,
-            #         club_id_from_ext,
-            #         club_id_to,
-            #         club_id_to_ext,
-            #         transition_date
-            #     ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            # """, (
-            #     player_id,
-            #     player_id_ext,
-            #     club_id_from,
-            #     club_id_from_ext,
-            #     club_id_to,
-            #     club_id_to_ext,
-            #     transition_date
-            # ))
-
-            db_results.append({
-                "status": "success",
-                "player": f"{t.get('firstname', '')} {t.get('lastname', '')}",
-                "reason": "Inserted transition and license"
-            })
-
-        except Exception as e:
-            logging.error(f"Error saving transition for {t.get('firstname')} {t.get('lastname')}: {e}")
-            db_results.append({
-                "status": "failed",
-                "player": f"{t.get('firstname', '')} {t.get('lastname', '')}",
-                "reason": f"Insertion error: {e}"
-            })
-
-    return db_results
-
-def is_duplicate_tournament(cursor, ondata_id):
-    cursor.execute("SELECT tournament_id FROM tournament WHERE ondata_id = ?", (ondata_id,))
-    return cursor.fetchone() is not None
-
 def drop_tables(cursor, tables):
     dropped = []
     for table_name in tables:
@@ -372,6 +132,7 @@ def create_tables(cursor):
                 country_code                                TEXT,
                 url                                         TEXT,
                 data_source_id                              INTEGER DEFAULT 1,
+                is_listed                                   BOOLEAN DEFAULT 1,
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (data_source_id)                REFERENCES data_source(data_source_id),
@@ -405,6 +166,19 @@ def create_tables(cursor):
                 FOREIGN KEY (data_source_id)                REFERENCES data_source(data_source_id),
                 UNIQUE      (tournament_class_id_ext, data_source_id),
                 UNIQUE      (tournament_id, shortname, date)
+            )
+        ''')
+
+        # Create tournament class raw table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tournament_class_raw (
+                row_id                                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_class_id                     INTEGER NOT NULL,
+                data_source_id                          INTEGER DEFAULT 1,
+                row_created                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (tournament_class_id)       REFERENCES tournament_class(tournament_class_id)    ON DELETE CASCADE,
+                FOREIGN KEY (data_source_id)            REFERENCES data_source(data_source_id)
             )
         ''')
 

@@ -250,7 +250,6 @@ def _parse_raw_row(
     # Infer both ids here without extra HTTP calls
     type_id         = detect_type_id(short, desc)
     structure_id    = _infer_structure_id_from_row(row)
-
         
     return {
         "tournament_class_id_ext":          ext_id,

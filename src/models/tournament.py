@@ -1,7 +1,7 @@
 # src/models/tournament.py
 from __future__ import annotations  # <= postpone annotation evaluation (robust)
 
-from typing import List, Optional, Dict # make sure this import exists
+from typing import List, Optional, Dict, Tuple # make sure this import exists
 from ast import List
 from dataclasses import dataclass
 from datetime import date
@@ -60,38 +60,21 @@ class Tournament(CacheMixin):
             data_source_id          = data.get("data_source_id", 1)
         )
 
-    def validate(
-            self, 
-            logger:     OperationLogger,
-            item_key:   Optional[str]
-        ) -> Dict[str, any]:
+    def validate(self) -> Tuple[bool, str]:
         """
-        Validate Tournament fields, log to OperationalLogger.
-        Returns dict with status, reason, warnings (True equivalent is "success" status).
-        Called explicitly in pipeline after from_dict.
+        Validate fields.
+        Returns:
+            (is_valid, error_message)
         """
+        missing = []
+        if not self.shortname and not self.longname:
+            missing.append("shortname and longname")
+        if not self.startdate:
+            missing.append("startdate")
 
-        # Warn
-        if not self.tournament_id_ext and not self.url:
-            logger.warning(item_key, "No valid external ID or URL (likely upcoming)")
-        if not self.longname:
-            logger.warning(item_key, "Missing longname")
-
-        # Fail
-        if not (self.shortname and self.startdate and self.enddate):
-            reason = "Missing required fields"
-            logger.failed(item_key, reason)
-            return {
-                "status": "failed", 
-                "key":    item_key,
-                "reason": reason
-            }
-
-        return {
-            "status":   "success", 
-            "key":      item_key,
-            "reason":   "Validated OK"
-        }
+        if missing:
+            return False, f"Missing/invalid fields: {', '.join(missing)}"
+        return True, ""
     
     @classmethod
     def get_internal_tournament_ids(
@@ -149,14 +132,10 @@ class Tournament(CacheMixin):
             WHERE tournament_id_ext IN ({placeholders})
         """
 
-        # print(sql)
-
         cursor.execute(sql, ext_ids)
         columns = [col[0] for col in cursor.description]
         rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
         tournaments = [Tournament.from_dict(row) for row in rows]
-
-        # print(tournaments)
         
         if len(tournaments) != len(ext_ids):
             missing = set(ext_ids) - {t.tournament_id_ext for t in tournaments}
@@ -165,77 +144,89 @@ class Tournament(CacheMixin):
         return tournaments
     
 
-    def upsert(self, cursor, logger: OperationLogger, item_key: str):
+    def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
         """
-        Robust upsert that reconciles prior fallback rows (shortname,startdate)
-        with newly-known (tournament_id_ext, data_source_id).
+        Upsert tournament data based on (tournament_id_ext, data_source_id) if tournament_id_ext is provided,
+        otherwise based on (shortname, startdate).
+        Returns "inserted" or "updated" on success, None on no change.
         """
+
         vals = (
             self.tournament_id_ext, self.longname, self.shortname, self.startdate, self.enddate,
             self.city, self.arena, self.country_code, self.url, self.tournament_status_id, self.data_source_id
         )
 
-        # 1) Prefer an exact match on (tournament_id_ext, data_source_id)
-        primary_id = None
-        if self.tournament_id_ext:
+        action = None
+        tournament_id = None
+
+        if self.tournament_id_ext is not None:
             cursor.execute(
                 "SELECT tournament_id FROM tournament WHERE tournament_id_ext = ? AND data_source_id = ?;",
                 (self.tournament_id_ext, self.data_source_id),
             )
             row = cursor.fetchone()
             if row:
-                primary_id = row[0]
+                tournament_id = row[0]
+                # UPDATE (do not change tournament_id_ext, as it's the lookup key and assumed consistent)
+                cursor.execute(
+                    """
+                    UPDATE tournament
+                    SET longname              = ?,
+                        shortname             = ?,
+                        startdate             = ?,
+                        enddate               = ?,
+                        city                  = ?,
+                        arena                 = ?,
+                        country_code          = ?,
+                        url                   = ?,
+                        tournament_status_id  = ?,
+                        row_updated           = CURRENT_TIMESTAMP
+                    WHERE tournament_id = ?
+                    RETURNING tournament_id;
+                    """,
+                    (self.longname, self.shortname, self.startdate, self.enddate,
+                     self.city, self.arena, self.country_code, self.url, self.tournament_status_id, tournament_id),
+                )
+                self.tournament_id = cursor.fetchone()[0]
+                action = "updated"
 
-        # 2) Else, look for fallback match on (shortname, startdate)
-        fallback_id = None
-        cursor.execute(
-            "SELECT tournament_id FROM tournament WHERE shortname = ? AND startdate = ?;",
-            (self.shortname, self.startdate),
-        )
-        row = cursor.fetchone()
-        if row:
-            fallback_id = row[0]
+        if action is None:
+            # Not found by tournament_id_ext (or it was None), check by shortname/startdate
+            if self.shortname and self.startdate:
+                cursor.execute(
+                    "SELECT tournament_id FROM tournament WHERE shortname = ? AND startdate = ?;",
+                    (self.shortname, self.startdate),
+                )
+                row = cursor.fetchone()
+                if row:
+                    tournament_id = row[0]
+                    # UPDATE (include setting tournament_id_ext and data_source_id, e.g., filling them in if previously None)
+                    cursor.execute(
+                        """
+                        UPDATE tournament
+                        SET tournament_id_ext     = ?,
+                            longname              = ?,
+                            startdate             = ?,
+                            enddate               = ?,
+                            city                  = ?,
+                            arena                 = ?,
+                            country_code          = ?,
+                            url                   = ?,
+                            tournament_status_id  = ?,
+                            data_source_id        = ?,
+                            row_updated           = CURRENT_TIMESTAMP
+                        WHERE tournament_id = ?
+                        RETURNING tournament_id;
+                        """,
+                        (self.tournament_id_ext, self.longname, self.startdate, self.enddate,
+                         self.city, self.arena, self.country_code, self.url, self.tournament_status_id,
+                         self.data_source_id, tournament_id),
+                    )
+                    self.tournament_id = cursor.fetchone()[0]
+                    action = "updated"
 
-        # If both exist and are different rows, don't try to be clever; log and stop to avoid data corruption
-        if primary_id and fallback_id and primary_id != fallback_id:
-            logger.failed(
-                item_key,
-                f"Conflicting tournaments: ext={self.tournament_id_ext}/ds={self.data_source_id} → id {primary_id}, "
-                f"shortname/startdate → id {fallback_id}. Manual merge required."
-            )
-            self.tournament_id = primary_id
-            return
-
-        target_id = primary_id or fallback_id
-
-        if target_id:
-            # UPDATE existing row (attach ext if it was missing, update other fields)
-            cursor.execute(
-                """
-                UPDATE tournament
-                SET tournament_id_ext     = COALESCE(?, tournament_id_ext),
-                    longname              = ?,
-                    shortname             = ?,
-                    startdate             = ?,
-                    enddate               = ?,
-                    city                  = ?,
-                    arena                 = ?,
-                    country_code          = ?,
-                    url                   = ?,
-                    tournament_status_id  = ?,
-                    data_source_id        = COALESCE(?, data_source_id),
-                    row_updated           = CURRENT_TIMESTAMP
-                WHERE tournament_id = ?
-                RETURNING tournament_id;
-                """,
-                (*vals, target_id),
-            )
-            self.tournament_id = cursor.fetchone()[0]
-            logger.success(item_key, f"Tournament successfully updated")
-            return
-
-        # 3) No existing row → INSERT (with a retry if a concurrent row slipped in)
-        try:
+        if action is None:
+            # INSERT (only if we have enough data)
             cursor.execute(
                 """
                 INSERT INTO tournament (
@@ -247,44 +238,6 @@ class Tournament(CacheMixin):
                 vals,
             )
             self.tournament_id = cursor.fetchone()[0]
-            logger.success(item_key, "Tournament created")
-            return
-        except sqlite3.IntegrityError:
-            # Retry path: someone inserted between our checks and INSERT
-            cursor.execute(
-                "SELECT tournament_id FROM tournament WHERE tournament_id_ext = ? AND data_source_id = ?;",
-                (self.tournament_id_ext, self.data_source_id),
-            )
-            row = cursor.fetchone()
-            if not row:
-                cursor.execute(
-                    "SELECT tournament_id FROM tournament WHERE shortname = ? AND startdate = ?;",
-                    (self.shortname, self.startdate),
-                )
-                row = cursor.fetchone()
-            if row:
-                target_id = row[0]
-                cursor.execute(
-                    """
-                    UPDATE tournament
-                    SET tournament_id_ext     = COALESCE(?, tournament_id_ext),
-                        longname              = ?,
-                        shortname             = ?,
-                        startdate             = ?,
-                        enddate               = ?,
-                        city                  = ?,
-                        arena                 = ?,
-                        country_code          = ?,
-                        url                   = ?,
-                        tournament_status_id  = ?,
-                        data_source_id        = COALESCE(?, data_source_id),
-                        row_updated           = CURRENT_TIMESTAMP
-                    WHERE tournament_id = ?
-                    RETURNING tournament_id;
-                    """,
-                    (*vals, target_id),
-                )
-                self.tournament_id = cursor.fetchone()[0]
-                logger.success(item_key, f"Tournament updated after race condition")
-                return
-            raise
+            action = "inserted"
+
+        return action

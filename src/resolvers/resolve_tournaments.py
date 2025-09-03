@@ -1,18 +1,17 @@
+# src/resolvers/resolve_tournaments.py
+
 from datetime import date
-from typing import Any, Dict, Optional
+import time
+from typing import List
+from models.tournament import Tournament
+from models.tournament_raw import TournamentRaw
 from utils import OperationLogger, parse_date
 
-
-def resolve_tournaments(
-        raw_data:   Dict[str, Any], cursor
-    ) -> Optional[Dict[str, Any]]:
+def resolve_tournaments(cursor) -> List[Tournament]:
     """
-    Parse raw dict to structured data (e.g., dates, URL, ID).
-    Logs failures and warnings using logger.
-    Returns parsed data dict on success, None on failure.
+    Resolve tournament_raw → tournament.
+    Handles parsing, validation, and insert.
     """
-
-    SCRAPE_TOURNAMENTS_URL_ONDATA = "https://resultat.ondata.se/?viewAll=1"
 
     logger = OperationLogger(
         verbosity       = 2, 
@@ -21,35 +20,97 @@ def resolve_tournaments(
         cursor          = cursor
     )
 
-    logger_keys = {
-        "shortname":    raw_data["shortname"],
-        "startdate":    raw_data["startdate"],
-        "enddate":      raw_data["enddate"],
-        "city":         raw_data["city"],
-        "arena":        raw_data["arena"],
-        "country_code": raw_data["country_code"],
-    }
+    # Fetch all raw tournament records
+    raw_objects = TournamentRaw.get_all(cursor)
 
-    start_date  = parse_date(raw_data["startdate"])
-    end_date    = parse_date(raw_data["enddate"])
-    if not start_date or not end_date:
-        logger.failed(logger_keys, "Invalid dates")
-        return None
+    # Sort raw tournaments so the oldest gets inserted first (cosmetic)
+    raw_objects = sorted(
+        raw_objects,
+        key=lambda r: (0, parse_date(r.startdate)) if parse_date(r.startdate) else (1, date.max)
+    )
 
-    status = 6 if not (start_date and end_date) else 3 if end_date < date.today() else 2 if start_date <= date.today() <= end_date else 1
+    logger.info(f"Resolving {len(raw_objects)} tournaments...", to_console=True)
 
-    parsed_data = {
-        "tournament_id_ext":    raw_data["tournament_id_ext"],
-        "longname":             raw_data["longname"],
-        "shortname":            raw_data["shortname"],
-        "startdate":            start_date,
-        "enddate":              end_date,
-        "city":                 raw_data["city"],
-        "arena":                raw_data["arena"],
-        "country_code":         raw_data["country_code"],
-        "url":                  raw_data["url"],
-        "tournament_status_id": status,
-        "data_source_id":       1
-    }
+    if not raw_objects:
+        logger.failed({}, "No tournament data found in tournament_raw")
+        return []
 
-    return parsed_data
+    tournaments = []
+    seen_ext_ids = set()
+
+    for raw in raw_objects:
+
+        logger_keys = {
+            "row_id":               raw.row_id,
+            "tournament_id_ext":    raw.tournament_id_ext,
+            "longname":             raw.longname,
+            "shortname":            raw.shortname,
+            "startdate":            raw.startdate,
+            "enddate":              raw.enddate,
+            "city":                 raw.city,
+            "arena":                raw.arena,
+            "country_code":         raw.country_code,
+            "url":                  raw.url
+        }
+
+        # Parse dates
+        start_date  = parse_date(raw.startdate, context=f"row_id: {raw.row_id}")
+        end_date    = parse_date(raw.enddate, context=f"row_id: {raw.row_id}")
+
+        if not start_date or not end_date:
+            logger.warning(logger_keys.copy(), "Invalid start date or end date")
+            continue
+
+        logger_keys.update({
+            "startdate": start_date,
+            "enddate": end_date
+        })
+
+        # Calculate status (default to 6 for incomplete data)
+        if start_date and end_date:
+            status = 3 if end_date < date.today() else 2 if start_date <= date.today() <= end_date else 1
+        else:
+            status = 6  # Incomplete data (e.g., unlisted tournaments)
+
+        # Prevent duplicates in same run (only for non-None tournament_id_ext)
+        if raw.tournament_id_ext is not None:
+            if raw.tournament_id_ext in seen_ext_ids:
+                logger.skipped(logger_keys.copy(), "Duplicate tournament_id_ext in same batch")
+                continue
+            seen_ext_ids.add(raw.tournament_id_ext)
+
+        # Validate tournament data
+        tournament = Tournament(
+            tournament_id_ext = raw.tournament_id_ext,
+            longname = raw.longname,
+            shortname = raw.shortname,
+            startdate = start_date,
+            enddate = end_date,
+            city = raw.city,
+            arena = raw.arena,
+            country_code = raw.country_code,
+            url = raw.url,
+            tournament_status_id = status,
+            data_source_id = raw.data_source_id
+        )
+
+        is_valid, error_message = tournament.validate()
+        if not is_valid:
+            logger.failed(logger_keys.copy(), f"Validation failed: {error_message}")
+            continue
+
+        tournaments.append(tournament)
+
+    # Upsert tournaments
+    valid_tournaments = []
+    for t in tournaments:
+        action = t.upsert(cursor)
+        if action:
+            logger.success({"tournament_id_ext": t.tournament_id_ext}, f"Tournament successfully {action}")
+            valid_tournaments.append(t)
+        else:
+            logger.warning({"tournament_id_ext": t.tournament_id_ext}, "No changes made during upsert")
+
+    logger.summarize()
+
+    return valid_tournaments

@@ -29,59 +29,21 @@ def upd_tournaments(scrape_ondata=False, resolve=False):
         # Scrape ondata listed tournaments
         # =============================================================================
         if scrape_ondata:
-            scrape_tournaments_ondata_listed(cursor)
+            scrape_tournaments_ondata_listed(cursor, cutoff_date)
+            scrape_tournaments_ondata_unlisted(cursor)
 
-        # Scrape ondata unlisted tournaments
-        scrape_tournaments_ondata_unlisted(cursor)
 
         # Scrape other tournament sources
         # =============================================================================
         # TODO: Implement scraping for other tournament sources
 
-        # Get raw tournaments
-        # =============================================================================
-        cursor.execute("SELECT * FROM tournament_raw WHERE data_source_id = 1")
-        columns = [col[0] for col in cursor.description]
-        raw_tournaments = [dict(zip(columns, row)) for row in cursor.fetchall()]
-        logger.info(f"Fetched {len(raw_tournaments)} raw tournaments from DB")
-
-        # Filter by cutoff date
-        # =============================================================================
-        filtered_tournaments = [
-            t for t in raw_tournaments
-            if (start_date := parse_date(t["start_str"])) and start_date >= cutoff_date
-        ]
-
-        # Loop through filtered tournaments
+        # Resolve tournaments
         # =============================================================================
         if resolve:
-            for i, raw_data in enumerate(filtered_tournaments, 1):
-
-                start_d     = parse_date(raw_data["start_str"])
-                item_key    = f"{raw_data['shortname']} ({start_d})"
-                logger.info(f"Processing tournament [{i}/{len(filtered_tournaments)}] {raw_data['shortname']}")
-
-                # Parse tournaments
-                # =============================================================================
-                parsed_data = resolve_tournaments(raw_data, cursor)
-                if parsed_data is None:
-                    continue
-
-                # Create and validate tournament object
-                # =============================================================================         
-                tournament  = Tournament.from_dict(parsed_data)
-                val         = tournament.validate(logger, item_key)  
-                if val["status"] != "success":
-                    continue
-
-                tournament.upsert(cursor, logger, item_key)
-            
-        logger.summarize()
-
+            resolve_tournaments(cursor)
 
     except Exception as e:
         logging.error(f"Error in upd_tournaments: {e}", stack_info=True, stacklevel=3, exc_info=True)
-        print(f"❌ Error in upd_tournaments: {e}")
 
     finally:
         conn.commit()
