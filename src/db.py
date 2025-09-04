@@ -188,20 +188,22 @@ def create_tables(cursor):
             CREATE TABLE IF NOT EXISTS tournament_class_raw (
                 row_id                                      INTEGER PRIMARY KEY AUTOINCREMENT,
                 tournament_class_id_ext                     TEXT,
-                tournament_id                               INTEGER NOT NULL,
+                tournament_id_ext                           INTEGER NOT NULL,
                 tournament_class_type_id                    INTEGER,
                 tournament_class_structure_id               INTEGER,
-                date                                        DATE,
-                longname                                    TEXT,
+                startdate                                   DATE,
                 shortname                                   TEXT,
+                longname                                    TEXT,
                 gender                                      TEXT,
                 max_rank                                    INTEGER,
                 max_age                                     INTEGER,
                 url                                         TEXT,
+                raw_stages                                  TEXT,
+                raw_stages_hrefs                            TEXT,
                 data_source_id                              INTEGER DEFAULT 1,
-                processed                                   BOOLEAN DEFAULT 0,
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (tournament_id_ext, tournament_class_id_ext, data_source_id)
             );
         ''')
 

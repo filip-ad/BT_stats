@@ -1,11 +1,10 @@
 # src/scrapers/scrape_tournament_classes_ondata.py
-
 import logging
 import re
 import datetime
 import time
 from bs4 import BeautifulSoup
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Set
 
 from urllib.parse import urljoin, urlparse, parse_qs
 import requests
@@ -13,12 +12,68 @@ from utils import parse_date, OperationLogger
 from config import SCRAPE_CLASSES_MAX_TOURNAMENTS, SCRAPE_TOURNAMENTS_CUTOFF_DATE, SCRAPE_CLASSES_TOURNAMENT_ID_EXTS
 from models.tournament_class_raw import TournamentClassRaw
 from models.tournament import Tournament
+import os
+import json
+import pdfkit
 
-def scrape_tournament_classes_ondata(cursor, cutoff_date: datetime.date, logger: OperationLogger) -> None:
+def download_class_pdfs(tournament: Tournament, class_id_ext: str, raw_stage_hrefs: str, logger: OperationLogger) -> None:
+    """
+    Download PDFs for each stage if not already downloaded, using the same folder structure as download_pdfs.py.
+    """
+    if not raw_stage_hrefs:
+        logger.info("No stage hrefs for PDF download.")
+        return
+
+    try:
+        stage_to_href = json.loads(raw_stage_hrefs)
+    except json.JSONDecodeError:
+        logger.warning("Invalid raw_stage_hrefs format for PDF download.")
+        return
+
+    root_dir = "PDF"
+    tournament_folder = os.path.join(root_dir, f"{tournament.shortname}_{tournament.tournament_id_ext}")
+    os.makedirs(tournament_folder, exist_ok=True)
+
+    session = requests.Session()
+    base_url = tournament.url if tournament.url.endswith("/") else tournament.url + "/"
+
+    for stage, href in stage_to_href.items():
+        # Check if PDF exists using the same pattern as download_pdfs.py
+        pdf_url = urljoin(base_url, f"ViewClassPDF.php?classID={class_id_ext}&stage={stage}")
+        filename = f"{tournament.tournament_id_ext}_{class_id_ext}_Stage_{stage}.pdf"
+        stage_folder = os.path.join(tournament_folder, f"Stage_{stage}")
+        pdf_path = os.path.join(stage_folder, filename)
+        os.makedirs(stage_folder, exist_ok=True)
+
+        if os.path.exists(pdf_path):
+            logger.info(f"PDF already downloaded for stage {stage}: {pdf_path}")
+            continue
+
+        try:
+            resp = session.get(pdf_url, stream=True)
+            resp.raise_for_status()
+            if "pdf" in resp.headers.get("Content-Type", "").lower():
+                with open(pdf_path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                logger.success(f"Downloaded PDF for stage {stage}: {pdf_path}")
+            else:
+                logger.warning(f"No PDF content at {pdf_url}")
+        except Exception as e:
+            logger.failed(f"Failed to download PDF for stage {stage}: {e}")
+
+def scrape_tournament_classes_ondata(cursor, cutoff_date: datetime.date) -> None:
     """
     Scrape raw tournament classes from ondata for tournaments after cutoff or specific ext_ids,
     perform light validation, and insert into tournament_class_raw table.
     """
+    logger = OperationLogger(
+        verbosity=2,
+        print_output=False,
+        log_to_db=False,
+        cursor=cursor
+    )
+
     start_time = time.time()
     classes_processed = 0
 
@@ -54,16 +109,20 @@ def scrape_tournament_classes_ondata(cursor, cutoff_date: datetime.date, logger:
     )
 
     # Loop through filtered tournaments
-    for i, t in enumerate(filtered_tournaments[:limit],1):
-        item_key = f"{t.shortname} ({t.startdate})"
-        logger.info(f"Processing tournament [{i}/{len(filtered_tournaments[:limit])}] {t.shortname} (id: {t.tournament_id}, ext_id: {t.tournament_id_ext})")
+    for i, t in enumerate(filtered_tournaments[:limit], 1):
+        logger_keys = {'tournament': t.shortname, 'startdate': str(t.startdate)}
+        logger.info(f"Processing tournament [{i}/{len(filtered_tournaments[:limit])}] {t.shortname} (id: {t.tournament_id}, ext_id: {t.tournament_id_ext})", logger_keys)
         classes_processed += 1
+
+        if not t.url or not t.url.startswith(('http://', 'https://')):
+            logger.failed(logger_keys, f"Invalid or missing URL for tournament {t.shortname}: {t.url}")
+            continue
 
         try:
             # Scrape raw classes
-            raw_classes = scrape_raw_classes_for_tournament_ondata(t, item_key, logger)
+            raw_classes = scrape_raw_classes_for_tournament_ondata(t, logger_keys, logger)
             if not raw_classes:
-                logger.skipped(item_key, "No classes scraped")
+                logger.skipped(logger_keys, "No classes scraped")
                 continue
 
             for raw_data in raw_classes:
@@ -71,53 +130,29 @@ def scrape_tournament_classes_ondata(cursor, cutoff_date: datetime.date, logger:
                 tournament_class_raw = TournamentClassRaw.from_dict(raw_data)
 
                 # Light validation
-                if not tournament_class_raw.light_validate():
-                    logger.failed(item_key, "Missing required fields (shortname, date, tournament_id)")
+                if not tournament_class_raw.validate():
+                    logger.failed(logger_keys, "Missing required fields (shortname, date, tournament_id_ext)")
                     continue
 
-                # Insert to raw table
-                tournament_class_raw.insert(cursor)
-                logger.success(item_key, f"Raw tournament class inserted (ext_id: {tournament_class_raw.tournament_class_id_ext})")
+                # Insert to raw table (upsert via unique constraint)
+                try:
+                    tournament_class_raw.insert(cursor)
+                    logger.success(logger_keys, f"Raw tournament class inserted (ext_id: {tournament_class_raw.tournament_class_id_ext})")
+                    # Download PDFs if not already
+                    if tournament_class_raw.tournament_class_id_ext:
+                        download_class_pdfs(t, tournament_class_raw.tournament_class_id_ext, tournament_class_raw.raw_stage_hrefs, logger)
+                except sqlite3.IntegrityError:
+                    logger.skipped(logger_keys, f"Duplicate raw entry (tournament_id_ext, tournament_class_id_ext, data_source_id)")
 
         except Exception as e:
-            logger.failed(item_key, f"Exception during scraping: {e}")
+            logger.failed(logger_keys, f"Exception during scraping: {e}")
             continue
 
     logger.info(f"Processed {classes_processed} tournament classes from {len(filtered_tournaments[:limit])} tournaments in {time.time()-start_time:.2f} seconds.")
 
-def detect_type_id(shortname: str, longname: str) -> int:
-    l  = (longname or "").lower()
-    up = (shortname or "").upper()
-    tokens = [t for t in re.split(r"[^A-ZÅÄÖ]+", up) if t]
-
-    # --- Team (4) ---
-    if (re.search(r"\b(herr(?:ar)?|dam(?:er)?)\s+lag\b", l)
-        or "herrlag" in l or "damlag" in l):
-        return 4
-    if any(t in {"HL", "DL", "HLAG", "DLAG", "LAG", "TEAM"} for t in tokens):
-        return 4
-    if re.search(r"\b[HD]L\d+\b", up) or re.search(r"\b[HD]LAG\d*\b", up):
-        return 4
-
-    # --- Doubles (2) ---
-    # prefix handles cases like "HDEliteYdr"
-    if up.startswith(("HD","DD","WD","MD","MXD","FD")):
-        return 2
-    if re.search(r"\b(doubles?|dubbel|dubble|dobbel|dobbelt|Familjedubbel)\b", l):
-        return 2
-    if any(tag in tokens for tag in {"HD","DD","WD","MD","MXD","FD"}):
-        return 2
-    
-    # --- Unknown/garbage starting with XD (9) ---
-    if up.startswith(("XB", "XG")):
-        return 9
-
-    # --- Default Singles (1) ---
-    return 1
-
 def scrape_raw_classes_for_tournament_ondata(
     tournament: Tournament,
-    item_key: str,
+    logger_keys: Dict[str, str],
     logger: OperationLogger
 ) -> List[Dict[str, Any]]: 
     """
@@ -163,16 +198,16 @@ def scrape_raw_classes_for_tournament_ondata(
         raise ValueError(f"Invalid start date for tournament {tournament.shortname} ({tournament.tournament_id})")
 
     for row in rows:
-        raw = _parse_raw_row(row, tournament.tournament_id, base_date, item_key, logger)
+        raw = _parse_raw_row(row, tournament.tournament_id_ext, base_date, logger_keys, logger)
         if raw:
             raw_classes.append(raw)
     return raw_classes
 
 def _parse_raw_row(
     row, 
-    tournament_id: int, 
+    tournament_id_ext: str, 
     base_date: datetime.date, 
-    item_key: str, 
+    logger_keys: Dict[str, str], 
     logger: OperationLogger
 ) -> Optional[Dict[str, Any]]:
     cols = row.find_all("td")
@@ -204,33 +239,9 @@ def _parse_raw_row(
         logging.info(f"Skipping excluded class ext_id={ext_id} ({short}) due to known invalid PDF")
         return None
 
-    # Infer both ids here without extra HTTP calls
-    type_id         = detect_type_id(short, desc)
-    structure_id    = _infer_structure_id_from_row(row)
-        
-    return {
-        "tournament_class_id_ext":          ext_id,
-        "tournament_id":                    tournament_id,
-        "tournament_class_type_id":         type_id,
-        "tournament_class_structure_id":    structure_id,
-        "date":                             class_date,
-        "longname":                         desc,
-        "shortname":                        short,
-        "gender":                           None,
-        "max_rank":                         None,
-        "max_age":                          None,
-        "url":                              None  # Add if scraping URL per class
-    }
-
-def _infer_structure_id_from_row(row) -> Optional[int]:
-    """
-    Inspect all links in this table row. If any link has ?stage=3/4/5/6,
-    derive structure from the presence of stages:
-      - groups = (3 or 4)
-      - ko     = (5)
-    Return 1,2,3 or None.
-    """
-    stages: set[int] = set()
+    # Collect stages and their hrefs from row links
+    stages: Set[int] = set()
+    stage_to_href: Dict[int, str] = {}
     for a in row.find_all("a", href=True):
         try:
             qs = parse_qs(urlparse(a["href"]).query)
@@ -238,21 +249,29 @@ def _infer_structure_id_from_row(row) -> Optional[int]:
             if st and str(st).isdigit():
                 stage_num = int(st)
                 stages.add(stage_num)
+                stage_to_href[stage_num] = a["href"]
                 logging.debug(f"Found stage {stage_num} in href: {a['href']}")
         except Exception as e:
-            logging.warning(f"Error parsing href in row: {e}")
+            logger.warning(logger_keys, f"Error parsing href in row: {e}")
             continue
 
     if not stages:
-        logging.warning(f"No stages found in row HTML: {row.prettify()}")
+        logger.warning(logger_keys, f"No stages found in row HTML: {row.prettify()}")
 
-    has_groups = (3 in stages) or (4 in stages)
-    has_ko     = (5 in stages)
-
-    if has_groups and has_ko:
-        return 1 # STRUCT_GROUPS_AND_KO
-    if has_groups and not has_ko:
-        return 2 # STRUCT_GROUPS_ONLY
-    if (not has_groups)and has_ko:
-        return 3 # STRUCT_KO_ONLY
-    return 9
+    raw_stages_str = ",".join(str(s) for s in sorted(stages)) if stages else None
+    raw_stage_hrefs_str = json.dumps(stage_to_href) if stage_to_href else None
+        
+    return {
+        "tournament_class_id_ext":          ext_id,
+        "tournament_id_ext":                tournament_id_ext,
+        "date":                             class_date,
+        "shortname":                        short,
+        "longname":                         desc,
+        "gender":                           None,
+        "max_rank":                         None,
+        "max_age":                          None,
+        "url":                              None,  # Add if scraping URL per class
+        "raw_stages":                       raw_stages_str,
+        "raw_stage_hrefs":                  raw_stage_hrefs_str,
+        "data_source_id":                   1
+    }

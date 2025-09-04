@@ -1,10 +1,10 @@
 # src/upd_tournament_classes.py
-
 import logging
-from utils import parse_date, OperationLogger
+from utils import parse_date
 from db import get_conn
 from config import SCRAPE_TOURNAMENTS_CUTOFF_DATE
 from scrapers.scrape_tournament_classes_ondata import scrape_tournament_classes_ondata
+# from scrapers.scrape_tournament_classes_SOMEOTHERSOURCE import scrape_tournament_classes_SOMEOTHERSOURCE  # For future
 from resolvers.resolve_tournament_classes import resolve_tournament_classes
 
 def upd_tournament_classes(scrape_ondata=False, resolve=False):
@@ -13,30 +13,23 @@ def upd_tournament_classes(scrape_ondata=False, resolve=False):
     """
     conn, cursor = get_conn()
 
-    logger = OperationLogger(
-        verbosity       = 2, 
-        print_output    = False, 
-        log_to_db       = False, 
-        cursor          = cursor
-    )
-
     try:
         cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
-        logger.info(f"Starting tournament classes update, cutoff: {cutoff_date}")
+        logging.info(f"Starting tournament classes update, cutoff: {cutoff_date}")
 
         # Scrape ondata tournament classes
         # =============================================================================
         if scrape_ondata:
-            scrape_tournament_classes_ondata(cursor, cutoff_date, logger)
+            scrape_tournament_classes_ondata(cursor, cutoff_date)
 
         # Scrape other sources
         # =============================================================================
-        # TODO: Implement scraping for other sources, e.g., scrape_tournament_classes_SOMEOTHERSOURCE(cursor, cutoff_date, logger)
+        # TODO: Implement scraping for other sources, e.g., scrape_tournament_classes_SOMEOTHERSOURCE(cursor, cutoff_date)
 
         # Resolve tournament classes
         # =============================================================================
         if resolve:
-            resolve_tournament_classes(cursor, logger)
+            resolve_tournament_classes(cursor)
 
     except Exception as e:
         logging.error(f"Error in upd_tournament_classes: {e}", stack_info=True, stacklevel=3, exc_info=True)
@@ -44,7 +37,6 @@ def upd_tournament_classes(scrape_ondata=False, resolve=False):
     finally:
         conn.commit()
         conn.close()
-
 
 # # src/upd_classes.py
 

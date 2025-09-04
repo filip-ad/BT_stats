@@ -91,7 +91,7 @@ def main():
 
             # # Tournament core
             # 'tournament_class',                   # FK tournament, tournament_class_type, tournament_class_structure, data_source
-            # 'tournament_raw'                      # FK data_source, tournament_status
+            # 'tournament_raw',                      # FK data_source, tournament_status
             # 'tournament'
 
             # # Club
@@ -147,8 +147,8 @@ def main():
         ################################################################################################
 
         # # Get tournaments
-        upd_tournaments(scrape_ondata=True, resolve=True)
-        # upd_tournament_classes()
+        # upd_tournaments(scrape_ondata=True, resolve=True)
+        upd_tournament_classes(scrape_ondata=True, resolve=True)
 
         # upd_participants()
         # upd_player_positions()
