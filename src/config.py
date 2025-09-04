@@ -16,7 +16,6 @@ SCRAPE_TRANSITIONS_ORDER                = "newest"  # Order of seasons to scrape
 
 SCRAPE_TOURNAMENTS_CUTOFF_DATE          = "2025-07-01"  # Date format: YYYY-MM-DD
 SCRAPE_TOURNAMENTS_ORDER                = "oldest"      # Order of tournaments to scrape, "oldest" or "newest"
-# SCRAPE_TOURNAMENTS_URL_ONDATA           = "https://resultat.ondata.se/?viewAll=1"
 SCRAPE_TOURNAMENT_SBTFOTT_URL           = "https://sbtfott.stupaevents.com/#/events"
 
 SCRAPE_CLASSES_MAX_TOURNAMENTS          = 5         # Maximum number of tournaments to scrape classes from

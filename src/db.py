@@ -98,23 +98,31 @@ def create_tables(cursor):
             CREATE TABLE IF NOT EXISTS tournament (
                 tournament_id                       INTEGER PRIMARY KEY AUTOINCREMENT,
                 tournament_id_ext                   TEXT,
-                longname                            TEXT,
                 shortname                           TEXT,
+                longname                            TEXT,
                 startdate                           DATE,
                 enddate                             DATE,
+                registration_end_date               DATE,
                 city                                TEXT,
                 arena                               TEXT,
                 country_code                        TEXT,
                 url                                 TEXT,
+                tournament_level_id                 INTEGER DEFAULT 1,
+                tournament_type_id                  INTEGER DEFAULT 1,
                 tournament_status_id                INTEGER,
+                organiser_name                      TEXT,
+                organiser_email                     TEXT,
+                organiser_phone                     TEXT,
                 is_valid                            BOOLEAN DEFAULT 1,
                 data_source_id                      INTEGER DEFAULT 1,
                 row_created                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (data_source_id)        REFERENCES data_source(data_source_id),
+                FOREIGN KEY (tournament_level_id)   REFERENCES tournament_level(tournament_level_id),
+                FOREIGN KEY (tournament_type_id)    REFERENCES tournament_type(tournament_type_id),
                 FOREIGN KEY (tournament_status_id)  REFERENCES tournament_status(tournament_status_id),
                 UNIQUE (tournament_id_ext, data_source_id),
-                UNIQUE (shortname, startdate)
+                UNIQUE (shortname, startdate, arena)
             )
         ''')
 
@@ -127,17 +135,23 @@ def create_tables(cursor):
                 longname                                    TEXT,   
                 startdate                                   DATE,
                 enddate                                     DATE,
+                registration_end_date                       DATE,
                 city                                        TEXT,
                 arena                                       TEXT,
                 country_code                                TEXT,
                 url                                         TEXT,
+                tournament_level                            TEXT,
+                tournament_type                             TEXT,
+                organiser_name                              TEXT,
+                organiser_email                             TEXT,
+                organiser_phone                             TEXT,
                 data_source_id                              INTEGER DEFAULT 1,
                 is_listed                                   BOOLEAN DEFAULT 1,
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (data_source_id)                REFERENCES data_source(data_source_id),
                 UNIQUE (tournament_id_ext, data_source_id),
-                UNIQUE (shortname, startdate, data_source_id)
+                UNIQUE (shortname, startdate, arena, data_source_id)
             );
         ''')
 
@@ -774,7 +788,7 @@ def create_and_populate_static_tables(cursor):
 
         ############### TOURNAMENT LOOKUPS ################
 
-        # Create tournament status table
+        # tournament_status
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_status (
                 tournament_status_id        INTEGER PRIMARY KEY,
@@ -797,7 +811,47 @@ def create_and_populate_static_tables(cursor):
             VALUES (?, ?)
         ''', tournament_statuses)
 
-        # Create stage table
+        # tournament_level
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tournament_level (
+                tournament_level_id         INTEGER    PRIMARY KEY,
+                description                 TEXT       NOT NULL,
+                UNIQUE(description)
+            ) WITHOUT ROWID;
+        ''')
+
+        tournament_levels = [
+            (1, 'National'),
+            (2, 'International')
+        ]
+
+        cursor.executemany('''
+            INSERT OR IGNORE INTO tournament_level (tournament_level_id, description)
+            VALUES (?, ?)
+        ''', tournament_levels)
+
+        # tournament_type
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tournament_type (
+                tournament_type_id          INTEGER    PRIMARY KEY,
+                description                 TEXT       NOT NULL,
+                UNIQUE(description)
+            ) WITHOUT ROWID;
+        ''')
+
+        tournament_types = [
+            (1, 'National'),
+            (2, 'International')
+        ]
+
+        cursor.executemany('''
+            INSERT OR IGNORE INTO tournament_type (tournament_type_id, description)
+            VALUES (?, ?)
+        ''', tournament_types)
+
+        ############### TOURNAMENT CLASS LOOKUPS ################
+
+        # tournament_class_stage
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_stage (
                 tournament_class_stage_id       INTEGER    PRIMARY KEY,
@@ -826,7 +880,7 @@ def create_and_populate_static_tables(cursor):
             VALUES (?, ?, ?, ?, ?)
         ''', stages)
 
-        # Create tournament class type table
+        # tournament_class_type
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_type (
                 tournament_class_type_id    INTEGER PRIMARY KEY,
@@ -848,7 +902,7 @@ def create_and_populate_static_tables(cursor):
             VALUES (?, ?)
         ''', tournament_class_types)
 
-        # Create tournament class structure table
+        # tournament_class_structure
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_structure (
                 tournament_class_structure_id       INTEGER PRIMARY KEY,
@@ -869,7 +923,7 @@ def create_and_populate_static_tables(cursor):
             VALUES (?, ?)
         ''', tournament_class_structure)
 
-        # Create competition type table
+        # competition_type
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS competition_type (
                 competition_type_id         INTEGER PRIMARY KEY,

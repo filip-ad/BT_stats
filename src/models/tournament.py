@@ -1,31 +1,35 @@
 # src/models/tournament.py
 from __future__ import annotations  # <= postpone annotation evaluation (robust)
 
-from typing import List, Optional, Dict, Tuple # make sure this import exists
-from ast import List
+from typing import List, Optional, Tuple # make sure this import exists
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional, Dict
 import sqlite3
 from models.cache_mixin import CacheMixin
 from utils import parse_date, OperationLogger
 
 
-
 @dataclass
 class Tournament(CacheMixin):
-    tournament_id:          Optional[int] = None        # Canonical ID from tournament table
-    tournament_id_ext:      Optional[str] = None        # External ID from ondata.se
-    longname:               Optional[str] = None        # Full tournament name
-    shortname:              Optional[str] = None        # Short name or abbreviation
-    startdate:              Optional[date] = None       # Start date as a date object
-    enddate:                Optional[date] = None       # End date as a date object
-    city:                   Optional[str] = None        # City name
-    arena:                  Optional[str] = None        # Arena name
-    country_code:           Optional[str] = None        # Country code (e.g., 'SWE')
-    url:                    Optional[str] = None        # Full tournament URL
-    tournament_status_id:   Optional[int] = 6           # Status: 'ONGOING', 'UPCOMING', or 'ENDED'
-    data_source_id:         Optional[int] = 1           # Data source ID (default 1 for 'ondata')
+    tournament_id:              Optional[int] = None        # Canonical ID from tournament table
+    tournament_id_ext:          Optional[str] = None        # External ID from ondata.se
+    shortname:                  Optional[str] = None        # Short name or abbreviation
+    longname:                   Optional[str] = None        # Full tournament name
+    startdate:                  Optional[date] = None       # Start date as a date object
+    enddate:                    Optional[date] = None       # End date as a date object
+    registration_end_date:      Optional[date] = None       # Registration end date as a date object
+    city:                       Optional[str] = None        # City name
+    arena:                      Optional[str] = None        # Arena name
+    country_code:               Optional[str] = None        # Country code (e.g., 'SWE')
+    url:                        Optional[str] = None        # Full tournament URL
+    tournament_level_id:        Optional[int] = 1        # Tournament level (e.g., 'Professional')
+    tournament_type_id:         Optional[int] = 1        # Tournament type (e.g., 'Single Elimination')
+    tournament_status_id:       Optional[int] = 6        # Status: 'ONGOING', 'UPCOMING', or 'ENDED'
+    organiser_name:             Optional[str] = None        # Organiser name
+    organiser_email:            Optional[str] = None        # Organiser email
+    organiser_phone:            Optional[str] = None        # Organiser phone
+    is_valid:                   Optional[bool] = True        # Validation flag (set after validate() call)
+    data_source_id:             Optional[int] = 1           # Data source ID (default 1 for 'ondata')
 
     STATUS_MAP = {
         'UPCOMING'  : 1,
@@ -46,18 +50,24 @@ class Tournament(CacheMixin):
         ed = data.get("end_date")   or data.get("enddate")
 
         return Tournament(
-            tournament_id           = data.get("tournament_id"),
-            tournament_id_ext       = data.get("tournament_id_ext"),
-            longname                = data.get("longname"),
-            shortname               = data.get("shortname"),
-            startdate               = parse_date(sd, context="Tournament.from_dict"),
-            enddate                 = parse_date(ed, context="Tournament.from_dict"),
-            city                    = data.get("city"),
-            arena                   = data.get("arena"),
-            country_code            = data.get("country_code"),
-            url                     = data.get("url"),
-            tournament_status_id    = data.get("tournament_status_id", 6),
-            data_source_id          = data.get("data_source_id", 1)
+            tournament_id               = data.get("tournament_id"),
+            tournament_id_ext           = data.get("tournament_id_ext"),
+            shortname                   = data.get("shortname"),
+            longname                    = data.get("longname"),
+            startdate                   = parse_date(sd, context="Tournament.from_dict"),
+            enddate                     = parse_date(ed, context="Tournament.from_dict"),
+            registration_end_date       = parse_date(data.get("registration_end_date"), context="Tournament.from_dict"),
+            city                        = data.get("city"),
+            arena                       = data.get("arena"),
+            country_code                = data.get("country_code"),
+            url                         = data.get("url"),
+            tournament_level_id         = data.get("tournament_level_id", 1),
+            tournament_type_id          = data.get("tournament_type_id", 1),
+            tournament_status_id        = data.get("tournament_status_id", 6),
+            organiser_name              = data.get("organiser_name"),
+            organiser_email             = data.get("organiser_email"),
+            organiser_phone             = data.get("organiser_phone"),
+            data_source_id              = data.get("data_source_id", 1)
         )
 
     def validate(self) -> Tuple[bool, str]:
@@ -147,14 +157,9 @@ class Tournament(CacheMixin):
     def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
         """
         Upsert tournament data based on (tournament_id_ext, data_source_id) if tournament_id_ext is provided,
-        otherwise based on (shortname, startdate).
+        otherwise based on (shortname, startdate, arena, data_source_id).
         Returns "inserted" or "updated" on success, None on no change.
         """
-
-        vals = (
-            self.tournament_id_ext, self.longname, self.shortname, self.startdate, self.enddate,
-            self.city, self.arena, self.country_code, self.url, self.tournament_status_id, self.data_source_id
-        )
 
         action = None
         tournament_id = None
@@ -171,31 +176,54 @@ class Tournament(CacheMixin):
                 cursor.execute(
                     """
                     UPDATE tournament
-                    SET longname              = ?,
-                        shortname             = ?,
+                    SET shortname             = ?,
+                        longname              = ?,
                         startdate             = ?,
                         enddate               = ?,
+                        registration_end_date = ?,
                         city                  = ?,
                         arena                 = ?,
                         country_code          = ?,
                         url                   = ?,
+                        tournament_level_id   = ?,
+                        tournament_type_id    = ?,
                         tournament_status_id  = ?,
+                        organiser_name        = ?,
+                        organiser_email       = ?,
+                        organiser_phone       = ?,
+                        is_valid              = ?,
                         row_updated           = CURRENT_TIMESTAMP
                     WHERE tournament_id = ?
                     RETURNING tournament_id;
                     """,
-                    (self.longname, self.shortname, self.startdate, self.enddate,
-                     self.city, self.arena, self.country_code, self.url, self.tournament_status_id, tournament_id),
+                    (self.shortname, 
+                     self.longname, 
+                     self.startdate,
+                     self.enddate,
+                     self.registration_end_date,
+                     self.city, 
+                     self.arena, 
+                     self.country_code, 
+                     self.url, 
+                     self.tournament_level_id,
+                     self.tournament_type_id,
+                     self.tournament_status_id, 
+                     self.organiser_name,
+                     self.organiser_email,
+                     self.organiser_phone,
+                     self.is_valid,
+                     tournament_id
+                     ),
                 )
                 self.tournament_id = cursor.fetchone()[0]
                 action = "updated"
 
         if action is None:
-            # Not found by tournament_id_ext (or it was None), check by shortname/startdate
-            if self.shortname and self.startdate:
+            # Not found by tournament_id_ext (or it was None), check by shortname/startdate/arena
+            if self.shortname and self.startdate and self.arena:
                 cursor.execute(
-                    "SELECT tournament_id FROM tournament WHERE shortname = ? AND startdate = ?;",
-                    (self.shortname, self.startdate),
+                    "SELECT tournament_id FROM tournament WHERE shortname = ? AND startdate = ? AND arena = ?;",
+                    (self.shortname, self.startdate, self.arena),
                 )
                 row = cursor.fetchone()
                 if row:
@@ -205,22 +233,45 @@ class Tournament(CacheMixin):
                         """
                         UPDATE tournament
                         SET tournament_id_ext     = ?,
-                            longname              = ?,
-                            startdate             = ?,
-                            enddate               = ?,
-                            city                  = ?,
-                            arena                 = ?,
-                            country_code          = ?,
-                            url                   = ?,
-                            tournament_status_id  = ?,
-                            data_source_id        = ?,
-                            row_updated           = CURRENT_TIMESTAMP
+                            shortname               = ?,
+                            longname                = ?,
+                            startdate               = ?,
+                            enddate                 = ?,
+                            registration_end_date   = ?,
+                            city                    = ?,
+                            arena                   = ?,
+                            country_code            = ?,
+                            url                     = ?,
+                            tournament_level_id     = ?,
+                            tournament_type_id      = ?,
+                            tournament_status_id    = ?,
+                            organiser_name          = ?,
+                            organiser_email         = ?,
+                            organiser_phone         = ?,
+                            is_valid                = ?,
+                            row_updated             = CURRENT_TIMESTAMP
                         WHERE tournament_id = ?
                         RETURNING tournament_id;
                         """,
-                        (self.tournament_id_ext, self.longname, self.startdate, self.enddate,
-                         self.city, self.arena, self.country_code, self.url, self.tournament_status_id,
-                         self.data_source_id, tournament_id),
+                        (self.tournament_id_ext,                     
+                         self.shortname, 
+                         self.longname, 
+                         self.startdate,
+                         self.enddate,
+                         self.registration_end_date,
+                         self.city, 
+                         self.arena, 
+                         self.country_code, 
+                         self.url, 
+                         self.tournament_level_id,
+                         self.tournament_type_id,
+                         self.tournament_status_id, 
+                         self.organiser_name,
+                         self.organiser_email,
+                         self.organiser_phone,
+                         self.is_valid,
+                         tournament_id
+                        )
                     )
                     self.tournament_id = cursor.fetchone()[0]
                     action = "updated"
@@ -230,12 +281,45 @@ class Tournament(CacheMixin):
             cursor.execute(
                 """
                 INSERT INTO tournament (
-                    tournament_id_ext, longname, shortname, startdate, enddate, city, arena,
-                    country_code, url, tournament_status_id, data_source_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    tournament_id_ext, 
+                    shortname,
+                    longname, 
+                    startdate, 
+                    enddate, 
+                    registration_end_date,
+                    city, 
+                    arena,
+                    country_code,
+                    url, 
+                    tournament_level_id, 
+                    tournament_type_id, 
+                    tournament_status_id, 
+                    organiser_name,
+                    organiser_email,
+                    organiser_phone,
+                    data_source_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING tournament_id;
                 """,
-                vals,
+                (
+                    self.tournament_id_ext, 
+                    self.shortname, 
+                    self.longname, 
+                    self.startdate, 
+                    self.enddate, 
+                    self.registration_end_date,
+                    self.city, 
+                    self.arena, 
+                    self.country_code, 
+                    self.url, 
+                    self.tournament_level_id,
+                    self.tournament_type_id,
+                    self.tournament_status_id, 
+                    self.organiser_name,
+                    self.organiser_email,
+                    self.organiser_phone,
+                    self.data_source_id
+                ),
             )
             self.tournament_id = cursor.fetchone()[0]
             action = "inserted"

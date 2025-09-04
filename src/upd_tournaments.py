@@ -30,7 +30,7 @@ def upd_tournaments(scrape_ondata=False, resolve=False):
         # =============================================================================
         if scrape_ondata:
             scrape_tournaments_ondata_listed(cursor, cutoff_date)
-            scrape_tournaments_ondata_unlisted(cursor)
+            # scrape_tournaments_ondata_unlisted(cursor) # Don't use regularly
 
 
         # Scrape other tournament sources
