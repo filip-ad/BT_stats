@@ -1,5 +1,4 @@
 # src/models/tournament_class_raw.py
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,8 +11,8 @@ from utils import parse_date
 class TournamentClassRaw:
     row_id:                         Optional[int]  = None           # Auto-generated ID for raw entry
     tournament_class_id_ext:        Optional[str]  = None           # External ID from ondata.se or other source
-    tournament_id_ext:              Optional[str]  = None           # External ID of parent tournament
-    date:                           Optional[datetime.date] = None  # Date of the class
+    tournament_id_ext:              Optional[int]  = None           # External ID of parent tournament
+    startdate:                      Optional[datetime.date] = None  # Date of the class
     shortname:                      Optional[str]  = None           # Short description of the class
     longname:                       Optional[str]  = None           # Full description of the class
     gender:                         Optional[str]  = None           # Gender category (e.g., "male", "female")
@@ -30,7 +29,7 @@ class TournamentClassRaw:
         return TournamentClassRaw(
             tournament_class_id_ext         = d.get("tournament_class_id_ext"),
             tournament_id_ext               = d.get("tournament_id_ext"),
-            date                            = parse_date(d.get("date"), context="TournamentClassRaw.from_dict"),
+            startdate                       = parse_date(d.get("startdate"), context="TournamentClassRaw.from_dict"),
             shortname                       = d.get("shortname", ""),
             longname                        = d.get("longname", ""),
             gender                          = d.get("gender"),
@@ -44,18 +43,18 @@ class TournamentClassRaw:
 
     def validate(self) -> bool:
         """Light validation: Check for minimum required fields before inserting to raw."""
-        return bool(self.shortname and self.date and self.tournament_id_ext)
+        return bool(self.shortname and self.startdate and self.tournament_id_ext)
 
     def insert(self, cursor) -> None:
         """Insert the raw object into the tournament_class_raw table."""
         vals = (
-            self.tournament_class_id_ext, self.tournament_id_ext, self.date, self.shortname, self.longname,
+            self.tournament_class_id_ext, self.tournament_id_ext, self.startdate, self.shortname, self.longname,
             self.gender, self.max_rank, self.max_age, self.url, self.raw_stages, self.raw_stage_hrefs, self.data_source_id
         )
         cursor.execute(
             """
             INSERT INTO tournament_class_raw (
-                tournament_class_id_ext, tournament_id_ext, date, shortname, longname, gender,
+                tournament_class_id_ext, tournament_id_ext, startdate, shortname, longname, gender,
                 max_rank, max_age, url, raw_stages, raw_stage_hrefs, data_source_id
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,

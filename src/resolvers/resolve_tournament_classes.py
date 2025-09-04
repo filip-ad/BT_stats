@@ -82,12 +82,12 @@ def resolve_tournament_classes(cursor) -> None:
     logger.info(f"Resolving {len(pending_raws)} pending tournament_class_raw entries...")
 
     for tc_raw in pending_raws:
-        logger_keys = {'shortname': tc_raw.shortname or 'unknown', 'date': str(tc_raw.date), 'raw_id': str(tc_raw.row_id)}
+        logger_keys = {'shortname': tc_raw.shortname or 'unknown', 'startdate': str(tc_raw.startdate or 'None'), 'raw_id': str(tc_raw.row_id)}
 
         try:
             # Resolve tournament_id from ext
             tournament_ids = Tournament.get_internal_tournament_ids(
-                cursor, [tc_raw.tournament_id_ext], tc_raw.data_source_id
+                cursor, [str(tc_raw.tournament_id_ext)], tc_raw.data_source_id
             )
             if not tournament_ids:
                 logger.failed(logger_keys, f"No matching tournament for ext_id {tc_raw.tournament_id_ext} (ds {tc_raw.data_source_id})")
@@ -104,6 +104,7 @@ def resolve_tournament_classes(cursor) -> None:
             d.pop('tournament_id_ext', None)
             d.pop('raw_stages', None)
             d.pop('raw_stage_hrefs', None)
+            d['date'] = d.pop('startdate', None)  # Map startdate to date for TournamentClass
 
             # Create TournamentClass
             tournament_class = TournamentClass.from_dict(d)

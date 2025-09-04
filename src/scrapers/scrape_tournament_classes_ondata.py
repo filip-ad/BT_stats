@@ -110,12 +110,19 @@ def scrape_tournament_classes_ondata(cursor, cutoff_date: datetime.date) -> None
 
     # Loop through filtered tournaments
     for i, t in enumerate(filtered_tournaments[:limit], 1):
-        logger_keys = {'tournament': t.shortname, 'startdate': str(t.startdate)}
+        logger_keys = {'tournament': t.shortname, 'startdate': str(t.startdate or 'None'), 'tournament_id': str(t.tournament_id), 'tournament_id_ext': str(t.tournament_id_ext or 'None')}
         logger.info(f"Processing tournament [{i}/{len(filtered_tournaments[:limit])}] {t.shortname} (id: {t.tournament_id}, ext_id: {t.tournament_id_ext})", logger_keys)
         classes_processed += 1
 
+        # Validate tournament data
         if not t.url or not t.url.startswith(('http://', 'https://')):
             logger.failed(logger_keys, f"Invalid or missing URL for tournament {t.shortname}: {t.url}")
+            continue
+        if not t.startdate:
+            logger.failed(logger_keys, f"Missing startdate for tournament {t.shortname}")
+            continue
+        if not t.tournament_id_ext:
+            logger.failed(logger_keys, f"Missing tournament_id_ext for tournament {t.shortname}")
             continue
 
         try:
@@ -131,7 +138,7 @@ def scrape_tournament_classes_ondata(cursor, cutoff_date: datetime.date) -> None
 
                 # Light validation
                 if not tournament_class_raw.validate():
-                    logger.failed(logger_keys, "Missing required fields (shortname, date, tournament_id_ext)")
+                    logger.failed(logger_keys, "Missing required fields (shortname, startdate, tournament_id_ext)")
                     continue
 
                 # Insert to raw table (upsert via unique constraint)
@@ -205,7 +212,7 @@ def scrape_raw_classes_for_tournament_ondata(
 
 def _parse_raw_row(
     row, 
-    tournament_id_ext: str, 
+    tournament_id_ext: int, 
     base_date: datetime.date, 
     logger_keys: Dict[str, str], 
     logger: OperationLogger
@@ -236,7 +243,7 @@ def _parse_raw_row(
     # Exclusion list by ext_id (known invalid classes without proper PDF:s)
     EXCLUDED_EXT_IDS = {5345, 5171, 5167}
     if ext_id in EXCLUDED_EXT_IDS:
-        logging.info(f"Skipping excluded class ext_id={ext_id} ({short}) due to known invalid PDF")
+        logger.info(f"Skipping excluded class ext_id={ext_id} ({short}) due to known invalid PDF")
         return None
 
     # Collect stages and their hrefs from row links
@@ -264,7 +271,7 @@ def _parse_raw_row(
     return {
         "tournament_class_id_ext":          ext_id,
         "tournament_id_ext":                tournament_id_ext,
-        "date":                             class_date,
+        "startdate":                        class_date,
         "shortname":                        short,
         "longname":                         desc,
         "gender":                           None,

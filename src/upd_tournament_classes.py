@@ -37,7 +37,6 @@ def upd_tournament_classes(scrape_ondata=False, resolve=False):
     finally:
         conn.commit()
         conn.close()
-
 # # src/upd_classes.py
 
 # import logging
