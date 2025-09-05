@@ -23,14 +23,12 @@ def upd_tournaments(scrape_ondata=False, resolve=False):
         )
 
     try:
-        cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
-        logger.info(f"Starting tournament update, cutoff: {cutoff_date}")
 
         # Scrape ondata listed tournaments
         # =============================================================================
         if scrape_ondata:
-            scrape_tournaments_ondata_listed(cursor, cutoff_date)
-            # scrape_tournaments_ondata_unlisted(cursor) # Don't use regularly
+            scrape_tournaments_ondata_listed(cursor)
+            # scrape_tournaments_ondata_unlisted(cursor) # Don't use regularly, should be only 2 potentially valid ones
 
 
         # Scrape other tournament sources

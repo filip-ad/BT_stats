@@ -163,7 +163,7 @@ def create_tables(cursor):
                 tournament_id                               INTEGER NOT NULL,
                 tournament_class_type_id                    INTEGER,
                 tournament_class_structure_id               INTEGER,
-                date                                        DATE,
+                startdate                                   DATE,
                 longname                                    TEXT,
                 shortname                                   TEXT,
                 gender                                      TEXT,
@@ -179,7 +179,7 @@ def create_tables(cursor):
                 FOREIGN KEY (tournament_class_structure_id) REFERENCES tournament_class_structure(tournament_class_structure_id),
                 FOREIGN KEY (data_source_id)                REFERENCES data_source(data_source_id),
                 UNIQUE      (tournament_class_id_ext, data_source_id),
-                UNIQUE      (tournament_id, shortname, date)
+                UNIQUE      (tournament_id, shortname, startdate)
             )
         ''')
 
@@ -187,10 +187,8 @@ def create_tables(cursor):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_raw (
                 row_id                                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id_ext                           INTEGER,
                 tournament_class_id_ext                     TEXT,
-                tournament_id_ext                           INTEGER NOT NULL,
-                tournament_class_type_id                    INTEGER,
-                tournament_class_structure_id               INTEGER,
                 startdate                                   DATE,
                 shortname                                   TEXT,
                 longname                                    TEXT,
@@ -199,7 +197,7 @@ def create_tables(cursor):
                 max_age                                     INTEGER,
                 url                                         TEXT,
                 raw_stages                                  TEXT,
-                raw_stages_hrefs                            TEXT,
+                raw_stage_hrefs                             TEXT,
                 data_source_id                              INTEGER DEFAULT 1,
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1155,7 +1153,7 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_type_id ON tournament_class(tournament_class_type_id)",
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_structure_id ON tournament_class(tournament_class_structure_id)",
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_id_ext ON tournament_class(tournament_class_id_ext)",
-        "CREATE INDEX IF NOT EXISTS idx_tournament_class_date ON tournament_class(date)",
+        "CREATE INDEX IF NOT EXISTS idx_tournament_class_startdate ON tournament_class(startdate)",
 
         # Participant 
         "CREATE INDEX IF NOT EXISTS idx_participant_tournament_class_id ON participant(tournament_class_id)",

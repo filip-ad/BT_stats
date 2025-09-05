@@ -15,7 +15,7 @@ from models.tournament_raw import TournamentRaw
 from config import SCRAPE_TOURNAMENTS_CUTOFF_DATE
 
 
-def scrape_tournaments_ondata_listed(cursor, cutoff_date) -> None:
+def scrape_tournaments_ondata_listed(cursor) -> None:
     """
     Scrape raw HTML rows from ondata.se tables.
     Upserts raw data into tournament_raw table.
@@ -27,6 +27,10 @@ def scrape_tournaments_ondata_listed(cursor, cutoff_date) -> None:
         log_to_db=True,
         cursor=cursor
     )
+
+    cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
+
+    logger.info(f"Scraping ondata for listed tournaments, cut off date: {cutoff_date}...")
 
     SCRAPE_TOURNAMENTS_URL_ONDATA = "https://resultat.ondata.se/?viewAll=1"
 

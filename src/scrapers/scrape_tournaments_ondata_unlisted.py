@@ -86,7 +86,7 @@ def scrape_tournaments_ondata_unlisted(cursor) -> None:
             logger.failed(logger_keys, f"No valid start_date found", to_console=True)
             continue
 
-        if ondata_id == '000004':
+        if ondata_id == '000004' or ondata_id == '000002':
             logger.skipped(logger_keys, f"Known bad ID, skipping", to_console=True)
             continue
 

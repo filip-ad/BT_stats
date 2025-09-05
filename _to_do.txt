@@ -1,8 +1,5 @@
 To do
 =======================================================
-- Gör om upd_tournaments till en orchestrator -> call scrape_tournaments_ondata (senare pingisarenan), behövs en tournament_raw class, eller direkt till resolve?
-- Tournament classes - samma sak?
-- Gör om transition, till upd->scrape->resolve
 - Sen börja med participant/partc plyer upd->scrape->resolve (förbered för dubbel med)->resolve 
   - Först implementera cachade PDF:er. Leta först där, sen online, och om online hittas -> ladda ner
 - Sen final position upd->scrape/resolve(borde vara en o samma)
@@ -16,6 +13,7 @@ To do
 
 Improvements long term
 =======================================================
+- When scheduling, implement a logfunction that writes the task (eg scrape_tournaments_ondata) and the results (updated/inserted/failed) - in single file that can be read in the morning
 - How to "upgrade" player to verified? With a separate script?
   - Create a script for identifying non verified players that now have a license...?    
 - Fix the pathing/packages whatever so everything doesnt have to be in /src

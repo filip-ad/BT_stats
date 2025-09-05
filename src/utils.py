@@ -106,7 +106,7 @@ def parse_date(date_str, context=None, return_iso=False):
             return parsed.isoformat() if return_iso else parsed
         except ValueError:
             continue
-    logging.warning(f"Invalid date format: {date_str} (context: {context or 'unknown calling function'})")
+    # logging.warning(f"Invalid date format: {date_str} (context: {context or 'unknown calling function'})")
     return None
 
 def print_db_insert_results(db_results):

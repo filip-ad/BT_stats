@@ -1,43 +1,198 @@
-# src/resolvers/resolve_tournament_classes.py
+# src/resolve_tournament_classes.py
 import logging
-from typing import Optional
+import sqlite3
+from typing import Optional, List
 import re
 from utils import OperationLogger
 from models.tournament_class import TournamentClass
 from models.tournament_class_raw import TournamentClassRaw
 from models.tournament import Tournament
+from datetime import date
 
-def detect_type_id(shortname: str, longname: str) -> int:
-    l  = (longname or "").lower()
+def resolve_tournament_classes(cursor) -> List[TournamentClass]:
+    """
+    Resolve tournament_class_raw -> tournament_class.
+    Fetch all raw entries, resolve dependencies, infer fields, validate, and upsert to regular table.
+    Returns list of successfully upserted TournamentClass objects.
+    """
+    logger = OperationLogger(
+        verbosity=2,
+        print_output=False,
+        log_to_db=True,
+        cursor=cursor,
+    )
+
+    # Fetch all raw tournament class records
+    raw_objects = TournamentClassRaw.get_all(cursor)
+
+    # Sort by date for consistent processing
+    raw_objects = sorted(
+        raw_objects,
+        key=lambda r: (0, r.startdate) if r.startdate else (1, date.max),
+    )
+
+    logger.info(f"Resolving {len(raw_objects)} tournament_class_raw entries...")
+
+    if not raw_objects:
+        logger.failed({}, "No tournament class data found in tournament_class_raw")
+        return []
+
+    # Pre-fetch all tournament_id mappings for efficiency
+    all_ext_ids = list(set(str(raw.tournament_id_ext).zfill(6) for raw in raw_objects if raw.tournament_id_ext is not None))
+    if all_ext_ids:
+        tournament_id_map = {
+            row["tournament_id_ext"]: row["tournament_id"]
+            for row in Tournament.cached_query(
+                cursor,
+                f"SELECT tournament_id, tournament_id_ext FROM tournament WHERE tournament_id_ext IN ({', '.join(['?'] * len(all_ext_ids))}) AND data_source_id = ?",
+                tuple(all_ext_ids) + (raw_objects[0].data_source_id,),
+                cache_key_extra=f"tournament_ids_ds_{raw_objects[0].data_source_id}"
+            )
+        }
+        # Log missing tournament_id_ext values
+        missing_ext_ids = set(all_ext_ids) - set(tournament_id_map.keys())
+        if missing_ext_ids:
+            logger.warning(
+                {},
+                f"Missing tournaments for tournament_id_ext values: {', '.join(sorted(missing_ext_ids))}"
+            )
+    else:
+        tournament_id_map = {}
+        logger.warning({}, "No valid tournament_id_ext values found in tournament_class_raw")
+
+    classes = []
+    seen_ext_ids = set()
+
+    for raw in raw_objects:
+        logger_keys = {
+            "row_id": str(raw.row_id) if raw.row_id else "None",
+            "tournament_class_id_ext": str(raw.tournament_class_id_ext) if raw.tournament_class_id_ext else "None",
+            "shortname": raw.shortname or "None",
+            "longname": raw.longname or "None",
+            "startdate": str(raw.startdate) if raw.startdate else "None",
+            "tournament_id_ext": str(raw.tournament_id_ext).zfill(6) if raw.tournament_id_ext else "None",
+        }
+
+        # Prevent duplicates in same run
+        if raw.tournament_class_id_ext is not None:
+            if raw.tournament_class_id_ext in seen_ext_ids:
+                logger.skipped(
+                    logger_keys, f"Duplicate tournament_class_id_ext {raw.tournament_class_id_ext} in same batch"
+                )
+                continue
+            seen_ext_ids.add(raw.tournament_class_id_ext)
+
+        # Resolve tournament_id from ext
+        if raw.tournament_id_ext is None:
+            logger.failed(
+                logger_keys,
+                f"Missing tournament_id_ext for class {raw.tournament_class_id_ext}",
+            )
+            continue
+        tournament_id_ext = str(raw.tournament_id_ext).zfill(6)
+        tournament_id = tournament_id_map.get(tournament_id_ext)
+        if not tournament_id:
+            logger.failed(
+                logger_keys,
+                f"No tournament found matching tournament_id_ext: {tournament_id_ext}",
+            )
+            continue
+
+        # Validate and prepare tournament class data
+        tournament_class = TournamentClass(
+            tournament_class_id_ext=raw.tournament_class_id_ext,
+            tournament_id=tournament_id,
+            tournament_class_type_id=_detect_type_id(raw.shortname or "", raw.longname or ""),
+            tournament_class_structure_id=_infer_structure_id(raw.raw_stages),
+            startdate=raw.startdate,
+            longname=raw.longname,
+            shortname=raw.shortname,
+            gender=raw.gender,
+            max_rank=raw.max_rank,
+            max_age=raw.max_age,
+            url=raw.url,
+            data_source_id=raw.data_source_id,
+        )
+
+        is_valid, error_message = tournament_class.validate()
+        if not is_valid:
+            logger.failed(logger_keys, f"Validation failed: {error_message}")
+            continue
+
+        classes.append(tournament_class)
+
+    # Upsert tournament classes
+    valid_classes = []
+    for tc in classes:
+        try:
+            action = tc.upsert(cursor)
+            if action:
+                logger.success(
+                    {
+                        "tournament_class_id_ext": str(tc.tournament_class_id_ext)
+                        if tc.tournament_class_id_ext
+                        else "None"
+                    },
+                    f"Tournament class successfully {action}",
+                )
+                valid_classes.append(tc)
+            else:
+                logger.warning(
+                    {
+                        "tournament_class_id_ext": str(tc.tournament_class_id_ext)
+                        if tc.tournament_class_id_ext
+                        else "None"
+                    },
+                    "No changes made during upsert",
+                )
+        except sqlite3.IntegrityError as e:
+            logger.failed(
+                {
+                    "tournament_class_id_ext": str(tc.tournament_class_id_ext)
+                    if tc.tournament_class_id_ext
+                    else "None"
+                },
+                f"Upsert failed due to integrity error: {e}",
+            )
+            continue
+
+    logger.summarize()
+
+    return valid_classes
+
+def _detect_type_id(shortname: str, longname: str) -> int:
+    l = (longname or "").lower()
     up = (shortname or "").upper()
     tokens = [t for t in re.split(r"[^A-ZÅÄÖ]+", up) if t]
 
-    # --- Team (4) ---
-    if (re.search(r"\b(herr(?:ar)?|dam(?:er)?)\s+lag\b", l)
-        or "herrlag" in l or "damlag" in l):
+    # Team (4)
+    if (
+        re.search(r"\b(herr(?:ar)?|dam(?:er)?)\s+lag\b", l)
+        or "herrlag" in l
+        or "damlag" in l
+    ):
         return 4
     if any(t in {"HL", "DL", "HLAG", "DLAG", "LAG", "TEAM"} for t in tokens):
         return 4
     if re.search(r"\b[HD]L\d+\b", up) or re.search(r"\b[HD]LAG\d*\b", up):
         return 4
 
-    # --- Doubles (2) ---
-    # prefix handles cases like "HDEliteYdr"
-    if up.startswith(("HD","DD","WD","MD","MXD","FD")):
+    # Doubles (2)
+    if up.startswith(("HD", "DD", "WD", "MD", "MXD", "FD")):
         return 2
-    if re.search(r"\b(doubles?|dubbel|dubble|dobbel|dobbelt|Familjedubbel)\b", l):
+    if re.search(r"\b(doubles?|dubbel|dubble|dobbel|dobbelt|familjedubbel)\b", l):
         return 2
-    if any(tag in tokens for tag in {"HD","DD","WD","MD","MXD","FD"}):
+    if any(tag in tokens for tag in {"HD", "DD", "WD", "MD", "MXD", "FD"}):
         return 2
-    
-    # --- Unknown/garbage starting with XD (9) ---
+
+    # Unknown/garbage starting with XB/XG (9)
     if up.startswith(("XB", "XG")):
         return 9
 
-    # --- Default Singles (1) ---
+    # Default Singles (1)
     return 1
 
-def infer_structure_id(raw_stages: Optional[str]) -> int:
+def _infer_structure_id(raw_stages: Optional[str]) -> int:
     """
     Derive structure from the comma-separated stages string.
     """
@@ -59,67 +214,3 @@ def infer_structure_id(raw_stages: Optional[str]) -> int:
     if not has_groups and has_ko:
         return 3  # STRUCT_KO_ONLY
     return 9
-
-def resolve_tournament_classes(cursor) -> None:
-    """
-    Resolve tournament classes: Fetch pending raw entries using class method (those not yet in regular table),
-    resolve dependencies (e.g., tournament_id), infer fields, validate,
-    upsert to regular table if successful. Do not delete or mark raw entries.
-    """
-    logger = OperationLogger(
-        verbosity=2,
-        print_output=False,
-        log_to_db=False,
-        cursor=cursor
-    )
-
-    pending_raws = TournamentClassRaw.get_pending(cursor)
-
-    if not pending_raws:
-        logger.info("No pending tournament_class_raw entries to resolve.")
-        return
-
-    logger.info(f"Resolving {len(pending_raws)} pending tournament_class_raw entries...")
-
-    for tc_raw in pending_raws:
-        logger_keys = {'shortname': tc_raw.shortname or 'unknown', 'startdate': str(tc_raw.startdate or 'None'), 'raw_id': str(tc_raw.row_id)}
-
-        try:
-            # Resolve tournament_id from ext
-            tournament_ids = Tournament.get_internal_tournament_ids(
-                cursor, [str(tc_raw.tournament_id_ext)], tc_raw.data_source_id
-            )
-            if not tournament_ids:
-                logger.failed(logger_keys, f"No matching tournament for ext_id {tc_raw.tournament_id_ext} (ds {tc_raw.data_source_id})")
-                continue
-            tournament_id = tournament_ids[0]
-
-            # Prepare dict for TournamentClass
-            d = tc_raw.__dict__.copy()
-            d['tournament_id'] = tournament_id
-            d['tournament_class_type_id'] = detect_type_id(d['shortname'] or '', d['longname'] or '')
-            if d.get('raw_stages'):
-                d['tournament_class_structure_id'] = infer_structure_id(d['raw_stages'])
-            d.pop('row_id', None)
-            d.pop('tournament_id_ext', None)
-            d.pop('raw_stages', None)
-            d.pop('raw_stage_hrefs', None)
-            d['date'] = d.pop('startdate', None)  # Map startdate to date for TournamentClass
-
-            # Create TournamentClass
-            tournament_class = TournamentClass.from_dict(d)
-
-            # Proper validation
-            validation_result = tournament_class.validate(logger, logger_keys)
-            if validation_result["status"] != "success":
-                logger.failed(logger_keys, validation_result["reason"])
-                continue
-
-            # Upsert to regular table
-            tournament_class.upsert(cursor, logger, logger_keys)
-
-            logger.success(logger_keys, "Tournament class resolved and upserted")
-
-        except Exception as e:
-            logger.failed(logger_keys, f"Exception during resolution: {e}")
-            continue

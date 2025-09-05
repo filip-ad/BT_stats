@@ -12,12 +12,11 @@ def resolve_tournaments(cursor) -> List[Tournament]:
     Resolve tournament_raw → tournament.
     Handles parsing, validation, and insert.
     """
-
     logger = OperationLogger(
-        verbosity       = 2, 
-        print_output    = False, 
-        log_to_db       = True, 
-        cursor          = cursor
+        verbosity=2,
+        print_output=False,
+        log_to_db=True,
+        cursor=cursor
     )
 
     # Fetch all raw tournament records
@@ -39,31 +38,30 @@ def resolve_tournaments(cursor) -> List[Tournament]:
     seen_ext_ids = set()
 
     for raw in raw_objects:
-
         logger_keys = {
-            "row_id":               raw.row_id,
-            "tournament_id_ext":    raw.tournament_id_ext,
-            "longname":             raw.longname,
-            "shortname":            raw.shortname,
-            "startdate":            raw.startdate,
-            "enddate":              raw.enddate,
-            "city":                 raw.city,
-            "arena":                raw.arena,
-            "country_code":         raw.country_code,
-            "url":                  raw.url
+            "row_id": raw.row_id,
+            "tournament_id_ext": str(raw.tournament_id_ext) if raw.tournament_id_ext else 'None',
+            "longname": raw.longname or 'None',
+            "shortname": raw.shortname or 'None',
+            "startdate": str(raw.startdate) if raw.startdate else 'None',
+            "enddate": str(raw.enddate) if raw.enddate else 'None',
+            "city": raw.city or 'None',
+            "arena": raw.arena or 'None',
+            "country_code": raw.country_code or 'None',
+            "url": raw.url or 'None'
         }
 
         # Parse dates
-        start_date  = parse_date(raw.startdate, context=f"row_id: {raw.row_id}")
-        end_date    = parse_date(raw.enddate, context=f"row_id: {raw.row_id}")
+        start_date = parse_date(raw.startdate, context=f"row_id: {raw.row_id}")
+        end_date = parse_date(raw.enddate, context=f"row_id: {raw.row_id}")
 
         if not start_date or not end_date:
-            logger.warning(logger_keys.copy(), "Invalid start date or end date")
+            logger.warning(logger_keys, "Invalid start date or end date")
             continue
 
         logger_keys.update({
-            "startdate": start_date,
-            "enddate": end_date
+            "startdate": str(start_date),
+            "enddate": str(end_date)
         })
 
         # Calculate status (default to 6 for incomplete data)
@@ -75,28 +73,29 @@ def resolve_tournaments(cursor) -> List[Tournament]:
         # Prevent duplicates in same run (only for non-None tournament_id_ext)
         if raw.tournament_id_ext is not None:
             if raw.tournament_id_ext in seen_ext_ids:
-                logger.skipped(logger_keys.copy(), "Duplicate tournament_id_ext in same batch")
+                logger.skipped(logger_keys, "Duplicate tournament_id_ext in same batch")
                 continue
             seen_ext_ids.add(raw.tournament_id_ext)
 
         # Validate tournament data
         tournament = Tournament(
-            tournament_id_ext = raw.tournament_id_ext,
-            longname = raw.longname,
-            shortname = raw.shortname,
-            startdate = start_date,
-            enddate = end_date,
-            city = raw.city,
-            arena = raw.arena,
-            country_code = raw.country_code,
-            url = raw.url,
-            tournament_status_id = status,
-            data_source_id = raw.data_source_id
+            tournament_id_ext=raw.tournament_id_ext,
+            longname=raw.longname,
+            shortname=raw.shortname,
+            startdate=start_date,
+            enddate=end_date,
+            registration_end_date=None,
+            city=raw.city,
+            arena=raw.arena,
+            country_code=raw.country_code,
+            url=raw.url,  # Explicitly preserve URL
+            tournament_status_id=status,
+            data_source_id=raw.data_source_id
         )
 
         is_valid, error_message = tournament.validate()
         if not is_valid:
-            logger.failed(logger_keys.copy(), f"Validation failed: {error_message}")
+            logger.failed(logger_keys, f"Validation failed: {error_message}")
             continue
 
         tournaments.append(tournament)
@@ -106,10 +105,10 @@ def resolve_tournaments(cursor) -> List[Tournament]:
     for t in tournaments:
         action = t.upsert(cursor)
         if action:
-            logger.success({"tournament_id_ext": t.tournament_id_ext}, f"Tournament successfully {action}")
+            logger.success({"tournament_id_ext": str(t.tournament_id_ext) if t.tournament_id_ext else 'None'}, f"Tournament successfully {action}")
             valid_tournaments.append(t)
         else:
-            logger.warning({"tournament_id_ext": t.tournament_id_ext}, "No changes made during upsert")
+            logger.warning({"tournament_id_ext": str(t.tournament_id_ext) if t.tournament_id_ext else 'None'}, "No changes made during upsert")
 
     logger.summarize()
 

@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Tuple
 from dataclasses import dataclass
 import sqlite3
-from utils import OperationLogger, parse_date
+from utils import parse_date
 
 
 @dataclass
@@ -65,6 +65,7 @@ class TournamentRaw:
         if (self.tournament_id_ext and self.data_source_id) or (self.shortname and self.startdate and self.arena):
             return True, ""
         return False, "Missing required fields: (tournament_id_ext and data_source_id) or (shortname and startdate and arena)"
+
 
     def upsert(self, cursor: sqlite3.Cursor) -> str:
         """
@@ -236,8 +237,25 @@ class TournamentRaw:
         Returns a list of TournamentRaw objects.
         """
         cursor.execute("""
-            SELECT row_id, tournament_id_ext, longname, shortname, startdate, enddate,
-                   city, arena, country_code, url, data_source_id, is_listed
+            SELECT 
+                row_id,
+                tournament_id_ext,
+                shortname,
+                longname,
+                startdate,
+                enddate,
+                registration_end_date,
+                city,
+                arena,
+                country_code,
+                url,
+                tournament_level,
+                tournament_type,
+                organiser_name,
+                organiser_email,
+                organiser_phone,
+                data_source_id,
+                is_listed
             FROM tournament_raw
             WHERE data_source_id = 1
         """)

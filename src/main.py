@@ -90,9 +90,10 @@ def main():
             # 'tournament_class_group_standing',    # FK tournament_class_group, participant
 
             # # Tournament core
-            # 'tournament_class',                   # FK tournament, tournament_class_type, tournament_class_structure, data_source
+            # 'tournament_class'                   # FK tournament, tournament_class_type, tournament_class_structure, data_source
             # 'tournament_raw',                      # FK data_source, tournament_status
             # 'tournament'
+            # 'tournament_class_raw'
 
             # # Club
             # 'club_id_ext',                        # References club
@@ -130,7 +131,7 @@ def main():
         #
 
         # 1 Scrape and populate raw tables.
-        # upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
+        # upd_player_licenses(scrape=True, resolve=True, update_ranking_groups=True)
         # upd_player_rankings_raw()
 
         # 2 update clubs, verified players and player ranking groups
@@ -148,7 +149,7 @@ def main():
 
         # # Get tournaments
         # upd_tournaments(scrape_ondata=True, resolve=True)
-        upd_tournament_classes(scrape_ondata=True, resolve=True)
+        # upd_tournament_classes(scrape_ondata=False, resolve=True)
 
         # upd_participants()
         # upd_player_positions()

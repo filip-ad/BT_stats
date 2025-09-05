@@ -14,13 +14,11 @@ def upd_tournament_classes(scrape_ondata=False, resolve=False):
     conn, cursor = get_conn()
 
     try:
-        cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
-        logging.info(f"Starting tournament classes update, cutoff: {cutoff_date}")
 
         # Scrape ondata tournament classes
         # =============================================================================
         if scrape_ondata:
-            scrape_tournament_classes_ondata(cursor, cutoff_date)
+            scrape_tournament_classes_ondata(cursor)
 
         # Scrape other sources
         # =============================================================================

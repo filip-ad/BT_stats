@@ -1,11 +1,8 @@
 # src/models/cache_mixin.py
 
-from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 import sqlite3
-
-from utils import normalize_key
 
 
 class CacheMixin:
