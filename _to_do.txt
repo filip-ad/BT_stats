@@ -7,6 +7,8 @@ To do
 - Sen group games upd->scrape->resolve
 - Speed up scrape_player_licenses
 
+- Clean up player license update -> user logger_keys etc.-- remove unused class methods
+- Same for transitions
 
 
 

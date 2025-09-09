@@ -4,7 +4,9 @@
 
 import inspect
 import json
+from pathlib import Path
 import pandas as pd
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -16,11 +18,13 @@ import os
 import re
 import unicodedata
 from datetime import datetime, date
-from config import LOG_FILE, LOG_LEVEL
-from typing import Dict, List, Optional, Union
+from config import LOG_FILE, LOG_LEVEL, PDF_CACHE_DIR
+from typing import Dict, List, Optional, Tuple, Union
 import sqlite3
 import uuid
 from db import get_conn
+
+CACHE_DIR = Path(PDF_CACHE_DIR)
 
 
 def setup_logging():
@@ -109,6 +113,61 @@ def parse_date(date_str, context=None, return_iso=False):
     # logging.warning(f"Invalid date format: {date_str} (context: {context or 'unknown calling function'})")
     return None
 
+
+def _format_size(bytes_size: int) -> str:
+    """Format size into KB/MB/GB string."""
+    if bytes_size < 1024:
+        return f"{bytes_size} B"
+    elif bytes_size < 1024 * 1024:
+        return f"{bytes_size / 1024:.1f} KB"
+    elif bytes_size < 1024 * 1024 * 1024:
+        return f"{bytes_size / (1024 * 1024):.2f} MB"
+    else:
+        return f"{bytes_size / (1024 * 1024 * 1024):.2f} GB"
+
+def _is_valid_pdf(path: Path) -> bool:
+    """Check if file starts with %PDF- header."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(5)
+            return header == b"%PDF-"
+    except Exception:
+        return False
+
+def _get_pdf_path(tournament_id_ext: str, class_id_ext: str, stage: int) -> Path:
+    """Generate the path for a PDF file."""
+    return CACHE_DIR / f"tournament_{tournament_id_ext}" / f"class_{class_id_ext}" / f"stage_{stage}.pdf"
+
+def _download_pdf_ondata_by_tournament_class_and_stage(tournament_id_ext: str, class_id_ext: str, stage: int, force_download: bool = False) -> Tuple[Optional[Path], bool, Optional[str]]:
+    """Download a PDF if available. Returns (path, downloaded, message) where:
+    - path: Path to the PDF or None if failed
+    - downloaded: True if newly downloaded, False if cached or skipped
+    - message: Status or error message for logging (None if no special message)
+    """
+    pdf_path = _get_pdf_path(tournament_id_ext, class_id_ext, stage)
+
+    # If file exists but is invalid, remove it
+    if pdf_path.exists() and not _is_valid_pdf(pdf_path):
+        pdf_path.unlink()
+
+    if pdf_path.exists() and not force_download:
+        return pdf_path, False, f"Cached PDF used: {pdf_path}"
+
+    url = f"https://resultat.ondata.se/ViewClassPDF.php?tournamentID={tournament_id_ext}&classID={class_id_ext}&stage={stage}"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        resp = requests.get(url, timeout=20)
+        if resp.status_code != 200 or not resp.content.startswith(b"%PDF-"):
+            return None, False, f"No valid PDF at {url} (status: {resp.status_code})"
+
+        with open(pdf_path, "wb") as f:
+            f.write(resp.content)
+        return pdf_path, True, f"Downloaded PDF: {pdf_path} ({_format_size(pdf_path.stat().st_size)})"
+
+    except Exception as e:
+        return None, False, f"Failed to download PDF from {url}: {e}"
+
 def print_db_insert_results(db_results):
     """
     Print a summary of database insertion results.
@@ -171,29 +230,6 @@ def sanitize_name(name: str) -> str:
     Example: 'harry hamrén' -> 'Harry Hamrén' 
     """
     return ' '.join(word.strip().title() for word in name.split())
-
-# def normalize_key(name: str) -> str:
-#     """
-#     Updated: Produce a matching key by:
-#         1) stripping and collapsing whitespace
-#         2) lowercasing
-#         3) decomposing Unicode and removing diacritics *except* for Nordic letters (ÅÄÖåäö), which are preserved as-is.
-#     Example: 'Harry Hamrén ÅÄÖ' -> 'harry hamren åäö'
-#     """
-#     s = name.strip()
-#     s = re.sub(r"\s+", " ", s)
-#     s = s.lower()  # Lowercase first to simplify
-
-#     # Decompose and remove combining only for non-Nordic
-#     normalized = []
-#     for ch in s:
-#         if ch in 'åäö':  # Preserve lowercase Nordic as-is
-#             normalized.append(ch)
-#         else:
-#             decomp = unicodedata.normalize("NFKD", ch)
-#             normalized.append("".join(c for c in decomp if not unicodedata.combining(c)))
-    
-#     return "".join(normalized)
 
 def normalize_key(
     name: str,
@@ -504,20 +540,6 @@ class OperationLogger:
             print(f"{emoji} {log_msg}")
 
 
-    # def success(
-    #         self, 
-    #         item_key:   str, 
-    #         reason:     Optional[str] = "Success"
-    #     ):
-    #     self.results[item_key]["success"] += 1
-    #     self.reasons["success"][reason] += 1     
-    #     if self.verbosity >= 3:
-    #         # self._log_to_db(item_key, "success", reason)
-    #         msg = f"{item_key}: {reason}"
-    #         logging.info(msg, stacklevel=2)
-    #         if self.print_output:
-    #             print(msg)
-
     def success(
         self, 
         context: Union[dict, str], 
@@ -577,66 +599,7 @@ class OperationLogger:
             'filename': filename
         })
 
-    # def success(
-    #     self, 
-    #     context: Union[dict, str], 
-    #     reason: Optional[str] = "Success",
-    #     msg_id: Optional[str] = None
-    # ):
-    #     if isinstance(context, str):
-    #         context = self._parse_context_str(context)
-    #     self.results[str(context)]["success"] += 1
-    #     self.reasons["success"][reason] += 1
-        
-    #     # Get caller info
-    #     frame = inspect.currentframe().f_back
-    #     function_name = frame.f_code.co_name
-    #     filename = os.path.basename(inspect.getfile(frame))
-        
-    #     # Enrich context
-    #     enriched_context = self._enrich_context(context)
-    #     context_json = json.dumps(enriched_context)
-        
-    #     # Write to log_output table only if verbosity >= 3
-    #     if self.cursor and self.verbosity >= 3:
-    #         try:
-    #             self.cursor.execute('''
-    #                 INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
-    #                 VALUES (?, ?, ?, ?, ?, ?, ?)
-    #             ''', (self.run_id, function_name, filename, context_json, 'success', reason, msg_id))
-    #             self.cursor.connection.commit()
-    #         except Exception as e:
-    #             logging.error(f"Error logging success to DB: {e}")
-        
-    #     # Console/file output (as before)
-    #     if self.verbosity >= 3:
-    #         msg = self._format_msg(enriched_context, reason)
-    #         logging.info(msg, stacklevel=2)
-    #         if self.print_output:
-    #             print(f"[SUCCESS] {msg}")
-        
-    #     # Store for export/summary (keep, but optional if you don't export successes)
-    #     self.individual_logs.append({
-    #         'status': 'success',
-    #         'context': enriched_context,
-    #         'message': reason,
-    #         'msg_id': msg_id,
-    #         'function_name': function_name,
-    #         'filename': filename
-    #     })
-
-    # def failed(
-    #         self, 
-    #         item_key: str, 
-    #         reason: Optional[str] = "Failed"
-    #     ):
-    #     self.results[item_key]["failed"] += 1
-    #     self.reasons["failed"][reason] += 1
-    #     if self.verbosity >= 1:
-    #         msg = f"{item_key}: {reason}"
-    #         logging.error(msg,stacklevel=2)
-    #         if self.print_output:
-    #             print(msg)
+ 
     def failed(
         self, 
         context: Union[dict, str],  # Allow dict or str for compat
@@ -696,115 +659,7 @@ class OperationLogger:
             'function_name': function_name,
             'filename': filename
         })
-    # def failed(
-    #     self, 
-    #     context: Union[dict, str],  # UPDATED: Allow dict or str for compat
-    #     reason: Optional[str] = "Failed",
-    #     msg_id: Optional[str] = None  # NEW: Optional ID
-    # ):
-    #     if isinstance(context, str):
-    #         context = {'key': context}  # Backward compat: Treat string as simple key
-    #     self.results[str(context)]["failed"] += 1  # Keep for counters (use str(key) for dict)
-    #     self.reasons["failed"][reason] += 1
-        
-    #     # Get caller info (like log_error_to_db)
-    #     frame = inspect.currentframe().f_back
-    #     function_name = frame.f_code.co_name
-    #     filename = os.path.basename(inspect.getfile(frame))
-        
-    #     # Enrich context
-    #     enriched_context = self._enrich_context(context)
-    #     context_json = json.dumps(enriched_context)
-        
-    #     # Write to log_output table (structured DB log)
-    #     if self.cursor:
-    #         try:
-    #             self.cursor.execute('''
-    #                 INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
-    #                 VALUES (?, ?, ?, ?, ?, ?, ?)
-    #             ''', (self.run_id, function_name, filename, context_json, 'error', reason, msg_id))
-    #             self.cursor.connection.commit()
-    #         except Exception as e:
-    #             logging.error(f"Error logging failed to DB: {e}")
-        
-    #     # Keep console/file output (compat)
-    #     if self.verbosity >= 1:
-    #         msg = self._format_msg(context, reason) if isinstance(context, dict) else f"{context}: {reason}"
-    #         logging.error(msg, stacklevel=2)
-    #         if self.print_output:
-    #             print(msg)
-        
-    #     # Store for export/summary
-    #     self.individual_logs.append({
-    #         'status': 'error',
-    #         'context': enriched_context,
-    #         'message': reason,
-    #         'msg_id': msg_id,
-    #         'function_name': function_name,
-    #         'filename': filename
-    #     })
-
-    # def skipped(
-    #         self, 
-    #         item_key: str, 
-    #         reason: Optional[str] = "Skipped"
-    #     ):
-    #     self.results[item_key]["skipped"] += 1
-    #     self.reasons["skipped"][reason] += 1
-    #     # self._log_to_db(item_key, "skipped", reason)
-    #     if self.verbosity >= 3:
-    #         msg = f"[SKIPPED] {item_key}: {reason}"
-    #         logging.warning(msg)
-    #         if self.print_output:
-    #             print(msg)
-
-    # def skipped(
-    #     self, 
-    #     context: Union[dict, str],
-    #     reason: Optional[str] = "Skipped",
-    #     msg_id: Optional[str] = None 
-    # ):
-    #     if isinstance(context, str):
-    #         context = self._parse_context_str(context)
-    #     self.results[str(context)]["skipped"] += 1
-    #     self.reasons["skipped"][reason] += 1
-        
-    #     # Get caller info
-    #     frame = inspect.currentframe().f_back
-    #     function_name = frame.f_code.co_name
-    #     filename = os.path.basename(inspect.getfile(frame))
-        
-    #     # Enrich context
-    #     enriched_context = self._enrich_context(context)
-    #     context_json = json.dumps(enriched_context)
-        
-    #     # Write to log_output table
-    #     if self.cursor and self.verbosity >= 3:
-    #         try:
-    #             self.cursor.execute('''
-    #                 INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
-    #                 VALUES (?, ?, ?, ?, ?, ?, ?)
-    #             ''', (self.run_id, function_name, filename, context_json, 'skipped', reason, msg_id))
-    #             self.cursor.connection.commit()
-    #         except Exception as e:
-    #             logging.error(f"Error logging skipped to DB: {e}")
-        
-    #     # Console/file output
-    #     if self.verbosity >= 3:
-    #         msg = self._format_msg(enriched_context, reason)
-    #         logging.warning(msg, stacklevel=2)
-    #         if self.print_output:
-    #             print(f"[SKIPPED] {msg}")
-        
-    #     # Store for export/summary
-    #     self.individual_logs.append({
-    #         'status': 'skipped',
-    #         'context': enriched_context,
-    #         'message': reason,
-    #         'msg_id': msg_id,
-    #         'function_name': function_name,
-    #         'filename': filename
-    #     })
+  
 
     def skipped(
         self, 
@@ -865,110 +720,6 @@ class OperationLogger:
             'function_name': function_name,
             'filename': filename
         })
-
-    # def warning(
-    #         self, 
-    #         item_key: str, 
-    #         reason: str
-    #     ):
-    #     self.results[item_key]["warnings"].append(reason)
-    #     self.reasons["warning"][reason] += 1
-    #     # self._log_to_db(item_key, "warning", reason)
-    #     if self.verbosity >= 2:
-    #         msg = f"{item_key}: {reason}"
-    #         logging.warning(msg, stacklevel=2)
-    #         if self.print_output:
-    #             print(msg)
-
-    # def warning(
-    #     self, 
-    #     context: Union[dict, str],  # Updated: Allow dict or str
-    #     reason: str,
-    #     error_id: Optional[str] = None  # New: Optional ID
-    # ):
-    #     if isinstance(context, str):
-    #         context = self._parse_context_str(context)  # Parse string to dict
-    #     self.results[str(context)]["warnings"].append(reason)
-    #     self.reasons["warning"][reason] += 1
-        
-    #     # Get caller info
-    #     frame = inspect.currentframe().f_back
-    #     function_name = frame.f_code.co_name
-    #     filename = os.path.basename(inspect.getfile(frame))
-        
-    #     # Enrich context
-    #     enriched_context = self._enrich_context(context)
-    #     context_json = json.dumps(enriched_context)
-        
-    #     # Write to log_output
-    #     if self.cursor:
-    #         try:
-    #             self.cursor.execute('''
-    #                 INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, error_id)
-    #                 VALUES (?, ?, ?, ?, ?, ?, ?)
-    #             ''', (self.run_id, function_name, filename, context_json, 'warning', reason, error_id))
-    #             self.cursor.connection.commit()
-    #         except Exception as e:
-    #             logging.error(f"Error logging warning to DB: {e}")
-        
-    #     # Console/file output
-    #     if self.verbosity >= 2:
-    #         msg = self._format_msg(enriched_context, reason)
-    #         logging.warning(msg, stacklevel=2)
-    #         if self.print_output:
-    #             print(msg)
-        
-    #     # Store for export
-    #     self.individual_logs.append({
-    #         'status': 'warning',
-    #         'context': enriched_context,
-    #         'message': reason,
-    #         'error_id': error_id,
-    #         'function_name': function_name,
-    #         'filename': filename
-    #     })
-
-    # def warning(
-    #     self, 
-    #     context: Union[dict, str], 
-    #     reason: str,
-    #     msg_id: Optional[str] = None
-    # ):
-    #     if isinstance(context, str):
-    #         context = self._parse_context_str(context)
-    #     self.reasons["warning"][reason] += 1  # Keep for total counts
-        
-    #     frame = inspect.currentframe().f_back
-    #     function_name = frame.f_code.co_name
-    #     filename = os.path.basename(inspect.getfile(frame))
-        
-    #     enriched_context = self._enrich_context(context)
-    #     context_json = json.dumps(enriched_context)
-        
-    #     if self.cursor:
-    #         try:
-    #             self.cursor.execute('''
-    #                 INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
-    #                 VALUES (?, ?, ?, ?, ?, ?, ?)
-    #             ''', (self.run_id, function_name, filename, context_json, 'warning', reason, msg_id))
-    #             self.cursor.connection.commit()
-    #         except Exception as e:
-    #             logging.error(f"Error logging warning to DB: {e}")
-        
-    #     if self.verbosity >= 2:
-    #         msg = self._format_msg(enriched_context, reason)
-    #         logging.warning(msg, stacklevel=2)
-    #         if self.print_output:
-    #             print(msg)
-        
-    #     self.individual_logs.append({
-    #         'status': 'warning',
-    #         'context': enriched_context,
-    #         'message': reason,
-    #         'msg_id': msg_id,
-    #         'function_name': function_name,
-    #         'filename': filename
-    #     })
 
     def warning(
         self, 

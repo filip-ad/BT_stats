@@ -161,14 +161,6 @@ class PlayerLicenseRaw:
         ))
         return cursor.rowcount > 0
 
-    # @classmethod
-    # def upsert_many(cls, cursor, raws: List["PlayerLicenseRaw"]):
-    #     """
-    #     Upsert multiple PlayerLicenseRaw records.
-    #     """
-    #     for raw in raws:
-    #         cls.upsert_one(cursor, raw)
-
     # Used by resolve_player_ranking_groups
     @staticmethod
     def fetch_rows_with_ranking_groups(cursor):

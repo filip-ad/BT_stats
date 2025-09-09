@@ -187,10 +187,11 @@ def scrape_player_licenses(cursor):
             )
             # Using regular print to use separate icon (for now)
             print(
-                f"✅ Finished club {club_name} in season {season_label}, "
-                f"inserted {club_season_inserted} rows, skipped {club_season_skipped} rows "
-                f"({len(clubs) - current_club_count} clubs and {len(seasons_to_process) - current_season_count} seasons remaining)"
+                f"✅ Finished club {club_name:<25} | Season: {season_label:<12} | "
+                f"Inserted: {club_season_inserted:<3} | Skipped: {club_season_skipped:<3} | "
+                f"Remaining: {len(clubs) - current_club_count} clubs, {len(seasons_to_process) - current_season_count} seasons"
             )
+
 
         current_season_count += 1
         current_club_count = 0

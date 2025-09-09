@@ -15,13 +15,6 @@ def upd_tournaments(scrape_ondata=False, resolve=False):
     """
     conn, cursor = get_conn()
 
-    logger = OperationLogger(
-        verbosity       = 2, 
-        print_output    = False, 
-        log_to_db       = False, 
-        cursor          = cursor
-        )
-
     try:
 
         # Scrape ondata listed tournaments

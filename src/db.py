@@ -4,12 +4,10 @@
 import sqlite3
 from config import DB_NAME
 import logging
-from datetime import timedelta
 import datetime
 
 # --- register adapters/converters once (Python 3.12+ friendly) ---
 _ADAPTERS_REGISTERED = False
-
 
 def get_conn():
     try:
@@ -187,7 +185,7 @@ def create_tables(cursor):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_raw (
                 row_id                                      INTEGER PRIMARY KEY AUTOINCREMENT,
-                tournament_id_ext                           INTEGER,
+                tournament_id_ext                           TEXT,
                 tournament_class_id_ext                     TEXT,
                 startdate                                   DATE,
                 shortname                                   TEXT,
@@ -256,10 +254,11 @@ def create_tables(cursor):
             );
         ''')
 
-        # Generic participant raw tournament table
+        # Generic participant raw table (tournament participants only for now)
+        # Create similar for leagues/fixtures later
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS participant_raw_tournament (
-                participant_raw_id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
 
                 -- Provenance
                 tournament_id_ext               TEXT NOT NULL,   -- external tournament ID from source
@@ -272,14 +271,12 @@ def create_tables(cursor):
                 seed_raw                        TEXT,            -- raw seed (string, since formats vary)
                 final_position_raw              TEXT,            -- raw final position (string/number, as parsed)
 
-                -- Optional: keep a JSON blob for debugging / unusual fields
-                raw_payload                     TEXT,            -- JSON text with any extra fields
-
                 -- Metadata
                 row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-                FOREIGN KEY (data_source_id) REFERENCES data_source(data_source_id)
+                FOREIGN KEY (data_source_id)    REFERENCES data_source(data_source_id),
+                UNIQUE (tournament_id_ext, tournament_class_id_ext, fullname_raw, clubname_raw, data_source_id)
             );
         ''')
 
@@ -296,7 +293,8 @@ def create_tables(cursor):
                 FOREIGN KEY (participant_id)    REFERENCES participant(participant_id) ON DELETE CASCADE,
                 FOREIGN KEY (player_id)         REFERENCES player(player_id),
                 FOREIGN KEY (club_id)           REFERENCES club(club_id),
-                UNIQUE (participant_id, player_id)  -- Prevent duplicate players per participant (e.g., in doubles)
+                UNIQUE (participant_id, player_id),  -- Prevent duplicate players per participant (e.g., in doubles)
+                UNIQUE (participant_player_id_ext, data_source_id)
             );
         ''')
 

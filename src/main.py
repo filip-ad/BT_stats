@@ -83,6 +83,7 @@ def main():
             # # Tournament participants
             # 'participant',                        # FK tournament_class
             # 'participant_player',                 # FK participant, player (verified, unverified), club
+            # 'participant_raw_tournament'            # FK data_source, tournament_class
 
             # # Group and standing
             # 'tournament_class_group',             # FK tournament_class
@@ -131,27 +132,24 @@ def main():
         #
 
         # 1 Scrape and populate raw tables.
-        # upd_player_licenses(scrape=True, resolve=True, update_ranking_groups=True)
+        # upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
         # upd_player_rankings_raw()
-
-        # 2 update clubs, verified players and player ranking groups
-        # upd_clubs()
         # upd_players_verified()
         # upd_player_licenses(scrape=False, resolve=True, update_ranking_groups=True)
 
-        # upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
+        # 2 update clubs, verified players and player ranking groups
+        # upd_clubs()
+        
         # upd_player_transitions(scrape=True, resolve=True)
-
-        # upd_player_transitions()
 
 
         ################################################################################################
 
         # # Get tournaments
         # upd_tournaments(scrape_ondata=True, resolve=True)
-        # upd_tournament_classes(scrape_ondata=False, resolve=True)
+        upd_tournament_classes(scrape_ondata=False, resolve=True)
 
-        # upd_participants()
+        # upd_participants(scrape_ondata=True, resolve=False)
         # upd_player_positions()
         # upd_tournament_group_stage()
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import datetime
-from typing import Optional, Dict, Any, List
+import json
+from typing import Optional, Dict, Any, List, Tuple
 import sqlite3
 from utils import parse_date
 
@@ -26,6 +27,12 @@ class TournamentClassRaw:
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "TournamentClassRaw":
         """Instantiate from a scraped dict (keys matching column names)."""
+
+        # Normalize raw_stage_hrefs: always store as JSON string (or None)
+        rhs = d.get("raw_stage_hrefs")
+        if isinstance(rhs, dict):
+            rhs = json.dumps(rhs)
+            
         return TournamentClassRaw(
             tournament_id_ext               = d.get("tournament_id_ext"),
             tournament_class_id_ext         = d.get("tournament_class_id_ext"),
@@ -37,14 +44,36 @@ class TournamentClassRaw:
             max_age                         = d.get("max_age"),
             url                             = d.get("url"),
             raw_stages                      = d.get("raw_stages"),
-            raw_stage_hrefs                 = d.get("raw_stage_hrefs"),
+            # raw_stage_hrefs                 = d.get("raw_stage_hrefs"),
+            raw_stage_hrefs                 = rhs,
             data_source_id                  = d.get("data_source_id", 1)
         )
 
-    def validate(self) -> bool:
-        """Light validation: Check for minimum required fields before inserting to raw."""
-        return bool(self.shortname and self.startdate and self.tournament_id_ext)
+    # def validate(self) -> bool:
+    #     """Light validation: Check for minimum required fields before inserting to raw."""
+    #     return bool(self.shortname and self.startdate and self.tournament_id_ext)
 
+    def validate(self) -> Tuple[bool, str]:
+        """
+        Validate fields.
+        Returns: (is_valid, error_message)
+        """
+        missing = []
+        if not self.shortname:
+            missing.append("shortname")
+        if not self.startdate:
+            missing.append("startdate")
+        if not self.tournament_id_ext:
+            missing.append("tournament_id_ext")
+        if not self.tournament_class_id_ext:
+            missing.append("tournament_class_id_ext")
+        if missing:
+            self.is_valid = False
+            return False, f"Missing/invalid fields: {', '.join(missing)}"
+
+        self.is_valid = True
+        return True, ""
+    
     @classmethod
     def get_all(cls, cursor: sqlite3.Cursor) -> List["TournamentClassRaw"]:
         """Fetch all valid raw tournament class entries."""

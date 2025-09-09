@@ -52,10 +52,7 @@ def resolve_tournament_classes(cursor) -> List[TournamentClass]:
         # Log missing tournament_id_ext values
         missing_ext_ids = set(all_ext_ids) - set(tournament_id_map.keys())
         if missing_ext_ids:
-            logger.warning(
-                {},
-                f"Missing tournaments for tournament_id_ext values: {', '.join(sorted(missing_ext_ids))}"
-            )
+            logger.warning({}, f"Missing tournaments for tournament_id_ext values: {', '.join(sorted(missing_ext_ids))}")
     else:
         tournament_id_map = {}
         logger.warning({}, "No valid tournament_id_ext values found in tournament_class_raw")
@@ -66,11 +63,11 @@ def resolve_tournament_classes(cursor) -> List[TournamentClass]:
     for raw in raw_objects:
         logger_keys = {
             "row_id": str(raw.row_id) if raw.row_id else "None",
+            "tournament_id_ext": str(raw.tournament_id_ext).zfill(6) if raw.tournament_id_ext else "None",
             "tournament_class_id_ext": str(raw.tournament_class_id_ext) if raw.tournament_class_id_ext else "None",
             "shortname": raw.shortname or "None",
             "longname": raw.longname or "None",
-            "startdate": str(raw.startdate) if raw.startdate else "None",
-            "tournament_id_ext": str(raw.tournament_id_ext).zfill(6) if raw.tournament_id_ext else "None",
+            "startdate": str(raw.startdate) if raw.startdate else "None"
         }
 
         # Prevent duplicates in same run

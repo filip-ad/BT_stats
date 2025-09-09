@@ -2,7 +2,6 @@
 import logging
 import re
 import datetime
-import sqlite3
 import time
 from bs4 import BeautifulSoup
 from typing import List, Optional, Dict, Any, Set
@@ -10,7 +9,7 @@ from urllib.parse import urljoin, urlparse, parse_qs
 import requests
 from pathlib import Path
 import json
-from utils import parse_date, OperationLogger
+from utils import parse_date, OperationLogger, _format_size, _is_valid_pdf, _get_pdf_path, _download_pdf_ondata_by_tournament_class_and_stage
 from config import SCRAPE_CLASSES_MAX_TOURNAMENTS, SCRAPE_CLASSES_TOURNAMENT_ID_EXTS, SCRAPE_TOURNAMENTS_ORDER, SCRAPE_TOURNAMENTS_CUTOFF_DATE, PDF_CACHE_DIR
 from models.tournament_class_raw import TournamentClassRaw
 from models.tournament import Tournament
@@ -95,37 +94,52 @@ def scrape_tournament_classes_ondata(cursor) -> None:
 
         try:
             # Scrape raw classes
-            t_start = time.time()
-            raw_classes, raw_classes_processed = _scrape_raw_classes_for_tournament_ondata(t, logger_keys, logger)
+            raw_classes, raw_classes_processed = _scrape_raw_classes_for_tournament_ondata(t, logger_keys, logger, wait_between_requests=0.2)
             classes_processed += raw_classes_processed
-            t_elapsed = time.time() - t_start 
             if not raw_classes:
-                # logger.failed(logger_keys, "Could not find any classes to scrape")
+                logger.failed(logger_keys, "No classes found on tournament page")
                 continue
-            logger.info(f"[{i}/{len(filtered_tournaments[:limit])}] Scraped {len(raw_classes)} classes for {t.shortname} (id: {t.tournament_id}, ext_id: {t.tournament_id_ext}) in {t_elapsed:.2f} seconds")
-
-            for raw_data in raw_classes:
-                # Create raw object
-                tournament_class_raw = TournamentClassRaw.from_dict(raw_data)
-
-                # Light validation
-                if not tournament_class_raw.validate():
-                    logger.failed(logger_keys, "Missing required fields (shortname, startdate, tournament_id_ext)")
-                    continue
-
-                # Upsert to raw table
-                action = tournament_class_raw.upsert(cursor)
-                if action:
-                    logger.success(logger_keys, f"Tournament class successfully {action}", to_console=False)
-                    # Download PDFs if not already
-                    if tournament_class_raw.tournament_class_id_ext:
-                        bytes_downloaded, PDFs_downloaded = _download_class_pdfs(t, tournament_class_raw.tournament_class_id_ext, tournament_class_raw.raw_stage_hrefs, logger, bytes_downloaded, PDFs_downloaded)
-                else:
-                    logger.failed(logger_keys, f"Tournament class upsert failed (ext_id: {tournament_class_raw.tournament_class_id_ext})")
 
         except Exception as e:
             logger.failed(logger_keys, f"Exception during scraping: {e}")
             continue
+
+        tournament_bytes_downloaded = 0
+        tournament_pdfs_downloaded = 0
+
+        for raw_data in raw_classes:
+            try: 
+                # Create raw object
+                tc_raw = TournamentClassRaw.from_dict(raw_data)
+
+                # Field validation with error messages
+                is_valid, error_message = tc_raw.validate()
+                if not is_valid:
+                    logger.failed(logger_keys, f"Validation failed: {error_message}")
+                    continue
+
+                # Upsert to raw table
+                action = tc_raw.upsert(cursor)
+                if action:
+                    logger.success(logger_keys, f"Tournament class successfully {action}", to_console=False)
+                    
+                    # Download PDFs if not already
+                    if tc_raw.tournament_class_id_ext:
+                        bytes_downloaded, PDFs_downloaded = _download_class_pdfs(t, tc_raw.tournament_class_id_ext, tc_raw.raw_stage_hrefs, logger)
+                        tournament_bytes_downloaded += bytes_downloaded
+                        tournament_pdfs_downloaded += PDFs_downloaded
+                        
+                else:
+                    logger.failed(logger_keys, f"Tournament class upsert failed (ext_id: {tc_raw.tournament_class_id_ext})")
+
+            except Exception as e:
+                logger.failed(logger_keys, f"Exception processing raw class data: {e}")
+                continue
+
+        logger.info(f"[{i}/{len(filtered_tournaments[:limit])}] Scraped {len(raw_classes)} classes for {t.shortname} (id: {t.tournament_id}, ext_id: {t.tournament_id_ext}). PDFs downloaded: {tournament_pdfs_downloaded} ({_format_size(tournament_bytes_downloaded)})", to_console=True)
+        PDFs_downloaded += tournament_pdfs_downloaded
+        bytes_downloaded += tournament_bytes_downloaded
+
 
     logger.info(
         f"Processed {classes_processed} tournament classes from {len(filtered_tournaments[:limit])} tournaments "
@@ -135,50 +149,64 @@ def scrape_tournament_classes_ondata(cursor) -> None:
 
     logger.summarize()
 
-def _download_class_pdfs(tournament: Tournament, class_id_ext: str, raw_stage_hrefs: str, logger: OperationLogger, bytes_downloaded: int, PDFs_downloaded: int) -> tuple[int, int]:
+def _download_class_pdfs(tournament: Tournament, class_id_ext: str, raw_stage_hrefs: str, logger: OperationLogger) -> tuple[int, int]:
     """
     Download PDFs for each stage if not already downloaded, using the folder structure
     data/pdfs/tournament_{tournament_id_ext}/class_{class_id_ext}/stage_{stage}.pdf.
     Returns updated bytes_downloaded and PDFs_downloaded.
     """
+
+    bytes_downloaded = 0
+    PDFs_downloaded = 0
+
     if not raw_stage_hrefs:
-        logger.info("No stage hrefs for PDF download.")
+        logger.failed("No stage hrefs for PDF download.")
         return bytes_downloaded, PDFs_downloaded
 
     try:
         stage_to_href = json.loads(raw_stage_hrefs)
     except json.JSONDecodeError:
-        logger.warning("Invalid raw_stage_hrefs format for PDF download.")
+        logger.failed("Invalid raw_stage_hrefs format for PDF download.")
         return bytes_downloaded, PDFs_downloaded
 
     for stage in stage_to_href.keys():
-        stage = int(stage)  # Ensure stage is an integer
+        stage = int(stage)
         logger_keys = {
             'tournament': tournament.shortname,
             'tournament_id_ext': str(tournament.tournament_id_ext),
             'class_id_ext': str(class_id_ext),
             'stage': str(stage)
         }
-
-        # Download the PDF
-        pdf_path, was_downloaded = _download_pdf(tournament.tournament_id_ext, class_id_ext, stage, logger)
-        if pdf_path:
-            size = pdf_path.stat().st_size
-            bytes_downloaded += size  # Update total bytes for all processed PDFs
-            if was_downloaded:
-                PDFs_downloaded += 1  # Increment only for actual downloads
-            # logger.success(logger_keys, f"Processed PDF for stage {stage}: {pdf_path} ({_format_size(size)})", to_console=False)
-        else:
-            logger.failed(logger_keys, f"No PDF available for stage to download")
+        try:
+            pdf_path, was_downloaded, message = _download_pdf_ondata_by_tournament_class_and_stage(tournament.tournament_id_ext, class_id_ext, stage, force_download=False)
+            if message:
+                if "Cached" in message:
+                    # logger.info(logger_keys, message, to_console=False)
+                    pass
+                elif "Downloaded" in message:
+                    # logger.info(logger_keys, message, to_console=False)
+                    pass
+                else:
+                    logger.failed(logger_keys, message, to_console=False)
+                    return bytes_downloaded, PDFs_downloaded
+            if pdf_path:
+                size = pdf_path.stat().st_size
+                bytes_downloaded += size  # Update total bytes for all processed PDFs
+                if was_downloaded:
+                    PDFs_downloaded += 1  # Increment only for actual downloads
+            else:
+                logger.failed(logger_keys, f"No PDF available for stage to download")
+        except ValueError as ve:
+            logger.failed(logger_keys, f"Unpack error during PDF download: {ve}")
+            continue  # Continue to next stage instead of failing entire class
 
     return bytes_downloaded, PDFs_downloaded
-
-
 
 def _scrape_raw_classes_for_tournament_ondata(
     tournament: Tournament,
     logger_keys: Dict[str, str],
-    logger: OperationLogger
+    logger: OperationLogger,
+    wait_between_requests: float = 0.2
 ) -> List[Dict[str, Any]]:
     """
     Scrape raw class data from tournament page.
@@ -201,7 +229,7 @@ def _scrape_raw_classes_for_tournament_ondata(
     try:
         resp1 = session.get(base, timeout=10)
         resp1.raise_for_status()
-        time.sleep(0.5)  # Delay to avoid overwhelming server
+        time.sleep(wait_between_requests)  # Delay to avoid overwhelming server
     except Exception as e:
         raise ValueError(f"Error fetching outer frame: {e}")
 
@@ -215,7 +243,7 @@ def _scrape_raw_classes_for_tournament_ondata(
     try:
         resp2 = session.get(inner_url, timeout=10)
         resp2.raise_for_status()
-        time.sleep(0.5)  # Delay to avoid overwhelming server
+        time.sleep(wait_between_requests)  # Delay to avoid overwhelming server
     except Exception as e:
         raise ValueError(f"Error fetching inner page: {e}")
 
@@ -316,55 +344,3 @@ def _parse_raw_row(
         "raw_stage_hrefs":          raw_stage_hrefs_str,
         "data_source_id":           1
     }
-
-# Helper functions for PDF downloading
-def _format_size(bytes_size: int) -> str:
-    """Format size into KB/MB/GB string."""
-    if bytes_size < 1024:
-        return f"{bytes_size} B"
-    elif bytes_size < 1024 * 1024:
-        return f"{bytes_size / 1024:.1f} KB"
-    elif bytes_size < 1024 * 1024 * 1024:
-        return f"{bytes_size / (1024 * 1024):.2f} MB"
-    else:
-        return f"{bytes_size / (1024 * 1024 * 1024):.2f} GB"
-
-def _is_valid_pdf(path: Path) -> bool:
-    """Check if file starts with %PDF- header."""
-    try:
-        with open(path, "rb") as f:
-            header = f.read(5)
-            return header == b"%PDF-"
-    except Exception:
-        return False
-
-def _get_pdf_path(tournament_id_ext: str, class_id_ext: str, stage: int) -> Path:
-    """Generate the path for a PDF file."""
-    return CACHE_DIR / f"tournament_{tournament_id_ext}" / f"class_{class_id_ext}" / f"stage_{stage}.pdf"
-
-def _download_pdf(tournament_id_ext: str, class_id_ext: str, stage: int, logger: OperationLogger, force: bool = False) -> tuple[Path | None, bool]:
-    """Download a PDF if available. Returns (path, downloaded) where downloaded is True if newly downloaded, False if cached or skipped."""
-    pdf_path = _get_pdf_path(tournament_id_ext, class_id_ext, stage)
-
-    # If file exists but is invalid, remove it
-    if pdf_path.exists() and not _is_valid_pdf(pdf_path):
-        pdf_path.unlink()
-
-    if pdf_path.exists() and not force:
-        # logger.info({'tournament_id_ext': str(tournament_id_ext), 'class_id_ext': str(class_id_ext), 'stage': str(stage)}, f"Cached PDF used: {pdf_path}")
-        return pdf_path, False
-
-    url = f"{PDF_BASE}?tournamentID={tournament_id_ext}&classID={class_id_ext}&stage={stage}"
-    pdf_path.parent.mkdir(parents=True, exist_ok=True)
-
-    try:
-        resp = requests.get(url, timeout=20)
-        if resp.status_code != 200 or not resp.content.startswith(b"%PDF-"):
-            return None, False
-
-        with open(pdf_path, "wb") as f:
-            f.write(resp.content)
-        # logger.info({'tournament_id_ext': str(tournament_id_ext), 'class_id_ext': str(class_id_ext), 'stage': str(stage)}, f"Downloaded PDF: {pdf_path}")
-        return pdf_path, True
-    except Exception:
-        return None, False
