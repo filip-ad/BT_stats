@@ -65,24 +65,24 @@ class PlayerLicenseRaw:
             return False, f"Missing/invalid fields: {', '.join(missing)}"
         return True, ""
 
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Dict for DB insert/upsert.
-        """
-        return {
-            "season_id_ext":        self.season_id_ext,
-            "season_label":         self.season_label,
-            "club_name":            self.club_name,
-            "club_id_ext":          self.club_id_ext,
-            "player_id_ext":        self.player_id_ext,
-            "firstname":            self.firstname,
-            "lastname":             self.lastname,
-            "gender":               self.gender,
-            "year_born":            self.year_born,
-            "license_info_raw":     self.license_info_raw,
-            "ranking_group_raw":    self.ranking_group_raw,
-            "raw_payload":          json.dumps(self.raw_payload) if self.raw_payload else None
-        }
+    # def to_dict(self) -> Dict[str, Any]:
+    #     """
+    #     Dict for DB insert/upsert.
+    #     """
+    #     return {
+    #         "season_id_ext":        self.season_id_ext,
+    #         "season_label":         self.season_label,
+    #         "club_name":            self.club_name,
+    #         "club_id_ext":          self.club_id_ext,
+    #         "player_id_ext":        self.player_id_ext,
+    #         "firstname":            self.firstname,
+    #         "lastname":             self.lastname,
+    #         "gender":               self.gender,
+    #         "year_born":            self.year_born,
+    #         "license_info_raw":     self.license_info_raw,
+    #         "ranking_group_raw":    self.ranking_group_raw,
+    #         "raw_payload":          json.dumps(self.raw_payload) if self.raw_payload else None
+    #     }
 
     @staticmethod
     def from_row(row: tuple) -> "PlayerLicenseRaw":

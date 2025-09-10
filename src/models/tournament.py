@@ -81,47 +81,35 @@ class Tournament(CacheMixin):
             return False, f"Missing/invalid fields: {', '.join(missing)}"
         return True, ""
     
+    # @classmethod
+    # def get_internal_tournament_ids(
+    #     cls,
+    #     cursor: sqlite3.Cursor,
+    #     tournament_id_exts: List[str],
+    #     data_source_id: int
+    # ) -> List[int]:
+    #     """Convert external tournament IDs to internal tournament_ids."""
+    #     if not tournament_id_exts:
+    #         return []
+
+    #     placeholders = ",".join("?" for _ in tournament_id_exts)
+    #     sql = f"""
+    #         SELECT tournament_id, tournament_id_ext 
+    #         FROM tournament 
+    #         WHERE tournament_id_ext IN ({placeholders}) AND data_source_id = ?
+    #     """
+    #     params = tournament_id_exts + [data_source_id]
+    #     cursor.execute(sql, params)
+    #     return [row[0] for row in cursor.fetchall()]
+
+
+    # Used in get_filtered_classes in upd_tournament_classes (filtering by id_exts)
     @classmethod
     def get_internal_tournament_ids(
-        cls,
-        cursor: sqlite3.Cursor,
-        tournament_id_exts: List[str],
+        cls, 
+        cursor: sqlite3.Cursor, 
+        ext_ids: List[str], 
         data_source_id: int
-    ) -> List[int]:
-        """Convert external tournament IDs to internal tournament_ids."""
-        if not tournament_id_exts:
-            return []
-
-        placeholders = ",".join("?" for _ in tournament_id_exts)
-        sql = f"""
-            SELECT tournament_id, tournament_id_ext 
-            FROM tournament 
-            WHERE tournament_id_ext IN ({placeholders}) AND data_source_id = ?
-        """
-        params = tournament_id_exts + [data_source_id]
-        cursor.execute(sql, params)
-        return [row[0] for row in cursor.fetchall()]
-
-    @classmethod
-    def get_valid_ongoing_ended(cls, cursor: sqlite3.Cursor) -> List["Tournament"]:
-        """
-        Fetch valid tournaments that are ongoing or ended based on the current date.
-        Returns tournaments with startdate <= current date, enddate >= current date, and is_valid = 1.
-        """
-        current_date = date.today()
-        sql = """
-            SELECT * FROM tournament
-            WHERE startdate <= ?
-            AND is_valid = 1;
-        """
-        cursor.execute(sql, (current_date, ))
-        columns = [col[0] for col in cursor.description]
-        results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-        return [cls.from_dict(res) for res in results]
-    
-    @classmethod
-    def get_internal_tournament_ids(
-        cls, cursor: sqlite3.Cursor, ext_ids: List[str], data_source_id: int
     ) -> List[int]:
         """
         Convert list of external tournament IDs (with data_source_id) to internal tournament_ids.
@@ -167,6 +155,87 @@ class Tournament(CacheMixin):
         tournaments = [Tournament.from_dict(row) for row in rows]
         
         return tournaments
+    
+    # Used in scrape_participants_ondata, to get tournament ext id which is not available in tournament_class
+    @staticmethod
+    def get_all(cursor) -> List['Tournament']:
+        """
+        Retrieve all Tournament objects from the database.
+        Returns a list of Tournament instances.
+        """
+        try:
+            cursor.execute(
+                """
+                SELECT 
+                    tournament_id, 
+                    tournament_id_ext, 
+                    shortname, 
+                    longname, 
+                    startdate, 
+                    enddate, 
+                    registration_end_date, 
+                    city, 
+                    arena, 
+                    country_code, 
+                    url, 
+                    tournament_level_id, 
+                    tournament_type_id, 
+                    tournament_status_id, 
+                    organiser_name, 
+                    organiser_email, 
+                    organiser_phone, 
+                    is_valid, 
+                    data_source_id
+                FROM tournament
+                """
+            )
+            rows = cursor.fetchall()
+            tournaments = []
+            for row in rows:
+                tournament = Tournament(
+                    tournament_id               = row[0],
+                    tournament_id_ext           = row[1] if row[1] else None,
+                    shortname                   = row[2] if row[2] else None,
+                    longname                    = row[3] if row[3] else None,
+                    startdate                   = parse_date(row[4], context="Tournament.get_all_by_ids (startdate)") if row[4] else None,
+                    enddate                     = parse_date(row[5], context="Tournament.get_all_by_ids (enddate)") if row[5] else None,
+                    registration_end_date       = parse_date(row[6], context="Tournament.get_all_by_ids (reg date)") if row[6] else None,
+                    city                        = row[7] if row[7] else None,
+                    arena                       = row[8] if row[8] else None,
+                    country_code                = row[9] if row[9] else None,
+                    url                         = row[10] if row[10] else None,
+                    tournament_level_id         = row[11] if row[11] is not None else 1,
+                    tournament_type_id          = row[12] if row[12] is not None else 1,
+                    tournament_status_id        = row[13] if row[13] is not None else 6,
+                    organiser_name              = row[14] if row[14] else None,
+                    organiser_email             = row[15] if row[15] else None,
+                    organiser_phone             = row[16] if row[16] else None,
+                    is_valid                    = bool(row[17]) if row[17] is not None else True,
+                    data_source_id              = row[18] if row[18] is not None else 1
+                )
+                tournaments.append(tournament)
+            return tournaments
+        except sqlite3.Error as e:
+            # Log error if needed (assuming logger is available)
+            print(f"Database error retrieving tournaments: {e}")
+            return []
+    
+    @classmethod
+    def get_valid_ongoing_ended(cls, cursor: sqlite3.Cursor) -> List["Tournament"]:
+        """
+        Fetch valid tournaments that are ongoing or ended based on the current date.
+        Returns tournaments with startdate <= current date, enddate >= current date, and is_valid = 1.
+        """
+        current_date = date.today()
+        sql = """
+            SELECT * FROM tournament
+            WHERE startdate <= ?
+            AND is_valid = 1;
+        """
+        cursor.execute(sql, (current_date, ))
+        columns = [col[0] for col in cursor.description]
+        results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return [cls.from_dict(res) for res in results]
     
     def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
         """

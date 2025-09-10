@@ -1,5 +1,4 @@
 # src/resolve_tournament_classes.py
-import logging
 import sqlite3
 from typing import Optional, List
 import re
@@ -36,6 +35,14 @@ def resolve_tournament_classes(cursor) -> List[TournamentClass]:
     if not raw_objects:
         logger.failed({}, "No tournament class data found in tournament_class_raw")
         return []
+    
+    # Filter out classes with "reservlista" in shortname or longname
+    raw_objects = [
+        raw for raw in raw_objects
+        if not (raw.shortname and "reservlista" in raw.shortname.lower()) and
+           not (raw.longname and "reservlista" in raw.longname.lower())
+    ]
+    logger.info(f"After filtering 'reservlista', {len(raw_objects)} entries remain...")
 
     # Pre-fetch all tournament_id mappings for efficiency
     all_ext_ids = list(set(str(raw.tournament_id_ext).zfill(6) for raw in raw_objects if raw.tournament_id_ext is not None))

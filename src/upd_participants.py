@@ -1,7 +1,7 @@
 # src/upd_participants.py
 from db import get_conn
 from scrapers.scrape_participants_ondata import scrape_participants_ondata
-# from resolvers.resolve_participants import resolve_participants  # Placeholder import for Phase 4
+from resolvers.resolve_participants import resolve_participants
 import logging
 
 def upd_participants(scrape_ondata=False, resolve=False):
@@ -20,7 +20,7 @@ def upd_participants(scrape_ondata=False, resolve=False):
 
         # Resolve participant data
         if resolve:
-            # resolve_participants(cursor)
+            resolve_participants(cursor)
             pass
 
     except Exception as e:

@@ -18,7 +18,6 @@ from upd_tournaments import upd_tournaments
 from upd_tournament_classes import upd_tournament_classes
 
 from upd_participants import upd_participants
-from upd_participant_positions import upd_player_positions
 from upd_tournament_group_stage import upd_tournament_group_stage
 from db import get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes, create_triggers, create_views, compact_sqlite, execute_custom_sql
 
@@ -83,7 +82,7 @@ def main():
             # # Tournament participants
             # 'participant',                        # FK tournament_class
             # 'participant_player',                 # FK participant, player (verified, unverified), club
-            # 'participant_raw_tournament'            # FK data_source, tournament_class
+            # 'participant_player_raw_tournament'  # FK tournament_class, data_source
 
             # # Group and standing
             # 'tournament_class_group',             # FK tournament_class
@@ -147,9 +146,9 @@ def main():
 
         # # Get tournaments
         # upd_tournaments(scrape_ondata=True, resolve=True)
-        upd_tournament_classes(scrape_ondata=False, resolve=True)
+        # upd_tournament_classes(scrape_ondata=True, resolve=True)
 
-        # upd_participants(scrape_ondata=True, resolve=False)
+        upd_participants(scrape_ondata=False, resolve=True)
         # upd_player_positions()
         # upd_tournament_group_stage()
 

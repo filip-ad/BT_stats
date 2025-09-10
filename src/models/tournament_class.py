@@ -6,11 +6,12 @@ from datetime import date
 from typing import List, Optional, Dict, Any, Tuple
 import sqlite3
 from models.tournament import Tournament
-from utils import OperationLogger, parse_date
+from models.cache_mixin import CacheMixin
+from utils import parse_date
 
 
 @dataclass
-class TournamentClass:
+class TournamentClass(CacheMixin):
     tournament_class_id:            Optional[int] = None
     tournament_class_id_ext:        Optional[str] = None
     tournament_id:                  int = None
@@ -239,21 +240,49 @@ class TournamentClass:
                 return 6
             else:  # 9 (Unknown) or None
                 return None
+            
+    # Used by get_filtered_classes       
+    @classmethod
+    def get_internal_class_ids(
+        cls,
+        cursor: sqlite3.Cursor,
+        ext_ids: List[str],
+        data_source_id: int = 1
+    ) -> List[int]:
+        """Convert list of external class IDs (with data_source_id) to internal tournament_class_ids."""
+        if not ext_ids:
+            return []
 
+        placeholders = ', '.join(['?'] * len(ext_ids))
+        sql = f"""
+            SELECT tournament_class_id 
+            FROM tournament_class 
+            WHERE tournament_class_id_ext IN ({placeholders}) AND data_source_id = ?
+        """
+        params = ext_ids + [data_source_id]
+        cursor.execute(sql, params)
+        return [row[0] for row in cursor.fetchall()]
+        
+    @classmethod
+    def get_by_ext_id(cls, cursor: sqlite3.Cursor, tournament_class_id_ext: str) -> Optional['TournamentClass']:
+        """Fetch TournamentClass by external ID with default caching."""
+        rows = cls.cached_query(cursor, "SELECT * FROM tournament_class WHERE tournament_class_id_ext = ?", (tournament_class_id_ext,), cache_key_extra=f"tc_by_ext:{tournament_class_id_ext}")
+        return cls.from_dict(rows[0]) if rows else None
+    
     @classmethod
     def get_filtered_classes(
         cls,
-        cursor: sqlite3.Cursor,
-        class_id_exts: Optional[List[str]] = None,  # External class IDs
-        tournament_id_exts: Optional[List[str]] = None,  # External tournament IDs
-        data_source_id: Optional[int] = None,
-        cutoff_date: Optional[date] = None,
-        require_ended: bool = True,
-        allowed_type_ids: Optional[List[int]] = None,
-        allowed_structure_ids: Optional[List[int]] = None,  # Filter by structure_id
-        max_classes: Optional[int] = None,
-        order: Optional[str] = None,
-        cache_key: Optional[str] = None  # e.g., 'id', 'tournament_id'; None for direct SQL
+        cursor:                     sqlite3.Cursor,
+        class_id_exts:              Optional[List[str]] = None,  # External class IDs
+        tournament_id_exts:         Optional[List[str]] = None,  # External tournament IDs
+        data_source_id:             Optional[int] = None,
+        cutoff_date:                Optional[date] = None,
+        require_ended:              bool = True,
+        allowed_type_ids:           Optional[List[int]] = None,
+        allowed_structure_ids:      Optional[List[int]] = None,  # Filter by structure_id
+        max_classes:                Optional[int] = None,
+        order:                      Optional[str] = None,
+        cache_key:                  Optional[str] = None  # e.g., 'id', 'tournament_id'; None for direct SQL
     ) -> List['TournamentClass']:
         """Load and filter tournament classes based on config settings.
         
@@ -455,27 +484,7 @@ class TournamentClass:
 #         """Instantiate from a database row dict, including extra fields like tournament_is_valid."""
 #         return cls.from_dict(row)  # Assumes from_dict handles extra keys like tournament_is_valid
     
-#     @classmethod
-#     def get_internal_class_ids(
-#         cls,
-#         cursor: sqlite3.Cursor,
-#         ext_ids: List[str],
-#         data_source_id: int = 1
-#     ) -> List[int]:
-#         """Convert list of external class IDs (with data_source_id) to internal tournament_class_ids."""
-#         if not ext_ids:
-#             return []
 
-#         placeholders = ', '.join(['?'] * len(ext_ids))
-#         sql = f"""
-#             SELECT tournament_class_id 
-#             FROM tournament_class 
-#             WHERE tournament_class_id_ext IN ({placeholders}) AND data_source_id = ?
-#         """
-#         params = ext_ids + [data_source_id]
-#         cursor.execute(sql, params)
-#         return [row[0] for row in cursor.fetchall()]
-    
 #     @classmethod
 #     def get_valid_singles_after_cutoff(
 #         cls, 

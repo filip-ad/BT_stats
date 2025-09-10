@@ -26,21 +26,41 @@ class Participant(CacheMixin):
             tournament_class_final_position = d.get("tournament_class_final_position"),
         )
 
-    def validate(self
-        ) -> Dict[str, str]:
+    def validate(self) -> Tuple[bool, str]:
         """
-        Validate Participant fields, log to OperationLogger.
-        Returns dict with status and reason.
+        Validate fields.
+        Returns: (is_valid, error_message)
         """
+        missing = []
         if not self.tournament_class_id:
-            return {
-                "status": "failed", 
-                "reason": "Missing required field: tournament_class_id"
-            }
+            missing.append("tournament_class_id")
 
-        # Add more validations as needed (e.g., seed/position ranges)
+        if missing:
+            return False, f"Missing/invalid fields: {', '.join(missing)}"
 
-        return {"status": "success", "reason": "Validated OK"}
+        return True, ""
+    
+    def upsert(self, cursor) -> Dict[str, str]:
+        """
+        Upsert participant into DB, updating existing record if tournament_class_id matches.
+        """
+        query = """
+            INSERT INTO participant (participant_id, tournament_class_id, tournament_class_seed, tournament_class_final_position)
+            VALUES ((SELECT participant_id FROM participant WHERE tournament_class_id = ?), ?, ?, ?)
+            ON CONFLICT(tournament_class_id) DO UPDATE SET
+                tournament_class_seed = excluded.tournament_class_seed,
+                tournament_class_final_position = excluded.tournament_class_final_position
+            RETURNING participant_id
+        """
+        values = (self.tournament_class_id, self.tournament_class_id, self.tournament_class_seed, self.tournament_class_final_position)
+        try:
+            cursor.execute(query, values)
+            row = cursor.fetchone()
+            if row:
+                self.participant_id = row[0]
+                return {"status": "success", "reason": "Participant upserted successfully"}
+        except Exception as e:
+            return {"status": "failed", "reason": f"Unexpected error during upsert: {e}"}
 
     def insert(
             self, 

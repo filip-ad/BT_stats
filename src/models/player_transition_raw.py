@@ -50,21 +50,21 @@ class PlayerTransitionRaw:
             return False, f"Missing/invalid fields: {', '.join(missing)}"
         return True, ""
 
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Dict for DB insert/upsert.
-        """
-        return {
-            "season_id_ext":        self.season_id_ext,
-            "season_label":         self.season_label,
-            "firstname":            self.firstname,
-            "lastname":             self.lastname,
-            "date_born":            self.date_born,
-            "year_born":            self.year_born,
-            "club_from":            self.club_from,
-            "club_to":              self.club_to,
-            "transition_date":      self.transition_date,
-        }
+    # def to_dict(self) -> Dict[str, Any]:
+    #     """
+    #     Dict for DB insert/upsert.
+    #     """
+    #     return {
+    #         "season_id_ext":        self.season_id_ext,
+    #         "season_label":         self.season_label,
+    #         "firstname":            self.firstname,
+    #         "lastname":             self.lastname,
+    #         "date_born":            self.date_born,
+    #         "year_born":            self.year_born,
+    #         "club_from":            self.club_from,
+    #         "club_to":              self.club_to,
+    #         "transition_date":      self.transition_date,
+    #     }
     
     
     @staticmethod

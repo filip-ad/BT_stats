@@ -159,7 +159,7 @@ def _download_pdf_ondata_by_tournament_class_and_stage(tournament_id_ext: str, c
     try:
         resp = requests.get(url, timeout=20)
         if resp.status_code != 200 or not resp.content.startswith(b"%PDF-"):
-            return None, False, f"No valid PDF at {url} (status: {resp.status_code})"
+            return None, False, f"No valid PDF for stage {stage} (status: {resp.status_code})"
 
         with open(pdf_path, "wb") as f:
             f.write(resp.content)

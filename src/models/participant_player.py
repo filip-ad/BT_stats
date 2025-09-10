@@ -1,7 +1,7 @@
 # src/models/participant_player.py
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import sqlite3
 from models.cache_mixin import CacheMixin
 from utils import name_keys_for_lookup_all_splits
@@ -38,24 +38,43 @@ class ParticipantPlayer(CacheMixin):
             club_id                   = _as_int(d.get("club_id")),
         )
 
-    def validate(
-            self
-        ) -> Dict[str, str]:
+    def validate(self) -> Tuple[bool, str]:
         """
-        Validate ParticipantPlayer fields, log to OperationLogger.
-        Returns dict with status and reason.
+        Validate fields.
+        Returns: (is_valid, error_message)
         """
-        if not (self.participant_id and self.player_id):
-            reason = "Missing required fields: participant_id or player_id"
-            return {
-                "status": "failed", 
-                "reason": reason
-            }
+        missing = []
+        if not self.participant_id:
+            missing.append("participant_id")
+        if not self.player_id:
+            missing.append("player_id")
 
-        return {
-            "status": "success", 
-            "reason": "Validated OK"
-        }
+        if missing:
+            return False, f"Missing/invalid fields: {', '.join(missing)}"
+
+        return True, ""
+    
+    def upsert(self, cursor, participant_id: int, player_id: int) -> Dict[str, str]:
+        """
+        Upsert participant_player into DB, updating existing record if participant_id and player_id match.
+        """
+        query = """
+            INSERT INTO participant_player (participant_player_id, participant_player_id_ext, participant_id, player_id, club_id)
+            VALUES ((SELECT participant_player_id FROM participant_player WHERE participant_id = ? AND player_id = ?), ?, ?, ?, ?)
+            ON CONFLICT(participant_id, player_id) DO UPDATE SET
+                participant_player_id_ext = excluded.participant_player_id_ext,
+                club_id = excluded.club_id
+            RETURNING participant_player_id
+        """
+        values = (participant_id, player_id, self.participant_player_id_ext, participant_id, player_id, self.club_id)
+        try:
+            cursor.execute(query, values)
+            row = cursor.fetchone()
+            if row:
+                self.participant_player_id = row[0]
+                return {"status": "success", "reason": "ParticipantPlayer upserted successfully"}
+        except Exception as e:
+            return {"status": "failed", "reason": f"Unexpected error during upsert: {e}"}
 
     def insert(
             self, 

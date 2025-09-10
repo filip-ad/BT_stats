@@ -257,26 +257,21 @@ def create_tables(cursor):
         # Generic participant raw table (tournament participants only for now)
         # Create similar for leagues/fixtures later
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS participant_raw_tournament (
+            CREATE TABLE IF NOT EXISTS participant_player_raw_tournament (
                 row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
-
-                -- Provenance
                 tournament_id_ext               TEXT NOT NULL,   -- external tournament ID from source
                 tournament_class_id_ext         TEXT NOT NULL,   -- external class ID from source
-                data_source_id                  INTEGER NOT NULL, -- FK to data_source (1=OnData, 2=Profixio, etc.)
-
-                -- Raw values (unaltered as parsed)
+                participant_player_id_ext       TEXT,            -- external participant ID from source (if any)
                 fullname_raw                    TEXT NOT NULL,   -- raw player name string
                 clubname_raw                    TEXT,            -- raw club name string
                 seed_raw                        TEXT,            -- raw seed (string, since formats vary)
                 final_position_raw              TEXT,            -- raw final position (string/number, as parsed)
-
-                -- Metadata
+                raw_group_id                    TEXT,            -- raw group ID/name if available
+                data_source_id                  INTEGER NOT NULL, -- FK to data_source (1=OnData, 2=Profixio, etc.)       
                 row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
                 FOREIGN KEY (data_source_id)    REFERENCES data_source(data_source_id),
-                UNIQUE (tournament_id_ext, tournament_class_id_ext, fullname_raw, clubname_raw, data_source_id)
+                UNIQUE (tournament_id_ext, tournament_class_id_ext, fullname_raw, clubname_raw, participant_player_id_ext, data_source_id)
             );
         ''')
 
@@ -1162,7 +1157,7 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_participant_player_participant_id ON participant_player(participant_id)",  # Added for joins to participant
 
         # Participant raw tournament
-        "CREATE INDEX IF NOT EXISTS idx_prt_class ON participant_raw_tournament(tournament_class_id_ext)",
+        "CREATE INDEX IF NOT EXISTS idx_prt_class ON participant_player_raw_tournament(tournament_class_id_ext)",
 
         # Tournament class group (replaced tournament_group)
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_class_id ON tournament_class_group(tournament_class_id)",
