@@ -291,7 +291,7 @@ class Tournament(CacheMixin):
                     self.city or None,
                     self.arena or None,
                     self.country_code or None,
-                    self.url or None,  # Ensure url is explicitly included
+                    self.url or None,
                     self.tournament_level_id,
                     self.tournament_type_id,
                     self.tournament_status_id,
