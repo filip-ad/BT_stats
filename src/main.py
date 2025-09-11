@@ -76,18 +76,22 @@ def main():
             # 'match_side',                         # match, participant
             # 'game',                               # match
             # 'match_id_ext',                       # match
-            # 'match_side_player',                  # references club
+            # 'tournament_class_match',
+            # 'tournament_class_group_standing',
+            'tournament_class_group'
+           
+            # 'match_side_player'                  # references club
             # 'match'
             
             # # Tournament participants
-            # 'participant',                        # FK tournament_class
+            # 'participant'                     # FK tournament_class
             # 'participant_player',                 # FK participant, player (verified, unverified), club
             # 'participant_player_raw_tournament'  # FK tournament_class, data_source
 
             # # Group and standing
             # 'tournament_class_group',             # FK tournament_class
             # 'tournament_class_group_member',      # FK tournament_class_group, participant
-            # 'tournament_class_group_standing',    # FK tournament_class_group, participant
+            # 'tournament_class_group_standing'    # FK tournament_class_group, participant
 
             # # Tournament core
             # 'tournament_class'                   # FK tournament, tournament_class_type, tournament_class_structure, data_source
@@ -109,6 +113,8 @@ def main():
             # 'club_name_prefix_match',             # FK club
             # 'log_output'
         ])
+
+        
 
         create_and_populate_static_tables(cursor)
         create_tables(cursor)  

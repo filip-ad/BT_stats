@@ -242,6 +242,7 @@ def create_tables(cursor):
         CREATE TABLE IF NOT EXISTS tournament_class_match (
             tournament_class_id                             INTEGER NOT NULL,
             match_id                                        INTEGER NOT NULL,
+            tournament_class_match_id_ext                   TEXT,
             tournament_class_stage_id                       INTEGER NOT NULL,
             tournament_class_group_id                       INTEGER,
             stage_round_no                                  INTEGER,  -- 1..N within that stage (RR round or KO progression) ... the playing round within that stage (needed for group RR and for KO ordering).
@@ -254,13 +255,12 @@ def create_tables(cursor):
             FOREIGN KEY (tournament_class_stage_id)         REFERENCES tournament_class_stage(tournament_class_stage_id),
              
             -- Enforce that the group (if present) belongs to the same class
-            FOREIGN KEY (tournament_class_id, tournament_class_group_id)
-              REFERENCES tournament_class_group (tournament_class_id, tournament_class_group_id),
+            --FOREIGN KEY (tournament_class_id, tournament_class_group_id)
+            --  REFERENCES tournament_class_group (tournament_class_id, tournament_class_group_id),
 
             PRIMARY KEY (tournament_class_id, match_id)
         );
     ''')
-
 
         # Core Match
         cursor.execute('''
@@ -269,19 +269,74 @@ def create_tables(cursor):
                 best_of                                     INTEGER,
                 date                                        DATE,
                 status                                      TEXT DEFAULT 'completed',
-                winner_side                                 INTEGER,
-                walkover_side                               INTEGER,
-                retired_side                                INTEGER,
+                winner_side                                 INTEGER CHECK (winner_side IN (1, 2) OR winner_side IS NULL),
+                walkover_side                               INTEGER CHECK (walkover_side IN (1, 2) OR walkover_side IS NULL),
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-                CHECK (match_format IN ('S', 'D')),
-                CHECK (winner_side IN (1, 2) OR winner_side IS NULL),
-                CHECK (walkover_side IN (1, 2) OR walkover_side IS NULL),
-                CHECK (retired_side IN (1, 2) OR retired_side IS NULL)
+                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
 
+        # Match side (which participant played on which side)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS match_side (
+                match_id                                        INTEGER,
+                side_no                                     INTEGER,
+                represented_entry_id                        INTEGER,
+                represented_league_team_id                  INTEGER,
+                row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (match_id)                      REFERENCES match(match_id),
+                FOREIGN KEY (represented_league_team_id)    REFERENCES league_team(league_team_id),
+                FOREIGN KEY (represented_entry_id)          REFERENCES tournament_class_entry(tournament_class_entry_id),
+
+                PRIMARY KEY (match_id, side_no),
+
+                CHECK (side_no IN (1, 2)),
+                CHECK (
+                    (represented_league_team_id IS NOT NULL AND represented_entry_id IS NULL)
+                    OR (represented_league_team_id IS NULL AND represented_entry_id IS NOT NULL)
+                    OR (represented_league_team_id IS NULL AND represented_entry_id IS NULL)
+                )
+            );
+        ''')
+
+        # Match player (which player played in which match and on which side)
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS match_player (
+            match_id                        INTEGER,
+            side_no                         INTEGER,
+            player_id                       INTEGER,
+            player_order                    INTEGER,
+            club_id                         INTEGER,
+            row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (match_id, side_no) REFERENCES match_side(match_id, side_no),
+            FOREIGN KEY (player_id)         REFERENCES player(player_id),
+            FOREIGN KEY (club_id)           REFERENCES club(club_id),
+
+            PRIMARY KEY (match_id, side_no, player_id),
+
+            CHECK (player_order IN (1, 2))
+        );
+    ''')
+        
+        # Game table (sets within a match)
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS game (
+            match_id                        INTEGER,
+            game_no                         INTEGER,
+            points_side1                    INTEGER,
+            points_side2                    INTEGER,
+            row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (match_id)          REFERENCES match(match_id),
+
+            PRIMARY KEY (match_id, game_no)
+        );
+    ''')
 
         # Create tournament class group table
         cursor.execute('''
@@ -301,38 +356,58 @@ def create_tables(cursor):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_group_member (
                 tournament_class_group_id                   INTEGER NOT NULL,
-                participant_id                              INTEGER NOT NULL,
+                tournament_class_entry_id                   INTEGER NOT NULL,
                 seed_in_group                               INTEGER,
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (tournament_class_group_id)     REFERENCES tournament_class_group(tournament_class_group_id)    ON DELETE CASCADE,
-                FOREIGN KEY (participant_id)                REFERENCES participant(participant_id)                          ON DELETE CASCADE,
-                PRIMARY KEY (tournament_class_group_id, participant_id)
+                FOREIGN KEY (tournament_class_entry_id)     REFERENCES tournament_class_entry(tournament_class_entry_id)    ON DELETE CASCADE,
+                PRIMARY KEY (tournament_class_group_id, tournament_class_entry_id)
             );
         ''')
 
-        # Generic participant table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS participant (
-                participant_id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+        # # Create group standing table
+        # cursor.execute('''
+        #     CREATE TABLE IF NOT EXISTS tournament_class_group_standing (
+        #         tournament_class_group_id                   INTEGER NOT NULL,
+        #         participant_id                              INTEGER NOT NULL,
+        #         position_in_group                           INTEGER,
+        #         nbr_matches_won                             INTEGER NOT NULL DEFAULT 0,
+        #         nbr_matches_lost                            INTEGER NOT NULL DEFAULT 0,
+        #         nbr_games_won                               INTEGER NOT NULL DEFAULT 0,
+        #         nbr_games_lost                              INTEGER NOT NULL DEFAULT 0,
+        #         nbr_points_won                              INTEGER NOT NULL DEFAULT 0,
+        #         nbr_points_lost                             INTEGER NOT NULL DEFAULT 0,
+        #         row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         FOREIGN KEY (tournament_class_group_id)     REFERENCES tournament_class_group(tournament_class_group_id)    ON DELETE CASCADE,
+        #         FOREIGN KEY (participant_id)                REFERENCES participant(participant_id)                          ON DELETE CASCADE,
+        #         PRIMARY KEY (tournament_class_group_id, participant_id)
+        #     );
+        # ''')
+
+        # # Generic participant table
+        # cursor.execute('''
+        #     CREATE TABLE IF NOT EXISTS participant (
+        #         participant_id                      INTEGER PRIMARY KEY AUTOINCREMENT,
                     
-                -- Polymorphic fields: Exactly one set based on type
-                tournament_class_id                 INTEGER,
-                tournament_class_seed               INTEGER,
-                tournament_class_final_position     INTEGER,
+        #         -- Polymorphic fields: Exactly one set based on type
+        #         tournament_class_id                 INTEGER,
+        #         tournament_class_seed               INTEGER,
+        #         tournament_class_final_position     INTEGER,
                 
-                -- Add later: league_id             INTEGER,  -- For future leagues
-                -- fixture_participant_id           INTEGER,  -- If fixtures have separate participants
-                row_created                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (tournament_class_id)   REFERENCES tournament_class(tournament_class_id)         ON DELETE CASCADE,
+        #         -- Add later: league_id             INTEGER,  -- For future leagues
+        #         -- fixture_participant_id           INTEGER,  -- If fixtures have separate participants
+        #         row_created                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         row_updated                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         FOREIGN KEY (tournament_class_id)   REFERENCES tournament_class(tournament_class_id)         ON DELETE CASCADE,
                     
-                -- Add FKs for future types here
-                CHECK (
-                        (tournament_class_id IS NOT NULL)  -- + (league_id IS NOT NULL) + ... = 1 for exactly one type
-                )       -- Update CHECK as you add types
-            );
-        ''')
+        #         -- Add FKs for future types here
+        #         CHECK (
+        #                 (tournament_class_id IS NOT NULL)  -- + (league_id IS NOT NULL) + ... = 1 for exactly one type
+        #         )       -- Update CHECK as you add types
+        #     );
+        # ''')
 
         # Generic participant raw table (tournament participants only for now)
         # Create similar for leagues/fixtures later
@@ -355,138 +430,122 @@ def create_tables(cursor):
             );
         ''')
 
-        # Create participant player table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS participant_player (
-                participant_player_id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                participant_player_id_ext       TEXT,
-                participant_id                  INTEGER NOT NULL,
-                player_id                       INTEGER NOT NULL,
-                club_id                         INTEGER,
-                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (participant_id)    REFERENCES participant(participant_id) ON DELETE CASCADE,
-                FOREIGN KEY (player_id)         REFERENCES player(player_id),
-                FOREIGN KEY (club_id)           REFERENCES club(club_id),
-                UNIQUE (participant_id, player_id)  -- Prevent duplicate players per participant (e.g., in doubles)            
-            );
-        ''')
 
-        # Create match table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS match (
-                match_id                    INTEGER PRIMARY KEY AUTOINCREMENT,          
-                best_of                     INTEGER,
-                date                        DATE,
-                row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-        ''')
 
-        # Create match id ext table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS match_id_ext (
-                match_id                    INTEGER NOT NULL,
-                match_id_ext                TEXT NOT NULL,
-                data_source_id              INTEGER NOT NULL,
-                row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (match_id)      REFERENCES match(match_id)                  ON DELETE CASCADE,
-                PRIMARY KEY (match_id, match_id_ext, data_source_id)
-            );
-        ''')
+        # # Create participant player table
+        # cursor.execute('''
+        #     CREATE TABLE IF NOT EXISTS participant_player (
+        #         participant_player_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        #         participant_player_id_ext       TEXT,
+        #         participant_id                  INTEGER NOT NULL,
+        #         player_id                       INTEGER NOT NULL,
+        #         club_id                         INTEGER,
+        #         row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         FOREIGN KEY (participant_id)    REFERENCES participant(participant_id) ON DELETE CASCADE,
+        #         FOREIGN KEY (player_id)         REFERENCES player(player_id),
+        #         FOREIGN KEY (club_id)           REFERENCES club(club_id),
+        #         UNIQUE (participant_id, player_id)  -- Prevent duplicate players per participant (e.g., in doubles)            
+        #     );
+        # ''')
 
-        # Create match side
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS match_side (
-                match_side_id                           INTEGER PRIMARY KEY AUTOINCREMENT,
-                match_id                                INTEGER NOT NULL,
-                side                                    INTEGER NOT NULL CHECK(side IN (1,2)),
-                participant_id                          INTEGER NOT NULL,
-                row_created                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (match_id)                  REFERENCES match(match_id) ON DELETE CASCADE,
-                FOREIGN KEY (participant_id)            REFERENCES participant(participant_id)     ON DELETE CASCADE,
-                UNIQUE (match_id, side)
-            );
-        ''')
+        # # Create match table
+        # cursor.execute('''
+        #     CREATE TABLE IF NOT EXISTS match (
+        #         match_id                    INTEGER PRIMARY KEY AUTOINCREMENT,          
+        #         best_of                     INTEGER,
+        #         date                        DATE,
+        #         row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         row_updated                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        #         );
+        # ''')
 
-        # Create competition match mapping table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS match_competition (
-                match_competition_id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-                match_id                                INTEGER NOT NULL,
-                competition_type_id                     INTEGER NOT NULL,
+        # # Create match id ext table
+        # cursor.execute('''
+        #     CREATE TABLE IF NOT EXISTS match_id_ext (
+        #         match_id                    INTEGER NOT NULL,
+        #         match_id_ext                TEXT NOT NULL,
+        #         data_source_id              INTEGER NOT NULL,
+        #         row_created                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         row_updated                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         FOREIGN KEY (match_id)      REFERENCES match(match_id)                  ON DELETE CASCADE,
+        #         PRIMARY KEY (match_id, match_id_ext, data_source_id)
+        #     );
+        # ''')
+
+        # # Create match side
+        # cursor.execute('''
+        #     CREATE TABLE IF NOT EXISTS match_side (
+        #         match_side_id                           INTEGER PRIMARY KEY AUTOINCREMENT,
+        #         match_id                                INTEGER NOT NULL,
+        #         side                                    INTEGER NOT NULL CHECK(side IN (1,2)),
+        #         participant_id                          INTEGER NOT NULL,
+        #         row_created                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         row_updated                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         FOREIGN KEY (match_id)                  REFERENCES match(match_id) ON DELETE CASCADE,
+        #         FOREIGN KEY (participant_id)            REFERENCES participant(participant_id)     ON DELETE CASCADE,
+        #         UNIQUE (match_id, side)
+        #     );
+        # ''')
+
+        # # Create competition match mapping table
+        # cursor.execute('''
+        #     CREATE TABLE IF NOT EXISTS match_competition (
+        #         match_competition_id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+        #         match_id                                INTEGER NOT NULL,
+        #         competition_type_id                     INTEGER NOT NULL,
                     
-                -- Only one of the following may be set depending on competition_type_id:
-                tournament_class_id                     INTEGER,
-                fixture_id                              INTEGER,
+        #         -- Only one of the following may be set depending on competition_type_id:
+        #         tournament_class_id                     INTEGER,
+        #         fixture_id                              INTEGER,
                     
-                -- Optional tournament context (only valid when competition_type_id=1)
-                tournament_class_group_id               INTEGER,
-                tournament_class_stage_id               INTEGER,
+        #         -- Optional tournament context (only valid when competition_type_id=1)
+        #         tournament_class_group_id               INTEGER,
+        #         tournament_class_stage_id               INTEGER,
 
-                -- Optional league context
+        #         -- Optional league context
                     
-                row_created                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (match_id)                  REFERENCES match(match_id)                                      ON DELETE CASCADE,
-                FOREIGN KEY (competition_type_id)       REFERENCES competition_type(competition_type_id),
-                FOREIGN KEY (tournament_class_id)       REFERENCES tournament_class(tournament_class_id)                ON DELETE CASCADE,
-                FOREIGN KEY (fixture_id)                REFERENCES fixture(fixture_id)                                  ON DELETE CASCADE,
-                FOREIGN KEY (tournament_class_stage_id) REFERENCES tournament_class_stage(tournament_class_stage_id)    ON DELETE SET NULL,
-                FOREIGN KEY (tournament_class_group_id) REFERENCES tournament_class_group(tournament_class_group_id)    ON DELETE SET NULL,
-                UNIQUE      (match_id, competition_type_id),
+        #         row_created                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         row_updated                             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         FOREIGN KEY (match_id)                  REFERENCES match(match_id)                                      ON DELETE CASCADE,
+        #         FOREIGN KEY (competition_type_id)       REFERENCES competition_type(competition_type_id),
+        #         FOREIGN KEY (tournament_class_id)       REFERENCES tournament_class(tournament_class_id)                ON DELETE CASCADE,
+        #         FOREIGN KEY (fixture_id)                REFERENCES fixture(fixture_id)                                  ON DELETE CASCADE,
+        #         FOREIGN KEY (tournament_class_stage_id) REFERENCES tournament_class_stage(tournament_class_stage_id)    ON DELETE SET NULL,
+        #         FOREIGN KEY (tournament_class_group_id) REFERENCES tournament_class_group(tournament_class_group_id)    ON DELETE SET NULL,
+        #         UNIQUE      (match_id, competition_type_id),
 
-                -- Exactly one target depending on competition_type:
-                CHECK (
-                        (competition_type_id = 1 AND tournament_class_id    IS NOT NULL AND fixture_id IS NULL)
-                OR      (competition_type_id = 2 AND fixture_id             IS NOT NULL AND tournament_class_id IS NULL)
-                OR      (competition_type_id = 3 AND tournament_class_id    IS NULL AND     fixture_id IS NULL)
-                ),
+        #         -- Exactly one target depending on competition_type:
+        #         CHECK (
+        #                 (competition_type_id = 1 AND tournament_class_id    IS NOT NULL AND fixture_id IS NULL)
+        #         OR      (competition_type_id = 2 AND fixture_id             IS NOT NULL AND tournament_class_id IS NULL)
+        #         OR      (competition_type_id = 3 AND tournament_class_id    IS NULL AND     fixture_id IS NULL)
+        #         ),
 
-                -- Stage/group only allowed for TournamentClass:
-                CHECK (
-                        (competition_type_id = 1)
-                    OR  (tournament_class_stage_id  IS NULL AND tournament_class_group_id IS NULL)
-                )
-            );
-        ''')
+        #         -- Stage/group only allowed for TournamentClass:
+        #         CHECK (
+        #                 (competition_type_id = 1)
+        #             OR  (tournament_class_stage_id  IS NULL AND tournament_class_group_id IS NULL)
+        #         )
+        #     );
+        # ''')
 
-        # Create game table (sets)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS game (
-                match_id                            INTEGER NOT NULL,
-                game_nbr                            INTEGER NOT NULL,
-                side1_points                        INTEGER,
-                side2_points                        INTEGER,
-                winning_side                        INTEGER CHECK(winning_side IN (1,2)),
-                row_created                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (match_id)              REFERENCES match(match_id)              ON DELETE CASCADE,
-                PRIMARY KEY (match_id, game_nbr)
-            );
-        ''')
+        # # Create game table (sets)
+        # cursor.execute('''
+        #     CREATE TABLE IF NOT EXISTS game (
+        #         match_id                            INTEGER NOT NULL,
+        #         game_nbr                            INTEGER NOT NULL,
+        #         side1_points                        INTEGER,
+        #         side2_points                        INTEGER,
+        #         winning_side                        INTEGER CHECK(winning_side IN (1,2)),
+        #         row_created                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         row_updated                         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        #         FOREIGN KEY (match_id)              REFERENCES match(match_id)              ON DELETE CASCADE,
+        #         PRIMARY KEY (match_id, game_nbr)
+        #     );
+        # ''')
 
-        # Create group standing table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tournament_class_group_standing (
-                tournament_class_group_id                   INTEGER NOT NULL,
-                participant_id                              INTEGER NOT NULL,
-                position_in_group                           INTEGER,
-                nbr_matches_won                             INTEGER NOT NULL DEFAULT 0,
-                nbr_matches_lost                            INTEGER NOT NULL DEFAULT 0,
-                nbr_games_won                               INTEGER NOT NULL DEFAULT 0,
-                nbr_games_lost                              INTEGER NOT NULL DEFAULT 0,
-                nbr_points_won                              INTEGER NOT NULL DEFAULT 0,
-                nbr_points_lost                             INTEGER NOT NULL DEFAULT 0,
-                row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (tournament_class_group_id)     REFERENCES tournament_class_group(tournament_class_group_id)    ON DELETE CASCADE,
-                FOREIGN KEY (participant_id)                REFERENCES participant(participant_id)                          ON DELETE CASCADE,
-                PRIMARY KEY (tournament_class_group_id, participant_id)
-            );
-        ''')
+
 
         ##############################################
         ########## PLAYER TABLES #####################
@@ -1257,47 +1316,47 @@ def create_indexes(cursor):
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_startdate ON tournament_class(startdate)",
 
         # Participant 
-        "CREATE INDEX IF NOT EXISTS idx_participant_tournament_class_id ON participant(tournament_class_id)",
+        # "CREATE INDEX IF NOT EXISTS idx_participant_tournament_class_id ON participant(tournament_class_id)",
 
         # Participant player 
-        "CREATE INDEX IF NOT EXISTS idx_participant_player_player_id ON participant_player(player_id)",
-        "CREATE INDEX IF NOT EXISTS idx_participant_player_club_id ON participant_player(club_id)",
-        "CREATE INDEX IF NOT EXISTS idx_participant_player_participant_id ON participant_player(participant_id)",  # Added for joins to participant
+        # "CREATE INDEX IF NOT EXISTS idx_participant_player_player_id ON participant_player(player_id)",
+        # "CREATE INDEX IF NOT EXISTS idx_participant_player_club_id ON participant_player(club_id)",
+        # "CREATE INDEX IF NOT EXISTS idx_participant_player_participant_id ON participant_player(participant_id)",  # Added for joins to participant
 
         # Participant raw tournament
         "CREATE INDEX IF NOT EXISTS idx_prt_class ON participant_player_raw_tournament(tournament_class_id_ext)",
 
         # Tournament class group (replaced tournament_group)
-        "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_class_id ON tournament_class_group(tournament_class_id)",
+        # "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_class_id ON tournament_class_group(tournament_class_id)",
 
         # Tournament class group member (replaced tournament_group_member)
-        "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_member_group_id ON tournament_class_group_member(tournament_class_group_id)",
-        "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_member_participant_id ON tournament_class_group_member(participant_id)",  # Updated to participant_id
+        # "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_member_group_id ON tournament_class_group_member(tournament_class_group_id)",
+        # "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_member_participant_id ON tournament_class_group_member(participant_id)",  # Updated to participant_id
 
         # Match
         "CREATE INDEX IF NOT EXISTS idx_match_date ON match(date)",  # Added for date-based queries
 
         # Match id ext
-        "CREATE INDEX IF NOT EXISTS idx_match_id_ext_match_id ON match_id_ext(match_id)",  # Added for source lookups
+        # "CREATE INDEX IF NOT EXISTS idx_match_id_ext_match_id ON match_id_ext(match_id)",  # Added for source lookups
 
         # Match side
-        "CREATE INDEX IF NOT EXISTS idx_match_side_match_id ON match_side(match_id)",
-        "CREATE INDEX IF NOT EXISTS idx_match_side_participant_id ON match_side(participant_id)",  # Added for participant match history
+        # "CREATE INDEX IF NOT EXISTS idx_match_side_match_id ON match_side(match_id)",
+        # "CREATE INDEX IF NOT EXISTS idx_match_side_participant_id ON match_side(participant_id)",  # Added for participant match history
 
         # Match competition
-        "CREATE INDEX IF NOT EXISTS idx_match_competition_match_id ON match_competition(match_id)",
-        "CREATE INDEX IF NOT EXISTS idx_match_competition_tournament_class_id ON match_competition(tournament_class_id)",
-        "CREATE INDEX IF NOT EXISTS idx_match_competition_competition_type_id ON match_competition(competition_type_id)",  # Added for type filtering
+        # "CREATE INDEX IF NOT EXISTS idx_match_competition_match_id ON match_competition(match_id)",
+        # "CREATE INDEX IF NOT EXISTS idx_match_competition_tournament_class_id ON match_competition(tournament_class_id)",
+        # "CREATE INDEX IF NOT EXISTS idx_match_competition_competition_type_id ON match_competition(competition_type_id)",  # Added for type filtering
 
         # Game
         "CREATE INDEX IF NOT EXISTS idx_game_match_id ON game(match_id)",  # Added for match results aggregation
 
         # Tournament class group standing
-        "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_standing_group_id ON tournament_class_group_standing(tournament_class_group_id)",
-        "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_standing_participant_id ON tournament_class_group_standing(participant_id)"  # Added for standings queries
+        # "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_standing_group_id ON tournament_class_group_standing(tournament_class_group_id)",
+        # "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_standing_participant_id ON tournament_class_group_standing(participant_id)"  # Added for standings queries
 
         # Create unique index for tournament class group
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_class_group ON tournament_class_group (tournament_class_id, tournament_class_group_id)"
+        # "CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_class_group ON tournament_class_group (tournament_class_id, tournament_class_group_id)"
     ]
 
     try:
@@ -1312,119 +1371,119 @@ def create_indexes(cursor):
 def create_triggers(cursor):
     print("ℹ️  Creating database triggers...")
 
-    # Always enforce FK constraints
-    cursor.execute("PRAGMA foreign_keys = ON;")
+    # # Always enforce FK constraints
+    # cursor.execute("PRAGMA foreign_keys = ON;")
 
-    triggers = [
-        (
-            "update_standings_after_game",
-            """
-            CREATE TRIGGER IF NOT EXISTS update_standings_after_game
-            AFTER INSERT ON game
-            FOR EACH ROW
-            WHEN (SELECT tournament_class_group_id FROM match_competition WHERE match_id = NEW.match_id AND competition_type_id = 1 AND tournament_class_group_id IS NOT NULL) IS NOT NULL
-            BEGIN
-                -- Update games and points for both participants
-                UPDATE tournament_class_group_standing
-                SET 
-                    nbr_games_won = nbr_games_won + 
-                        CASE WHEN (SELECT side FROM match_side WHERE match_id = NEW.match_id AND participant_id = tournament_class_group_standing.participant_id) = NEW.winning_side THEN 1 ELSE 0 END,
-                    nbr_games_lost = nbr_games_lost + 
-                        CASE WHEN (SELECT side FROM match_side WHERE match_id = NEW.match_id AND participant_id = tournament_class_group_standing.participant_id) = NEW.winning_side THEN 0 ELSE 1 END,
-                    nbr_points_won = nbr_points_won + 
-                        CASE WHEN (SELECT side FROM match_side WHERE match_id = NEW.match_id AND participant_id = tournament_class_group_standing.participant_id) = 1 THEN NEW.side1_points ELSE NEW.side2_points END,
-                    nbr_points_lost = nbr_points_lost + 
-                        CASE WHEN (SELECT side FROM match_side WHERE match_id = NEW.match_id AND participant_id = tournament_class_group_standing.participant_id) = 1 THEN NEW.side2_points ELSE NEW.side1_points END
-                WHERE tournament_class_group_id = (SELECT tournament_class_group_id FROM match_competition WHERE match_id = NEW.match_id AND competition_type_id = 1)
-                    AND participant_id IN (SELECT participant_id FROM match_side WHERE match_id = NEW.match_id);
+    # triggers = [
+    #     (
+    #         "update_standings_after_game",
+    #         """
+    #         CREATE TRIGGER IF NOT EXISTS update_standings_after_game
+    #         AFTER INSERT ON game
+    #         FOR EACH ROW
+    #         WHEN (SELECT tournament_class_group_id FROM match_competition WHERE match_id = NEW.match_id AND competition_type_id = 1 AND tournament_class_group_id IS NOT NULL) IS NOT NULL
+    #         BEGIN
+    #             -- Update games and points for both participants
+    #             UPDATE tournament_class_group_standing
+    #             SET 
+    #                 nbr_games_won = nbr_games_won + 
+    #                     CASE WHEN (SELECT side FROM match_side WHERE match_id = NEW.match_id AND participant_id = tournament_class_group_standing.participant_id) = NEW.winning_side THEN 1 ELSE 0 END,
+    #                 nbr_games_lost = nbr_games_lost + 
+    #                     CASE WHEN (SELECT side FROM match_side WHERE match_id = NEW.match_id AND participant_id = tournament_class_group_standing.participant_id) = NEW.winning_side THEN 0 ELSE 1 END,
+    #                 nbr_points_won = nbr_points_won + 
+    #                     CASE WHEN (SELECT side FROM match_side WHERE match_id = NEW.match_id AND participant_id = tournament_class_group_standing.participant_id) = 1 THEN NEW.side1_points ELSE NEW.side2_points END,
+    #                 nbr_points_lost = nbr_points_lost + 
+    #                     CASE WHEN (SELECT side FROM match_side WHERE match_id = NEW.match_id AND participant_id = tournament_class_group_standing.participant_id) = 1 THEN NEW.side2_points ELSE NEW.side1_points END
+    #             WHERE tournament_class_group_id = (SELECT tournament_class_group_id FROM match_competition WHERE match_id = NEW.match_id AND competition_type_id = 1)
+    #                 AND participant_id IN (SELECT participant_id FROM match_side WHERE match_id = NEW.match_id);
 
-                -- Update matches_won for the winner if this game decided the match
-                UPDATE tournament_class_group_standing
-                SET nbr_matches_won = nbr_matches_won + 1
-                WHERE tournament_class_group_id = (SELECT tournament_class_group_id FROM match_competition WHERE match_id = NEW.match_id AND competition_type_id = 1)
-                    AND participant_id = (
-                        SELECT participant_id FROM match_side 
-                        WHERE match_id = NEW.match_id 
-                        AND side = (
-                            CASE 
-                                WHEN (
-                                    (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) 
-                                    >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
-                                ) THEN 1
-                                ELSE 2
-                            END
-                        )
-                    )
-                    AND (
-                        -- Was not won before
-                        (
-                            (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) - (CASE WHEN NEW.winning_side = 1 THEN 1 ELSE 0 END) 
-                            < ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
-                        ) AND (
-                            (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 2) - (CASE WHEN NEW.winning_side = 2 THEN 1 ELSE 0 END) 
-                            < ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
-                        )
-                    ) AND (
-                        -- Is won now
-                        (
-                            (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) 
-                            >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
-                            OR 
-                            (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 2) 
-                            >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
-                        )
-                    );
+    #             -- Update matches_won for the winner if this game decided the match
+    #             UPDATE tournament_class_group_standing
+    #             SET nbr_matches_won = nbr_matches_won + 1
+    #             WHERE tournament_class_group_id = (SELECT tournament_class_group_id FROM match_competition WHERE match_id = NEW.match_id AND competition_type_id = 1)
+    #                 AND participant_id = (
+    #                     SELECT participant_id FROM match_side 
+    #                     WHERE match_id = NEW.match_id 
+    #                     AND side = (
+    #                         CASE 
+    #                             WHEN (
+    #                                 (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) 
+    #                                 >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
+    #                             ) THEN 1
+    #                             ELSE 2
+    #                         END
+    #                     )
+    #                 )
+    #                 AND (
+    #                     -- Was not won before
+    #                     (
+    #                         (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) - (CASE WHEN NEW.winning_side = 1 THEN 1 ELSE 0 END) 
+    #                         < ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
+    #                     ) AND (
+    #                         (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 2) - (CASE WHEN NEW.winning_side = 2 THEN 1 ELSE 0 END) 
+    #                         < ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
+    #                     )
+    #                 ) AND (
+    #                     -- Is won now
+    #                     (
+    #                         (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) 
+    #                         >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
+    #                         OR 
+    #                         (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 2) 
+    #                         >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
+    #                     )
+    #                 );
 
-                -- Update matches_lost for the loser if this game decided the match
-                UPDATE tournament_class_group_standing
-                SET nbr_matches_lost = nbr_matches_lost + 1
-                WHERE tournament_class_group_id = (SELECT tournament_class_group_id FROM match_competition WHERE match_id = NEW.match_id AND competition_type_id = 1)
-                    AND participant_id = (
-                        SELECT participant_id FROM match_side 
-                        WHERE match_id = NEW.match_id 
-                        AND side = (
-                            CASE 
-                                WHEN (
-                                    (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) 
-                                    >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
-                                ) THEN 2
-                                ELSE 1
-                            END
-                        )
-                    )
-                    AND (
-                        -- Was not won before
-                        (
-                            (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) - (CASE WHEN NEW.winning_side = 1 THEN 1 ELSE 0 END) 
-                            < ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
-                        ) AND (
-                            (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 2) - (CASE WHEN NEW.winning_side = 2 THEN 1 ELSE 0 END) 
-                            < ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
-                        )
-                    ) AND (
-                        -- Is won now
-                        (
-                            (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) 
-                            >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
-                            OR 
-                            (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 2) 
-                            >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
-                        )
-                    );
-            END;
-            """
-        ),
-        # Add more triggers here as needed
-    ]
+    #             -- Update matches_lost for the loser if this game decided the match
+    #             UPDATE tournament_class_group_standing
+    #             SET nbr_matches_lost = nbr_matches_lost + 1
+    #             WHERE tournament_class_group_id = (SELECT tournament_class_group_id FROM match_competition WHERE match_id = NEW.match_id AND competition_type_id = 1)
+    #                 AND participant_id = (
+    #                     SELECT participant_id FROM match_side 
+    #                     WHERE match_id = NEW.match_id 
+    #                     AND side = (
+    #                         CASE 
+    #                             WHEN (
+    #                                 (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) 
+    #                                 >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
+    #                             ) THEN 2
+    #                             ELSE 1
+    #                         END
+    #                     )
+    #                 )
+    #                 AND (
+    #                     -- Was not won before
+    #                     (
+    #                         (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) - (CASE WHEN NEW.winning_side = 1 THEN 1 ELSE 0 END) 
+    #                         < ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
+    #                     ) AND (
+    #                         (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 2) - (CASE WHEN NEW.winning_side = 2 THEN 1 ELSE 0 END) 
+    #                         < ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
+    #                     )
+    #                 ) AND (
+    #                     -- Is won now
+    #                     (
+    #                         (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 1) 
+    #                         >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
+    #                         OR 
+    #                         (SELECT COUNT(*) FROM game WHERE match_id = NEW.match_id AND winning_side = 2) 
+    #                         >= ((SELECT best_of FROM match WHERE match_id = NEW.match_id) + 1) / 2
+    #                     )
+    #                 );
+    #         END;
+    #         """
+    #     ),
+    #     # Add more triggers here as needed
+    # ]
 
-    try:
+    # try:
 
-        for name, create_sql in triggers:
-            cursor.execute(f"DROP TRIGGER IF EXISTS {name};")
-            cursor.execute(create_sql)
+    #     for name, create_sql in triggers:
+    #         cursor.execute(f"DROP TRIGGER IF EXISTS {name};")
+    #         cursor.execute(create_sql)
 
-    except sqlite3.Error as e:
-        print(f"Error creating triggers: {e}")
+    # except sqlite3.Error as e:
+    #     print(f"Error creating triggers: {e}")
 
 def create_views(cursor):
     print("ℹ️  Creating database views...")
@@ -1606,7 +1665,7 @@ def create_views(cursor):
             
 
             cursor.execute(f"DROP VIEW IF EXISTS {name};")
-            cursor.execute(create_sql)
+            # cursor.execute(create_sql)
             
     except sqlite3.Error as e:
         print(f"Error creating views: {e}")
