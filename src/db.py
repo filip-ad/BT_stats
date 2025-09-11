@@ -1,7 +1,6 @@
 
 # db.py: 
 
-from asyncio.windows_events import NULL
 import sqlite3
 from config import DB_NAME
 import logging
@@ -11,6 +10,7 @@ import datetime
 _ADAPTERS_REGISTERED = False
 
 def get_conn():
+    
     try:
         _register_sqlite_date_time_adapters()
 
@@ -28,6 +28,7 @@ def get_conn():
         conn.execute("PRAGMA foreign_keys = ON;")
 
         return conn, conn.cursor()
+    
     except sqlite3.Error as e:
         print(f"❌ Database connection failed: {e}")
         raise
@@ -59,7 +60,8 @@ def _register_sqlite_date_time_adapters() -> None:
 
     _ADAPTERS_REGISTERED = True    
 
-def drop_tables(cursor, tables):
+def drop_tables(cursor, logger, tables):
+
     dropped = []
     for table_name in tables:
         try:
@@ -69,20 +71,150 @@ def drop_tables(cursor, tables):
             )
             if cursor.fetchone():
                 cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
-                logging.debug(f"Dropped table: {table_name}")
-                # print(f"🗑️  Dropped table: {table_name}")
                 dropped.append(table_name)
             else:
-                logging.warning(f"Table not found, skipping drop: {table_name}")
+                logger.warning(f"Table not found, skipping drop: {table_name}", to_console=True)
         except sqlite3.Error as e:
-            logging.error(f"Error dropping table {table_name}: {e}")
-            print(f"❌ Error dropping table {table_name}: {e}")
+            logger.error(f"Error dropping table {table_name}: {e}", to_console=True)
     if not dropped:
-        logging.info("No tables were dropped.")
-        print("ℹ️  No tables were dropped.")
+        logger.info("No tables dropped.", to_console=True)
     else:
-        logging.info(f"Dropped {len(dropped)} tables: {', '.join(dropped)}")
-        print(f"🗑️  Dropped {len(dropped)} tables: {', '.join(dropped)}")
+        logger.info(f"Dropped {len(dropped)} tables: {', '.join(dropped)}", to_console=True)
+
+def create_raw_tables(cursor, logger):
+
+    raw_tables = {
+        "tournament_raw": '''
+            CREATE TABLE IF NOT EXISTS tournament_raw (
+                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id_ext TEXT,
+                shortname TEXT,
+                longname TEXT,
+                startdate DATE,
+                enddate DATE,
+                registration_end_date DATE,
+                city TEXT,
+                arena TEXT,
+                country_code TEXT,
+                url TEXT,
+                tournament_level TEXT,
+                tournament_type TEXT,
+                organiser_name TEXT,
+                organiser_email TEXT,
+                organiser_phone TEXT,
+                data_source_id INTEGER DEFAULT 1,
+                is_listed BOOLEAN DEFAULT 1,
+                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (data_source_id) REFERENCES data_source(data_source_id),
+                UNIQUE (tournament_id_ext, data_source_id),
+                UNIQUE (shortname, startdate, arena, data_source_id)
+            )
+        ''',
+
+        "tournament_class_raw": '''
+            CREATE TABLE IF NOT EXISTS tournament_class_raw (
+                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id_ext TEXT,
+                tournament_class_id_ext TEXT,
+                startdate DATE,
+                shortname TEXT,
+                longname TEXT,
+                gender TEXT,
+                max_rank INTEGER,
+                max_age INTEGER,
+                url TEXT,
+                raw_stages TEXT,
+                raw_stage_hrefs TEXT,
+                data_source_id INTEGER DEFAULT 1,
+                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (tournament_id_ext, tournament_class_id_ext, data_source_id)
+            )
+        ''',
+
+        "player_license_raw": '''
+            CREATE TABLE IF NOT EXISTS player_license_raw (
+                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                season_label TEXT NOT NULL,
+                season_id_ext INTEGER NOT NULL,
+                club_name TEXT NOT NULL,
+                club_id_ext INT NOT NULL,
+                player_id_ext INTEGER NOT NULL,
+                firstname TEXT NOT NULL,
+                lastname TEXT NOT NULL,
+                gender TEXT NOT NULL,
+                year_born INTEGER NOT NULL,
+                license_info_raw TEXT NOT NULL,
+                ranking_group_raw TEXT,
+                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(season_id_ext, player_id_ext, club_name, year_born, firstname, lastname, license_info_raw)
+            )
+        ''',
+
+        "player_ranking_raw": '''
+            CREATE TABLE IF NOT EXISTS player_ranking_raw (
+                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER,
+                run_date DATE,
+                player_id_ext INTEGER,
+                firstname TEXT,
+                lastname TEXT,
+                year_born INTEGER,
+                club_name TEXT,
+                points INTEGER,
+                points_change_since_last INTEGER,
+                position_world INTEGER,
+                position INTEGER,
+                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (run_id, player_id_ext)
+            )
+        ''',
+
+        "player_transition_raw": '''
+            CREATE TABLE IF NOT EXISTS player_transition_raw (
+                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                season_id_ext INTEGER NOT NULL,
+                season_label TEXT NOT NULL,
+                firstname TEXT NOT NULL,
+                lastname TEXT NOT NULL,
+                date_born DATE NOT NULL,
+                year_born INTEGER NOT NULL,
+                club_from TEXT NOT NULL,
+                club_to TEXT NOT NULL,
+                transition_date DATE NOT NULL,
+                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (firstname, lastname, date_born, transition_date)
+            )
+        '''
+    }
+
+    created, skipped = [], []
+
+    try:
+        for name, ddl in raw_tables.items():
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
+                (name,)
+            )
+            if cursor.fetchone():
+                skipped.append(name)
+            else:
+                cursor.execute(ddl)
+                created.append(name)
+
+    except Exception as e:
+        logger.error(f"Error creating raw tables: {e}")
+        print(f"❌ Error creating raw tables: {e}")
+        raise
+
+    # Summary printout
+    if created:
+        logger.info(f"Created raw tables: {', '.join(created)}")
+    else:
+        logger.info("No raw tables created.")
+        
+
 
 def create_tables(cursor):
 
@@ -125,35 +257,6 @@ def create_tables(cursor):
             )
         ''')
 
-        # Create tournament raw table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tournament_raw (
-                row_id                                      INTEGER PRIMARY KEY AUTOINCREMENT,
-                tournament_id_ext                           TEXT,
-                shortname                                   TEXT,
-                longname                                    TEXT,   
-                startdate                                   DATE,
-                enddate                                     DATE,
-                registration_end_date                       DATE,
-                city                                        TEXT,
-                arena                                       TEXT,
-                country_code                                TEXT,
-                url                                         TEXT,
-                tournament_level                            TEXT,
-                tournament_type                             TEXT,
-                organiser_name                              TEXT,
-                organiser_email                             TEXT,
-                organiser_phone                             TEXT,
-                data_source_id                              INTEGER DEFAULT 1,
-                is_listed                                   BOOLEAN DEFAULT 1,
-                row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (data_source_id)                REFERENCES data_source(data_source_id),
-                UNIQUE (tournament_id_ext, data_source_id),
-                UNIQUE (shortname, startdate, arena, data_source_id)
-            );
-        ''')
-
         # Create tournament class table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class (
@@ -182,27 +285,7 @@ def create_tables(cursor):
             )
         ''')
 
-        # Create tournament class raw table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tournament_class_raw (
-                row_id                                      INTEGER PRIMARY KEY AUTOINCREMENT,
-                tournament_id_ext                           TEXT,
-                tournament_class_id_ext                     TEXT,
-                startdate                                   DATE,
-                shortname                                   TEXT,
-                longname                                    TEXT,
-                gender                                      TEXT,
-                max_rank                                    INTEGER,
-                max_age                                     INTEGER,
-                url                                         TEXT,
-                raw_stages                                  TEXT,
-                raw_stage_hrefs                             TEXT,
-                data_source_id                              INTEGER DEFAULT 1,
-                row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (tournament_id_ext, tournament_class_id_ext, data_source_id)
-            );
-        ''')
+
 
         # Tournament entries (singles or doubles)
         cursor.execute('''
@@ -599,25 +682,7 @@ def create_tables(cursor):
         ########## PLAYER LICENSES ################
         ###########################################
 
-        # Create player license raw table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS player_license_raw (
-                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
-                season_label                    TEXT NOT NULL, 
-                season_id_ext                   INTEGER NOT NULL,
-                club_name                       TEXT NOT NULL,
-                club_id_ext                     INT NOT NULL,
-                player_id_ext                   INTEGER NOT NULL,
-                firstname                       TEXT NOT NULL,
-                lastname                        TEXT NOT NULL,
-                gender                          TEXT NOT NULL,
-                year_born                       INTEGER NOT NULL,
-                license_info_raw                TEXT NOT NULL,
-                ranking_group_raw               TEXT,
-                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(season_id_ext, player_id_ext, club_name, year_born, firstname, lastname, license_info_raw)
-            )
-        ''')    
+ 
 
         # Create player license table
         cursor.execute('''
@@ -641,23 +706,7 @@ def create_tables(cursor):
         ########## PLAYER TRANSITIONS #############
         ###########################################
 
-        # Create player transition raw data table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS player_transition_raw (
-                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
-                season_id_ext                   INTEGER NOT NULL,
-                season_label                    TEXT NOT NULL,
-                firstname                       TEXT NOT NULL,
-                lastname                        TEXT NOT NULL,   
-                date_born                       DATE NOT NULL,
-                year_born                       INTEGER NOT NULL,                
-                club_from                       TEXT NOT NULL,
-                club_to                         TEXT NOT NULL,
-                transition_date                 DATE NOT NULL,
-                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (firstname, lastname, date_born, transition_date)
-            )
-        ''')               
+          
 
         # Create player transition table
         cursor.execute('''
@@ -692,25 +741,7 @@ def create_tables(cursor):
             )
         ''')
 
-        # Create player ranking raw table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS player_ranking_raw (
-                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id                          INTEGER,
-                run_date                        DATE,
-                player_id_ext                   INTEGER,
-                firstname                       TEXT,
-                lastname                        TEXT,
-                year_born                       INTEGER,
-                club_name                       TEXT,
-                points                          INTEGER,
-                points_change_since_last        INTEGER,
-                position_world                  INTEGER,
-                position                        INTEGER,
-                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (run_id, player_id_ext)
-            )
-        ''')
+
 
         # Create player ranking table
         cursor.execute('''
@@ -825,11 +856,9 @@ def create_tables(cursor):
         print(f"Error creating tables: {e}")
 
 
-def create_and_populate_static_tables(cursor):
+def create_and_populate_static_tables(cursor, logger):
 
-    print("ℹ️  Creating static tables if needed...")
-    logging.info("Creating static tables if needed...")
-    logging.info("-------------------------------------------------------------------")
+    logger.info("Creating static tables if needed...")
 
     try: 
 
@@ -1665,7 +1694,7 @@ def create_views(cursor):
             
 
             cursor.execute(f"DROP VIEW IF EXISTS {name};")
-            # cursor.execute(create_sql)
+                # cursor.execute(create_sql)
             
     except sqlite3.Error as e:
         print(f"Error creating views: {e}")
