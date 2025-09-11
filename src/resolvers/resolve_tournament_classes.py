@@ -30,7 +30,8 @@ def resolve_tournament_classes(cursor) -> List[TournamentClass]:
         key=lambda r: (0, r.startdate) if r.startdate else (1, date.max),
     )
 
-    logger.info(f"Resolving {len(raw_objects)} tournament_class_raw entries...")
+    raw_count = len(raw_objects)
+    logger.info(f"Resolving {raw_count} tournament_class_raw entries...")
 
     if not raw_objects:
         logger.failed({}, "No tournament class data found in tournament_class_raw")
@@ -39,24 +40,20 @@ def resolve_tournament_classes(cursor) -> List[TournamentClass]:
     # Filter out classes with "reservlista" in shortname or longname
     raw_objects = [
         raw for raw in raw_objects
-        if not (raw.shortname and "reservlista" in raw.shortname.lower()) and
-           not (raw.longname and "reservlista" in raw.longname.lower())
+        if not (raw.shortname and   "reservlista" in raw.shortname.lower()) and
+           not (raw.longname and    "reservlista" in raw.longname.lower())
     ]
-    logger.info(f"After filtering 'reservlista', {len(raw_objects)} entries remain...")
+    logger.info(f"After filtering 'reservlista', {len(raw_objects)} entries remain... (filtered out {raw_count - len(raw_objects)} entries)")
 
     # Pre-fetch all tournament_id mappings for efficiency
-    all_ext_ids = list(set(str(raw.tournament_id_ext).zfill(6) for raw in raw_objects if raw.tournament_id_ext is not None))
+    all_ext_ids = list({
+        str(raw.tournament_id_ext).zfill(6)
+        for raw in raw_objects if raw.tournament_id_ext is not None
+    })
     if all_ext_ids:
-        tournament_id_map = {
-            row["tournament_id_ext"]: row["tournament_id"]
-            for row in Tournament.cached_query(
-                cursor,
-                f"SELECT tournament_id, tournament_id_ext FROM tournament WHERE tournament_id_ext IN ({', '.join(['?'] * len(all_ext_ids))}) AND data_source_id = ?",
-                tuple(all_ext_ids) + (raw_objects[0].data_source_id,),
-                cache_key_extra=f"tournament_ids_ds_{raw_objects[0].data_source_id}"
-            )
-        }
-        # Log missing tournament_id_ext values
+        tournament_id_map = Tournament.get_id_map_by_ext(
+            cursor, all_ext_ids, raw_objects[0].data_source_id
+        )
         missing_ext_ids = set(all_ext_ids) - set(tournament_id_map.keys())
         if missing_ext_ids:
             logger.warning({}, f"Missing tournaments for tournament_id_ext values: {', '.join(sorted(missing_ext_ids))}")

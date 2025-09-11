@@ -106,7 +106,7 @@ class Club(CacheMixin):
         2) Exact match with relaxed normalization (strip diacritics, preserve nordic)
         3) Optional prefix match (first strict, then relaxed)
             - if multiple candidates tie at the best score → log ambiguity and return None
-        4) Fallback to Unknown club (id=9999)
+        4) Fallback to Unknown club (id=9999) if allowed
         """
 
         # --- Stage 1: exact strict (diacritics preserved)
@@ -136,8 +136,8 @@ class Club(CacheMixin):
         # --- Stage 4: unknown club
         if fallback_to_unknown:
             club = cls.get_by_id(cursor, 9999)
-            with open("missing_clubs.txt", "a", encoding="utf-8") as f:
-                f.write(f"Context: {item_key}, Club Raw: {clubname_raw}\n")
+            # with open("missing_clubs.txt", "a", encoding="utf-8") as f:
+            #     f.write(f"Context: {item_key}, Club Raw: {clubname_raw}\n")
             return club
        
         return None

@@ -267,7 +267,9 @@ class TournamentClass(CacheMixin):
     def get_by_ext_id(cls, cursor: sqlite3.Cursor, tournament_class_id_ext: str) -> Optional['TournamentClass']:
         """Fetch TournamentClass by external ID with default caching."""
         rows = cls.cached_query(cursor, "SELECT * FROM tournament_class WHERE tournament_class_id_ext = ?", (tournament_class_id_ext,), cache_key_extra=f"tc_by_ext:{tournament_class_id_ext}")
-        return cls.from_dict(rows[0]) if rows else None
+        if not rows:
+            return None
+        return cls.from_dict(rows[0])
     
     @classmethod
     def get_filtered_classes(

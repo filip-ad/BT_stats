@@ -22,14 +22,12 @@ def resolve_participants(cursor: sqlite3.Cursor, tournament_class_id_ext: Option
         logger.skipped({}, "No raw participant data to resolve")
         return
 
-    # Preload existing participant caches
-    class_name_cache = ParticipantPlayer.cache_by_class_name_fast(cursor)
-    class_player_cache = Participant.cache_by_class_player(cursor)
-
     # Group by tournament_class_id_ext and raw_group_id
     groups: Dict[str, Dict[str, List[ParticipantPlayerRawTournament]]] = {}
     for row in raw_rows:
         class_ext = row.tournament_class_id_ext
+        if not class_ext:  # Defensive check
+            continue
         group_id = row.raw_group_id or f"single_{row.row_id}"  # Fallback for singles
         groups.setdefault(class_ext, {}).setdefault(group_id, []).append(row)
 
@@ -52,24 +50,26 @@ def resolve_participants(cursor: sqlite3.Cursor, tournament_class_id_ext: Option
             'match_type': None
         }
         try:
-            # Get internal tournament_class_id and start date
+            # Get internal tournament_class_id and start date with defensive check
             tc = TournamentClass.get_by_ext_id(cursor, class_ext)
             if not tc:
                 logger.failed(logger_keys, "No matching tournament_class_id found")
                 continue
             tournament_class_id = tc.tournament_class_id
-            class_date = tc.startdate if tc.startdate else date.today()  # Use tournament start date or fallback
+            class_date = tc.startdate if tc.startdate else date.today()
             logger_keys.update({'tournament_class_shortname': tc.shortname})
-
-            # Build roster index for this class
-            roster_index = Participant.build_class_roster_index(cursor, tournament_class_id)
 
             for group_id, group_rows in class_groups.items():
                 if not group_rows:
+                    logger.skipped(logger_keys, "Empty group of participants")
                     continue
 
                 # Use first row for participant fields
                 first_row = group_rows[0]
+                if not first_row.fullname_raw or not first_row.clubname_raw:
+                    logger.failed(logger_keys, "Missing required raw data in group")
+                    continue
+                logger.info(logger_keys, f"Processing group {group_id} with first row: {first_row.fullname_raw}, {first_row.clubname_raw}")
                 participant_data = {
                     "tournament_class_id": tournament_class_id,
                     "tournament_class_seed": int(first_row.seed_raw) if first_row.seed_raw and first_row.seed_raw.isdigit() else None,
@@ -82,24 +82,13 @@ def resolve_participants(cursor: sqlite3.Cursor, tournament_class_id_ext: Option
                     logger.failed(logger_keys, f"Participant validation failed: {error_message}")
                     continue
 
-                # Check if participant already exists using roster
-                existing_pid = Participant.find_participant_for_class_by_name_club(
-                    roster_index,
-                    first_row.fullname_raw,
-                    first_row.clubname_raw and Club.resolve(cursor, first_row.clubname_raw, club_map, logger, logger_keys).club_id,
-                    club_map
-                )
-                if existing_pid:
-                    participant.participant_id = existing_pid
-                else:
-                    upsert_res = participant.upsert(cursor)
-                    if not upsert_res[0]:
-                        logger_keys.update({'fullname_raw': first_row.fullname_raw, 'clubname_raw': first_row.clubname_raw})
-                        logger.failed(logger_keys, f"Participant upsert failed: {upsert_res[1]}")
-                        continue
+                upsert_res = participant.upsert(cursor)
+                if upsert_res["status"] != "success":
+                    logger_keys.update({'fullname_raw': first_row.fullname_raw, 'clubname_raw': first_row.clubname_raw})
+                    logger.failed(logger_keys, f"Participant upsert failed: {upsert_res['reason']}")
+                    continue
                 participant_id = participant.participant_id
 
-                # Resolve and upsert participant_player for each raw row
                 for raw_row in group_rows:
                     logger_keys.update({
                         'fullname_raw': raw_row.fullname_raw,
@@ -108,14 +97,17 @@ def resolve_participants(cursor: sqlite3.Cursor, tournament_class_id_ext: Option
                         'club_id': None,
                         'match_type': None
                     })
+                    if not raw_row.fullname_raw or not raw_row.clubname_raw:
+                        logger.failed(logger_keys, "Missing required raw data for player")
+                        continue
                     fullname_raw = raw_row.fullname_raw
                     clubname_raw = raw_row.clubname_raw
                     t_ptcp_id_ext = raw_row.participant_player_id_ext
 
                     club = Club.resolve(cursor, clubname_raw, club_map, logger, logger_keys, allow_prefix=True, fallback_to_unknown=True)
-                    if not club or (club.club_id == 9999 and not clubname_raw):
+                    if not club:
                         logger.warning(logger_keys, "Club not found. Using Unknown (club_id=9999)")
-                        continue
+                        club = Club(club_id=9999)
                     club_id = club.club_id
                     logger_keys['club_id'] = club_id
 
@@ -152,14 +144,14 @@ def resolve_participants(cursor: sqlite3.Cursor, tournament_class_id_ext: Option
                         continue
 
                     upsert_res = participant_player.upsert(cursor, participant_id, player_id)
-                    if not upsert_res[0]:
-                        logger.warning(logger_keys, f"ParticipantPlayer upsert failed: {upsert_res[1]}")
+                    if upsert_res["status"] != "success":
+                        logger.warning(logger_keys, f"ParticipantPlayer upsert failed: {upsert_res['reason']}")
                         continue
 
                 logger.success(logger_keys, f"Resolved group {group_id} ({len(group_rows)} players)")
 
         except Exception as e:
-            logger.failed(logger_keys, f"Exception during resolution: {e}")
+            logger.failed(logger_keys, f"Exception during resolution: {str(e)}")
 
     logger.summarize()
 
@@ -198,7 +190,7 @@ def match_player(
             player_name_map,
             participant.club_id,
             logger,
-            item_keys.copy(),  # Use copy to avoid modifying original
+            item_keys.copy(),
             unverified_appearance_map if strategy == match_by_unverified_with_club else None
         )
         if outcome:

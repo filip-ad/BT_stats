@@ -1,6 +1,7 @@
 
 # db.py: 
 
+from asyncio.windows_events import NULL
 import sqlite3
 from config import DB_NAME
 import logging
@@ -203,7 +204,86 @@ def create_tables(cursor):
             );
         ''')
 
-        # Create tournament group table
+        # Tournament entries (singles or doubles)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tournament_class_entry (
+                tournament_class_entry_id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_class_entry_id_ext               TEXT,
+                tournament_class_id                         INTEGER,
+                seed                                        INTEGER,
+                final_position                              INTEGER,
+                row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (tournament_class_id) REFERENCES tournament_class(tournament_class_id)
+            );
+        ''')
+
+        # Link players to tournament entries (for singles/doubles)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tournament_class_player (
+                tournament_class_entry_id                   INTEGER,
+                tournament_class_player_id_ext              TEXT,
+                player_id                                   INTEGER,
+                club_id                                     INTEGER,
+                row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (tournament_class_entry_id)     REFERENCES tournament_class_entry(tournament_class_entry_id),
+                FOREIGN KEY (player_id)                     REFERENCES player(player_id),
+                FOREIGN KEY (club_id)                       REFERENCES club(club_id),
+
+                PRIMARY KEY (tournament_class_entry_id, player_id)
+            );
+        ''')
+
+        # Tournament class match mapping table
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tournament_class_match (
+            tournament_class_id                             INTEGER NOT NULL,
+            match_id                                        INTEGER NOT NULL,
+            tournament_class_stage_id                       INTEGER NOT NULL,
+            tournament_class_group_id                       INTEGER,
+            stage_round_no                                  INTEGER,  -- 1..N within that stage (RR round or KO progression) ... the playing round within that stage (needed for group RR and for KO ordering).
+            draw_pos                                        INTEGER,  -- KO bracket slot (NULL for GROUP/SWISS) ... the KO bracket slot (1..128 etc). This is different from seed and is super handy for bracket reconstruction.
+            row_created                                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            row_updated                                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+            FOREIGN KEY (tournament_class_id)               REFERENCES tournament_class(tournament_class_id)        ON DELETE CASCADE,
+            FOREIGN KEY (match_id)                          REFERENCES match(match_id)                              ON DELETE CASCADE,
+            FOREIGN KEY (tournament_class_stage_id)         REFERENCES tournament_class_stage(tournament_class_stage_id),
+             
+            -- Enforce that the group (if present) belongs to the same class
+            FOREIGN KEY (tournament_class_id, tournament_class_group_id)
+              REFERENCES tournament_class_group (tournament_class_id, tournament_class_group_id),
+
+            PRIMARY KEY (tournament_class_id, match_id)
+        );
+    ''')
+
+
+        # Core Match
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS match (
+                match_id                                    INTEGER PRIMARY KEY AUTOINCREMENT,
+                best_of                                     INTEGER,
+                date                                        DATE,
+                status                                      TEXT DEFAULT 'completed',
+                winner_side                                 INTEGER,
+                walkover_side                               INTEGER,
+                retired_side                                INTEGER,
+                row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                CHECK (match_format IN ('S', 'D')),
+                CHECK (winner_side IN (1, 2) OR winner_side IS NULL),
+                CHECK (walkover_side IN (1, 2) OR walkover_side IS NULL),
+                CHECK (retired_side IN (1, 2) OR retired_side IS NULL)
+            );
+        ''')
+
+
+        # Create tournament class group table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_group (
                 tournament_class_group_id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -288,8 +368,7 @@ def create_tables(cursor):
                 FOREIGN KEY (participant_id)    REFERENCES participant(participant_id) ON DELETE CASCADE,
                 FOREIGN KEY (player_id)         REFERENCES player(player_id),
                 FOREIGN KEY (club_id)           REFERENCES club(club_id),
-                UNIQUE (participant_id, player_id),  -- Prevent duplicate players per participant (e.g., in doubles)
-                UNIQUE (participant_player_id_ext, data_source_id)
+                UNIQUE (participant_id, player_id)  -- Prevent duplicate players per participant (e.g., in doubles)            
             );
         ''')
 
@@ -409,6 +488,10 @@ def create_tables(cursor):
             );
         ''')
 
+        ##############################################
+        ########## PLAYER TABLES #####################
+        ##############################################
+
         # Create player table (cannonical player data)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player (
@@ -453,6 +536,10 @@ def create_tables(cursor):
             );
         ''')
 
+        ###########################################
+        ########## PLAYER LICENSES ################
+        ###########################################
+
         # Create player license raw table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_license_raw (
@@ -491,6 +578,10 @@ def create_tables(cursor):
             )
         ''')
 
+        ###########################################
+        ########## PLAYER TRANSITIONS #############
+        ###########################################
+
         # Create player transition raw data table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_transition_raw (
@@ -524,6 +615,12 @@ def create_tables(cursor):
                 UNIQUE (player_id, club_id_from, club_id_to, transition_date)
             )
         ''')
+
+
+        ###########################################
+        #### PLAYER RANKING AND RANKING GROUPS ####
+        ###########################################
+
 
         # Create player ranking group table
         cursor.execute('''
@@ -566,26 +663,102 @@ def create_tables(cursor):
                 points_change_since_last        INTEGER NOT NULL,
                 position_world                  INTEGER NOT NULL,
                 position                        INTEGER NOT NULL,
+                       
                 PRIMARY KEY (player_id, run_date),
                 FOREIGN KEY (player_id) REFERENCES player(player_id)
             )
         ''')
 
-        ############# Series tables ####################
+        ##########################################
+        ############# LEAGUES ####################
+        ##########################################
 
-        # Create placeholder fixture table (for future leagues, to satisfy FK in match_competition)
+        # League table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS league (
+                league_id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                season_id                       INTEGER,
+                league_level_id                 INTEGER,
+                name                            TEXT,
+                organizer                       TEXT,
+                active                          INTEGER DEFAULT 0 CHECK(active IN (0,1)),
+                url                             TEXT,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                       
+                FOREIGN KEY (season_id)         REFERENCES season(season_id),
+                FOREIGN KEY (league_level_id)   REFERENCES league_level(league_level_id)
+            );
+        ''')
+
+        # League teams
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS league_team (
+                league_team_id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_id                       INTEGER,
+                club_id                         INTEGER,
+                name                            TEXT,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (league_id)         REFERENCES league(league_id),
+                FOREIGN KEY (club_id)           REFERENCES club(club_id)
+            );
+        ''')
+
+        # League team players
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS league_team_player (
+                league_team_id                  INTEGER,
+                player_id                       INTEGER,
+                valid_from                      DATE,
+                valid_to                        DATE,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (league_team_id)    REFERENCES league_team(league_team_id),
+                FOREIGN KEY (player_id)         REFERENCES player(player_id),
+
+                PRIMARY KEY (league_team_id, player_id, valid_from)
+            );
+        ''')
+
+        # Fixtures (matches in a league)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS fixture (
-                fixture_id              INTEGER PRIMARY KEY AUTOINCREMENT,
-                fixture_id_ext          TEXT,
-                league_id               INTEGER,
-                round_number            INTEGER,
-                date                    DATE,
-                home_participant_id     INTEGER,
-                away_participant_id     INTEGER,
-                row_created             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                row_updated             TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE (fixture_id_ext)
+                fixture_id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_id                       INTEGER,
+                date                            DATE,
+                round                           INTEGER,
+                home_team_id                    INTEGER,
+                away_team_id                    INTEGER,
+                home_score                      INTEGER,
+                away_score                      INTEGER,
+                status                          TEXT DEFAULT 'completed',
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (league_id)         REFERENCES league(league_id),
+                FOREIGN KEY (home_team_id)      REFERENCES league_team(league_team_id),
+                FOREIGN KEY (away_team_id)      REFERENCES league_team(league_team_id)
+            );
+        ''')
+
+        # Fixture matches (individual matches in a fixture)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS fixture_match (
+                fixture_id                      INTEGER,
+                match_id                        INTEGER,
+                order_in_fixture                INTEGER,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (fixture_id)        REFERENCES fixture(fixture_id),
+                FOREIGN KEY (match_id)          REFERENCES match(match_id),
+
+                PRIMARY KEY (fixture_id, match_id),
+
+                UNIQUE (fixture_id, order_in_fixture)
             );
         ''')
     
@@ -848,10 +1021,10 @@ def create_and_populate_static_tables(cursor):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_stage (
                 tournament_class_stage_id       INTEGER    PRIMARY KEY,
-                shortname                       TEXT       NOT NULL,
+                shortname                       TEXT       NOT NULL,    -- e.g. 'GROUP','R32','R16','QF','SF','F','SWISS'
                 description                     TEXT       NOT NULL,
                 is_knockout                     INTEGER    NOT NULL CHECK(is_knockout IN (0,1)),
-                round_order                     INTEGER,   
+                round_order                     INTEGER,                -- e.g. 32,16,8,... (NULL for GROUP/SWISS)
                 UNIQUE (shortname)
             ) WITHOUT ROWID;
         ''') 
@@ -865,7 +1038,7 @@ def create_and_populate_static_tables(cursor):
             (6, 'QF',       'Quarterfinal', 1,  8),
             (7, 'SF',       'Semifinal',    1,  4),
             (8, 'F',        'Final',        1,  2),
-            (10, 'LEAGUE',  'League',       0,  None)
+            (9,  'SWISS', 'Swiss System',   0,  None)       # A Swiss-system stage pairs players with similar scores across several rounds; nobody is eliminated each round. It’s neither simple group round-robin nor KO.
         ]
 
         cursor.executemany('''
@@ -936,78 +1109,26 @@ def create_and_populate_static_tables(cursor):
             VALUES (?, ?)
         ''', competition_types)
 
-        ############ LEAGUES / SERIES ################
 
-        #  Series catalog (national & regional)
+        ######### LEAGUE LOOKUPS ###################
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS series (
-                series_id     INTEGER PRIMARY KEY AUTOINCREMENT,
-                name          TEXT      NOT NULL,
-                code          TEXT      UNIQUE,
-                scope         TEXT      NOT NULL CHECK(scope IN ('national','regional')),
-                tier          INTEGER   NOT NULL,                 -- 1=Pingisligan, 2=Superettan, 3=Div1, ...
-                gender        TEXT      CHECK(gender IN ('H','D','HD')),
-                organizer     TEXT,
-                active        INTEGER   NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
-                row_created   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
+            CREATE TABLE IF NOT EXISTS league_level (
+                league_level_id             INTEGER PRIMARY KEY,
+                description                 TEXT NOT NULL,
+                UNIQUE(description)
+            ) WITHOUT ROWID;
         ''')
 
-        #  Series instance per season (some series repeat every season)
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS series_season (
-                series_season_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-                series_id           INTEGER NOT NULL,
-                season_id           INTEGER NOT NULL,
-                external_id         TEXT,
-                url                 TEXT,
-                status              TEXT,   -- 'scheduled','running','final'
-                row_created         TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE      (series_id, season_id),
-                FOREIGN KEY (series_id) REFERENCES series(series_id),
-                FOREIGN KEY (season_id) REFERENCES season(season_id)
-            );
-        ''')
-
-        # Define series'
-
-        # National (Herrar)
-        NATIONAL_SERIES_MEN = [
-            ('Pingisligan Herrar',  'PINGISLIGAN_H',    'national',     1, 'H', 'SBTF'),
-            ('Superettan Herrar',   'SUPERETTAN_H',     'national',     2, 'H', 'SBTF'),
-            ('Division 1 Herrar',   'DIV1_H',           'national',     3, 'H', 'SBTF'),
-            ('Division 2 Herrar',   'DIV2_H',           'national',     4, 'H', 'SBTF'),
-            ('Division 3 Herrar',   'DIV3_H',           'national',     5, 'H', 'SBTF')
+        league_levels = [
+            (1, 'National'),
+            (2, 'Regional'),
+            (3, 'District')
         ]
 
-        # National (Damer)
-        NATIONAL_SERIES_WOMEN = [
-            ('Pingisligan Damer',   'PINGISLIGAN_D',    'national',     1, 'D', 'SBTF'),
-            ('Superettan Damer',    'SUPERETTAN_D',     'national',     2, 'D', 'SBTF'),
-            ('Division 1 Damer',    'DIV1_D',           'national',     3, 'D', 'SBTF'),
-            ('Division 2 Damer',    'DIV2_D',           'national',     4, 'D', 'SBTF'),
-            ('Division 3 Damer',    'DIV3_D',           'national',     5, 'D', 'SBTF')
-        ]
-
-        # Regional (Div 4–6 shown in the left nav by district)
-        REGIONAL_SERIES_MEN = [
-            ('Division 4 Herrar',   'DIV4_H',           'regional',     6, 'H', 'SBTF'),
-            ('Division 5 Herrar',   'DIV5_H',           'regional',     7, 'H', 'SBTF'),
-            ('Division 6 Herrar',   'DIV6_H',           'regional',     8, 'H', 'SBTF')
-        ]
-
-        REGIONAL_SERIES_WOMEN = [
-            ('Division 4 Damer',    'DIV4_D',           'regional',     6, 'D', 'SBTF'),
-            ('Division 5 Damer',    'DIV5_D',           'regional',     7, 'D', 'SBTF'),
-            ('Division 6 Damer',    'DIV6_D',           'regional',     8, 'D', 'SBTF')
-        ]
-
-        # Insert series
-        for series in NATIONAL_SERIES_MEN + NATIONAL_SERIES_WOMEN + REGIONAL_SERIES_MEN + REGIONAL_SERIES_WOMEN:
-            cursor.execute('''
-                INSERT OR IGNORE INTO series (name, code, scope, tier, gender, organizer)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', series)
+        cursor.executemany('''
+            INSERT OR IGNORE INTO league_level (league_level_id, description)
+            VALUES (?, ?)
+        ''', league_levels)
 
         ######### CLUBS TABLES ###################
 
@@ -1029,7 +1150,6 @@ def create_and_populate_static_tables(cursor):
                 FOREIGN KEY (club_type)     REFERENCES club_type(club_type_id),
                 UNIQUE (shortname),
                 UNIQUE (longname)
-
             );
         ''')
 
@@ -1081,18 +1201,6 @@ def create_and_populate_static_tables(cursor):
 
         ############ DEBUG TABLES ######################
 
-        # cursor.execute('''
-        #     CREATE TABLE IF NOT EXISTS log_events (
-        #         row_id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        #         run_id              TEXT    NOT NULL,
-        #         function_name       TEXT,
-        #         item_key            TEXT,
-        #         status              TEXT    NOT NULL,
-        #         reason              TEXT,
-        #         message             TEXT,
-        #         row_created         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        #     );
-        # ''')
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS log_output (
@@ -1187,6 +1295,9 @@ def create_indexes(cursor):
         # Tournament class group standing
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_standing_group_id ON tournament_class_group_standing(tournament_class_group_id)",
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_standing_participant_id ON tournament_class_group_standing(participant_id)"  # Added for standings queries
+
+        # Create unique index for tournament class group
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_class_group ON tournament_class_group (tournament_class_id, tournament_class_group_id)"
     ]
 
     try:

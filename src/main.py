@@ -146,9 +146,9 @@ def main():
 
         # # Get tournaments
         # upd_tournaments(scrape_ondata=True, resolve=True)
-        # upd_tournament_classes(scrape_ondata=True, resolve=True)
+        upd_tournament_classes(scrape_ondata=False, resolve=True)
 
-        upd_participants(scrape_ondata=False, resolve=True)
+        # upd_participants(scrape_ondata=False, resolve=True)
         # upd_player_positions()
         # upd_tournament_group_stage()
 
