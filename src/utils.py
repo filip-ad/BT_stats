@@ -2,6 +2,8 @@
 # src/utils.py
 # Contains reusable functions like WebDriver setup, waiting mechanisms, and HTML parsing helpers.
 
+from dataclasses import fields
+import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -20,7 +22,7 @@ import re
 import unicodedata
 from datetime import datetime, date
 from config import LOG_FILE, LOG_LEVEL, PDF_CACHE_DIR
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 import sqlite3
 import uuid
 from db import get_conn
@@ -160,6 +162,36 @@ def normalize_key(
             decomp = unicodedata.normalize("NFKD", ch)
             normalized.append("".join(c for c in decomp if not unicodedata.combining(c)))
     return "".join(normalized)
+
+def compute_content_hash(obj: Any, exclude_fields: Iterable[str] = None) -> str:
+    """
+    Compute a stable SHA256 hash for a dataclass-like object.
+    Dynamically includes all fields except those in exclude_fields.
+    - normalize_key() is used for strings
+    - dates use ISO format
+    - booleans are cast to int (0/1)
+    - None → empty string
+    """
+    if exclude_fields is None:
+        exclude_fields = []
+
+    parts = []
+    for field in fields(obj):
+        if field.name in exclude_fields:
+            continue
+        value = getattr(obj, field.name)
+        if value is None:
+            parts.append("")
+        elif isinstance(value, str):
+            parts.append(normalize_key(value))
+        elif isinstance(value, date):
+            parts.append(value.isoformat())
+        elif isinstance(value, bool):
+            parts.append(str(int(value)))
+        else:
+            parts.append(str(value))  # int, float, fallback
+
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 def name_keys_for_lookup_all_splits(name: str) -> List[str]:
     """

@@ -6,7 +6,7 @@ import datetime
 import json
 from typing import Optional, Dict, Any, List, Tuple
 import sqlite3
-from utils import parse_date
+from utils import parse_date, compute_content_hash
 
 @dataclass
 class TournamentClassRaw:
@@ -23,6 +23,10 @@ class TournamentClassRaw:
     raw_stages:                     Optional[str]  = None           # Comma-separated stages from HTML links, for structure inference
     raw_stage_hrefs:                Optional[str]  = None           # JSON string of {stage: href} for PDF downloading
     data_source_id:                 int = 1                         # Data source ID (default 1 for 'ondata')
+    content_hash:                   Optional[str] = None            # Hash of the content for change detection
+    last_seen_at:                   Optional[datetime.datetime] = None  # Last time the entry was seen
+    row_created:                    Optional[datetime.datetime] = None  # When the row was created
+    row_updated:                    Optional[datetime.datetime] = None  # When the row was last updated
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "TournamentClassRaw":
@@ -34,6 +38,7 @@ class TournamentClassRaw:
             rhs = json.dumps(rhs)
             
         return TournamentClassRaw(
+            row_id                          = d.get("row_id"),
             tournament_id_ext               = d.get("tournament_id_ext"),
             tournament_class_id_ext         = d.get("tournament_class_id_ext"),
             startdate                       = parse_date(d.get("startdate"), context="TournamentClassRaw.from_dict"),
@@ -44,9 +49,12 @@ class TournamentClassRaw:
             max_age                         = d.get("max_age"),
             url                             = d.get("url"),
             raw_stages                      = d.get("raw_stages"),
-            # raw_stage_hrefs                 = d.get("raw_stage_hrefs"),
             raw_stage_hrefs                 = rhs,
-            data_source_id                  = d.get("data_source_id", 1)
+            data_source_id                  = d.get("data_source_id", 1),
+            content_hash                     = d.get("content_hash"),
+            last_seen_at                     = d.get("last_seen_at"),
+            row_created                      = d.get("row_created"),
+            row_updated                      = d.get("row_updated")
         )
 
     # def validate(self) -> bool:
@@ -73,6 +81,19 @@ class TournamentClassRaw:
 
         self.is_valid = True
         return True, ""
+    
+    def compute_content_hash(self) -> str:
+        return compute_content_hash(
+            self,
+            exclude_fields={
+                "row_id",
+                "data_source_id",
+                "row_created",
+                "row_updated",
+                "last_seen_at",
+                "content_hash"
+            }
+        )
     
     @classmethod
     def get_all(cls, cursor: sqlite3.Cursor) -> List["TournamentClassRaw"]:

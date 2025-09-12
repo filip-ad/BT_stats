@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 from datetime import date
-import hashlib
 from typing import List, Optional, Tuple
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 import sqlite3
-from utils import parse_date, normalize_key
+from utils import parse_date, compute_content_hash
 
 '''
     ### Table definition for tournament_raw
@@ -100,32 +99,19 @@ class TournamentRaw:
     def compute_content_hash(self) -> str:
         """
         Compute a stable hash for raw tournament content to detect meaningful changes.
-        Dynamically includes all dataclass fields except keys/timestamps (self-healing if schema changes).
-        Uses normalize_key for strings, isoformat for dates, int for bools.
+        Delegates to utils.compute_content_hash with table-specific exclusions.
         """
-        # Define exclusions: keys, timestamps, and the hash itself (avoids loops)
-        exclude_fields = {
-            'row_id', 'data_source_id', 'row_created', 'row_updated',   # key fields
-            'last_seen_at', 'content_hash'                              # self-referential
-        }
-
-        parts = []
-        for field in fields(self):
-            if field.name in exclude_fields:
-                continue
-            value = getattr(self, field.name)
-            if value is None:
-                parts.append("")
-            elif isinstance(value, str):
-                parts.append(normalize_key(value))
-            elif isinstance(value, date):
-                parts.append(value.isoformat() if value else "")
-            elif isinstance(value, bool):
-                parts.append(str(int(value)))
-            else:
-                parts.append(str(value))  # Fallback for ints, etc.
-
-        return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+        return compute_content_hash(
+            self,
+            exclude_fields={
+                "row_id",
+                "data_source_id",
+                "row_created",
+                "row_updated",
+                "last_seen_at",
+                "content_hash"
+            }
+        )
     
     def validate(self) -> Tuple[bool, str]:
         """
