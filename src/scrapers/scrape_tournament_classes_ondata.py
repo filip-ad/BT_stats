@@ -26,12 +26,12 @@ def scrape_tournament_classes_ondata(cursor) -> None:
     perform light validation, and insert into tournament_class_raw table.
     """
     logger = OperationLogger(
-        verbosity=2,
-        print_output=False,
-        log_to_db=True,
-        cursor=cursor,
-        object_type="tournament_class_raw",
-        run_type="scrape"
+        verbosity       = 2,
+        print_output    = False,
+        log_to_db       = True,
+        cursor          = cursor,
+        object_type     = "tournament_class_raw",
+        run_type        = "scrape"
     )
 
     cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
@@ -74,6 +74,12 @@ def scrape_tournament_classes_ondata(cursor) -> None:
         f"Scraping classes for up to {limit} tournaments in {SCRAPE_TOURNAMENTS_ORDER} order..."
     )
 
+    logger.set_run_remark(
+        f"Cutoff: {cutoff_date}, Order: {SCRAPE_TOURNAMENTS_ORDER}, "
+        f"Max tournaments: {SCRAPE_CLASSES_MAX_TOURNAMENTS or 'all'}, "
+        f"Specific ext_ids: {SCRAPE_CLASSES_TOURNAMENT_ID_EXTS or 'none'}"
+    )
+
     # Loop through filtered tournaments
     for i, t in enumerate(filtered_tournaments[:limit], 1):
         logger_keys = {
@@ -111,6 +117,9 @@ def scrape_tournament_classes_ondata(cursor) -> None:
 
         for raw_data in raw_classes:
             try: 
+                
+                logger.inc_processed()
+
                 # Create raw object
                 tc_raw = TournamentClassRaw.from_dict(raw_data)
 
@@ -122,17 +131,24 @@ def scrape_tournament_classes_ondata(cursor) -> None:
 
                 # Upsert to raw table
                 action = tc_raw.upsert(cursor)
-                if action:
-                    logger.success(logger_keys, f"Tournament class successfully {action}", to_console=False)
-                    
-                    # Download PDFs if not already
-                    if tc_raw.tournament_class_id_ext:
-                        bytes_downloaded, PDFs_downloaded = _download_class_pdfs(t, tc_raw.tournament_class_id_ext, tc_raw.raw_stage_hrefs, logger)
-                        tournament_bytes_downloaded += bytes_downloaded
-                        tournament_pdfs_downloaded += PDFs_downloaded
-                        
+                # if action:
+                #     logger.success(logger_keys, f"Tournament class successfully {action}", to_console=False)
+                
+                download_pdf = False
+                if action == "inserted" or action == "updated":
+                    logger.success(logger_keys, f"Raw tournament class successfully {action}")
+                    download_pdf = True
+                elif action == "unchanged":
+                    logger.success(logger_keys, "Raw tournament class unchanged (already up-to-date)")
+                    download_pdf = True
                 else:
-                    logger.failed(logger_keys, f"Tournament class upsert failed (ext_id: {tc_raw.tournament_class_id_ext})")
+                    logger.failed(logger_keys, "Raw tournament class upsert failed")
+
+                # Download PDFs if not already
+                if download_pdf and tc_raw.tournament_class_id_ext:
+                    bytes_downloaded, PDFs_downloaded = _download_class_pdfs(t, tc_raw.tournament_class_id_ext, tc_raw.raw_stage_hrefs, logger)
+                    tournament_bytes_downloaded += bytes_downloaded
+                    tournament_pdfs_downloaded += PDFs_downloaded
 
             except Exception as e:
                 logger.failed(logger_keys, f"Exception processing raw class data: {e}")

@@ -381,6 +381,7 @@ class OperationLogger:
         self.run_type           = run_type
         self.processed          = 0
         self.start_time         = time.time()
+        self.run_remark         = None
 
         if log_to_db and not cursor:
             raise ValueError("Cursor required if log_to_db is True")
@@ -860,7 +861,6 @@ class OperationLogger:
             'filename': filename
         })
 
-
     def summarize(self):
         """Generate and print/log the full summary, always including totals, one line at a time."""
         total_success   = sum(d["success"]          for d in self.results.values())
@@ -922,15 +922,28 @@ class OperationLogger:
         logging.info("")
         print("")
 
-    def commit_run_summary(self, cursor: sqlite3.Cursor, remarks: Optional[str] = None):
+        if self.cursor:
+            self.commit_run_summary()
+
+    def set_run_remark(self, remark: Optional[str]):
+        """Set a remark for the run, to be included in log_runs during summarize()."""
+        self.run_remark = remark
+
+    def commit_run_summary(self):
+        """
+        Commit a run summary to log_runs table.
+        Always commits, even if no changes occurred (e.g., all unchanged).
+        Includes total attempted (self.processed) and breakdown by status.
+        Auto-exports to Excel.
+        """
         runtime_seconds = time.time() - self.start_time
         total_success   = sum(d["success"] for d in self.results.values())
         total_failed    = sum(d["failed"] for d in self.results.values())
         total_skipped   = sum(d["skipped"] for d in self.results.values())
         total_warnings  = sum(self.reasons["warning"].values())
         
-        cursor.execute("""
-            INSERT INTO run_log (
+        self.cursor.execute("""
+            INSERT INTO log_runs (
                 run_id, object_type, process_type, records_processed,
                 records_success, records_failed, records_skipped,
                 records_warnings, runtime_seconds, remarks
@@ -940,9 +953,10 @@ class OperationLogger:
             self.object_type or "unknown",
             self.run_type or "unknown",
             self.processed, total_success, total_failed,
-            total_skipped, total_warnings, runtime_seconds, remarks
+            total_skipped, total_warnings, runtime_seconds, self.run_remark
         ))
-        cursor.connection.commit()
+        self.cursor.connection.commit()
+        
         
 def export_logs_to_excel():
     """

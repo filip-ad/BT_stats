@@ -24,10 +24,11 @@ def scrape_data(scrp_tournaments=False, scrp_tournament_classes=False, scrp_play
             scrape_tournaments_ondata_listed(cursor)
             # scrape_tournaments_ondata_unlisted(cursor) # Don't use regularly, should be only 2 potentially valid ones
 
+            # =============================================================================
+            # TODO: Implement scraping for other tournament sources
 
-        # Scrape other tournament sources
-        # =============================================================================
-        # TODO: Implement scraping for other tournament sources
+        if scrp_tournament_classes:
+            scrape_tournament_classes_ondata(cursor)
 
     except Exception as e:
         logging.error(f"Error in upd_tournaments: {e}", stack_info=True, stacklevel=3, exc_info=True)

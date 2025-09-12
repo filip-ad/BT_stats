@@ -152,12 +152,12 @@ def main():
         #   
 
         scrp_tournaments              = False
-        scrp_tournament_classes       = False
+        scrp_tournament_classes       = True
         scrp_player_licenses          = False
         scrp_player_transitions       = False
         scrp_participants             = False
 
-        rsv_tournaments             = True
+        rsv_tournaments             = False
         rsv_tournament_classes      = False
         rsv_player_licenses         = False
         rsv_player_ranking_groups   = False
