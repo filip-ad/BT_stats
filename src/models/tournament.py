@@ -246,23 +246,24 @@ class Tournament(CacheMixin):
             cache_key_extra=f"tournament_ids_ds_{data_source_id}",
         )
         return {row["tournament_id_ext"]: row["tournament_id"] for row in rows}
-    
-    # @classmethod
-    # def get_valid_ongoing_ended(cls, cursor: sqlite3.Cursor) -> List["Tournament"]:
-    #     """
-    #     Fetch valid tournaments that are ongoing or ended based on the current date.
-    #     Returns tournaments with startdate <= current date, enddate >= current date, and is_valid = 1.
-    #     """
-    #     current_date = date.today()
-    #     sql = """
-    #         SELECT * FROM tournament
-    #         WHERE startdate <= ?
-    #         AND is_valid = 1;
-    #     """
-    #     cursor.execute(sql, (current_date, ))
-    #     columns = [col[0] for col in cursor.description]
-    #     results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-    #     return [cls.from_dict(res) for res in results]
+
+   # Used in scrape_participants_ondata to get ongoing and ended tournaments 
+    @classmethod
+    def get_valid_ongoing_ended(cls, cursor: sqlite3.Cursor) -> List["Tournament"]:
+        """
+        Fetch valid tournaments that are ongoing or ended based on the current date.
+        Returns tournaments with startdate <= current date, enddate >= current date, and is_valid = 1.
+        """
+        current_date = date.today()
+        sql = """
+            SELECT * FROM tournament
+            WHERE startdate <= ?
+            AND is_valid = 1;
+        """
+        cursor.execute(sql, (current_date, ))
+        columns = [col[0] for col in cursor.description]
+        results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+        return [cls.from_dict(res) for res in results]
     
     def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
         """

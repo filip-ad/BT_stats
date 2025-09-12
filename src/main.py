@@ -2,7 +2,9 @@
 # src/main.py
 
 import logging
-from utils import setup_logging, export_to_excel, clear_log_output_table, OperationLogger
+from utils import clear_debug_tables, export_logs_to_excel, export_runs_to_excel, setup_logging, OperationLogger
+from scrape_data import scrape_data
+from resolve_data import resolve_data
 
 from upd_clubs import upd_clubs
 from upd_players_verified import upd_players_verified
@@ -18,7 +20,7 @@ from upd_tournaments import upd_tournaments
 from upd_tournament_classes import upd_tournament_classes
 
 from upd_participants import upd_participants
-from upd_tournament_group_stage import upd_tournament_group_stage
+
 from db import create_raw_tables, get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes, create_triggers, create_views, compact_sqlite, execute_custom_sql
 
 
@@ -52,7 +54,6 @@ def main():
     
                 # # League / series (not done, nor used yet)
                 # 'league',
-                # 'series',                             # FK league
                 # 'fixture',
 
                 # # Lookup tables
@@ -74,6 +75,7 @@ def main():
                 # 'player_transition_raw',
                 # 'player_ranking_raw',
                 # 'tournament_raw'
+                # 'tournament_class_raw',
 
                 # # License, ranking, transitions
                 # 'player_license',                     # FK player (verified), club, season, license
@@ -122,11 +124,10 @@ def main():
                 # # Debugging tables (no FKs assumed)
                 # 'club_missing',                       # FK club
                 # 'club_name_prefix_match',             # FK club
-                # 'log_output'
+                # 'log_run',
+                # 'log_details'
             ]      
         )
-
-        
 
         create_and_populate_static_tables(cursor, logger)
         create_raw_tables(cursor, logger)
@@ -134,7 +135,7 @@ def main():
         create_indexes(cursor)
         create_triggers(cursor)
         create_views(cursor)
-        clear_log_output_table(cursor)
+        clear_debug_tables(cursor, clear_logs=True, clear_runs=False)
         # execute_custom_sql(cursor)
         
 
@@ -149,6 +150,27 @@ def main():
         
         # Populate RAW tables first
         #   
+
+        scrp_tournaments              = True
+        scrp_tournament_classes       = False
+        scrp_player_licenses          = False
+        scrp_player_transitions       = False
+        scrp_participants             = False
+
+        rsv_tournaments             = True
+        rsv_tournament_classes      = False
+        rsv_player_licenses         = False
+        rsv_player_ranking_groups   = False
+        rsv_player_transitions      = False
+        rsv_participants            = False
+
+        scrape_data     (scrp_tournaments,      scrp_tournament_classes)
+        resolve_data    (rsv_tournaments,       rsv_tournament_classes,     rsv_player_licenses,    rsv_player_ranking_groups,  rsv_player_transitions,     rsv_participants)
+
+        # upd_players_verified()
+        # upd_clubs()
+
+        # resolvers...
 
 
         #
@@ -171,13 +193,14 @@ def main():
 
         # # Get tournaments
         # upd_tournaments(scrape_ondata=False, resolve=True)
-        # upd_tournament_classes(scrape_ondata=False, resolve=True)
+        # upd_tournament_classes(scrape_ondata=True, resolve=True)
 
         # upd_participants(scrape_ondata=False, resolve=True)
         # upd_player_positions()
         # upd_tournament_group_stage()
 
-        export_to_excel()
+        export_runs_to_excel()
+        export_logs_to_excel()
 
     except Exception as e:
         logging.error(f"Error: {e}", stack_info=True, stacklevel=3, exc_info=True)

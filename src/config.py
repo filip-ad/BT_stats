@@ -15,7 +15,7 @@ SCRAPE_RANKINGS_ORDER                   = "newest"  # Order of ranking runs to s
 SCRAPE_TRANSITIONS_NBR_OF_SEASONS       = 1         # Amount of seasons to iterate for each club, always starting with the oldest, 0 for all seasons
 SCRAPE_TRANSITIONS_ORDER                = "newest"  # Order of seasons to scrape, "oldest" or "newest"
 
-SCRAPE_TOURNAMENTS_CUTOFF_DATE          = "2025-07-01"  # Date format: YYYY-MM-DD
+SCRAPE_TOURNAMENTS_CUTOFF_DATE          = "2025-08-01"  # Date format: YYYY-MM-DD
 SCRAPE_TOURNAMENTS_ORDER                = "newest"      # Order of tournaments to scrape, "oldest" or "newest"
 SCRAPE_TOURNAMENT_SBTFOTT_URL           = "https://sbtfott.stupaevents.com/#/events"
 

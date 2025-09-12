@@ -5,6 +5,7 @@
 import inspect
 import json
 from pathlib import Path
+import time
 import pandas as pd
 import requests
 from selenium import webdriver
@@ -113,60 +114,78 @@ def parse_date(date_str, context=None, return_iso=False):
     # logging.warning(f"Invalid date format: {date_str} (context: {context or 'unknown calling function'})")
     return None
 
-
-def _format_size(bytes_size: int) -> str:
-    """Format size into KB/MB/GB string."""
-    if bytes_size < 1024:
-        return f"{bytes_size} B"
-    elif bytes_size < 1024 * 1024:
-        return f"{bytes_size / 1024:.1f} KB"
-    elif bytes_size < 1024 * 1024 * 1024:
-        return f"{bytes_size / (1024 * 1024):.2f} MB"
-    else:
-        return f"{bytes_size / (1024 * 1024 * 1024):.2f} GB"
-
-def _is_valid_pdf(path: Path) -> bool:
-    """Check if file starts with %PDF- header."""
-    try:
-        with open(path, "rb") as f:
-            header = f.read(5)
-            return header == b"%PDF-"
-    except Exception:
-        return False
-
-def _get_pdf_path(tournament_id_ext: str, class_id_ext: str, stage: int) -> Path:
-    """Generate the path for a PDF file."""
-    return CACHE_DIR / f"tournament_{tournament_id_ext}" / f"class_{class_id_ext}" / f"stage_{stage}.pdf"
-
-def _download_pdf_ondata_by_tournament_class_and_stage(tournament_id_ext: str, class_id_ext: str, stage: int, force_download: bool = False) -> Tuple[Optional[Path], bool, Optional[str]]:
-    """Download a PDF if available. Returns (path, downloaded, message) where:
-    - path: Path to the PDF or None if failed
-    - downloaded: True if newly downloaded, False if cached or skipped
-    - message: Status or error message for logging (None if no special message)
+def sanitize_name(
+        name: str
+    ) -> str:
+    """ 
+    Sanitize a name by stripping, splitting, and title-casing each word.
+    Example: 'harry hamrén' -> 'Harry Hamrén' 
     """
-    pdf_path = _get_pdf_path(tournament_id_ext, class_id_ext, stage)
+    return ' '.join(word.strip().title() for word in name.split())
 
-    # If file exists but is invalid, remove it
-    if pdf_path.exists() and not _is_valid_pdf(pdf_path):
-        pdf_path.unlink()
+def normalize_key(
+        name: str,
+        *,
+        preserve_diacritics: bool = False,
+        preserve_nordic: bool = True
+    ) -> str:
+    """
+    Normalize for matching.
 
-    if pdf_path.exists() and not force_download:
-        return pdf_path, False, f"Cached PDF used: {pdf_path}"
+    Parameters
+    ----------
+    preserve_diacritics : bool
+        If True, keep all diacritics (Å, Ä, Ö, Ø, É, etc.)
+    preserve_nordic : bool
+        When stripping diacritics, optionally preserve å, ä, ö, ø
 
-    url = f"https://resultat.ondata.se/ViewClassPDF.php?tournamentID={tournament_id_ext}&classID={class_id_ext}&stage={stage}"
-    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    Examples
+    --------
+    "Virum"             -> "virum"
+    "Nørre"             -> "norre"  (unless preserve_diacritics=True)
+    "Åby"               -> "åby"    (if preserve_nordic=True)
+    """
+    s = name.strip()
+    s = re.sub(r"\s+", " ", s)
+    s = s.lower()
 
-    try:
-        resp = requests.get(url, timeout=20)
-        if resp.status_code != 200 or not resp.content.startswith(b"%PDF-"):
-            return None, False, f"No valid PDF for stage {stage} (status: {resp.status_code})"
+    if preserve_diacritics:
+        return s
 
-        with open(pdf_path, "wb") as f:
-            f.write(resp.content)
-        return pdf_path, True, f"Downloaded PDF: {pdf_path} ({_format_size(pdf_path.stat().st_size)})"
+    normalized = []
+    for ch in s:
+        if preserve_nordic and ch in "åäöø":
+            normalized.append(ch)
+        else:
+            decomp = unicodedata.normalize("NFKD", ch)
+            normalized.append("".join(c for c in decomp if not unicodedata.combining(c)))
+    return "".join(normalized)
 
-    except Exception as e:
-        return None, False, f"Failed to download PDF from {url}: {e}"
+def name_keys_for_lookup_all_splits(name: str) -> List[str]:
+    """
+    Generate normalized name keys:
+      - the raw normalized string
+      - for every split point i (1..n-1): 
+          * "prefix suffix" where prefix = tokens[:i] (firstname(s)), suffix = tokens[i:] (lastname(s))
+          * "suffix prefix" (reversed for lastname firstname order)
+    This covers any number of first-/last-name tokens and possible order flips in PDFs.
+    Example: For "John Doe Smith": ['smith john doe', 'john doe smith', 'doe smith john']
+    Deduplicates unique keys.
+    """
+    n = normalize_key(name)
+    parts = n.split()
+    if len(parts) <= 1:
+        return [n]
+    keys = [n]  # Include raw normalized full string
+    for i in range(1, len(parts)):
+        prefix = " ".join(parts[:i])
+        suffix = " ".join(parts[i:])
+        fn_ln = f"{prefix} {suffix}"  # firstname(s) lastname(s)
+        ln_fn = f"{suffix} {prefix}"  # lastname(s) firstname(s)
+        keys.append(fn_ln)
+        if fn_ln != ln_fn:  # Avoid dup if symmetric
+            keys.append(ln_fn)
+    return list(set(keys))  # Dedup and return as list
 
 def print_db_insert_results(db_results):
     """
@@ -224,77 +243,64 @@ def print_db_insert_results(db_results):
             print(f"      • {reason}: {cnt}")
             logging.info(f"      • {reason}: {cnt}")
 
-def sanitize_name(name: str) -> str:
-    """ 
-    Sanitize a name by stripping, splitting, and title-casing each word.
-    Example: 'harry hamrén' -> 'Harry Hamrén' 
+
+###################################
+### PDF Downloading and Caching 
+###################################
+
+def _format_size(bytes_size: int) -> str:
+    """Format size into KB/MB/GB string."""
+    if bytes_size < 1024:
+        return f"{bytes_size} B"
+    elif bytes_size < 1024 * 1024:
+        return f"{bytes_size / 1024:.1f} KB"
+    elif bytes_size < 1024 * 1024 * 1024:
+        return f"{bytes_size / (1024 * 1024):.2f} MB"
+    else:
+        return f"{bytes_size / (1024 * 1024 * 1024):.2f} GB"
+
+def _is_valid_pdf(path: Path) -> bool:
+    """Check if file starts with %PDF- header."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(5)
+            return header == b"%PDF-"
+    except Exception:
+        return False
+
+def _get_pdf_path(tournament_id_ext: str, class_id_ext: str, stage: int) -> Path:
+    """Generate the path for a PDF file."""
+    return CACHE_DIR / f"tournament_{tournament_id_ext}" / f"class_{class_id_ext}" / f"stage_{stage}.pdf"
+
+def _download_pdf_ondata_by_tournament_class_and_stage(tournament_id_ext: str, class_id_ext: str, stage: int, force_download: bool = False) -> Tuple[Optional[Path], bool, Optional[str]]:
+    """Download a PDF if available. Returns (path, downloaded, message) where:
+    - path: Path to the PDF or None if failed
+    - downloaded: True if newly downloaded, False if cached or skipped
+    - message: Status or error message for logging (None if no special message)
     """
-    return ' '.join(word.strip().title() for word in name.split())
+    pdf_path = _get_pdf_path(tournament_id_ext, class_id_ext, stage)
 
-def normalize_key(
-    name: str,
-    *,
-    preserve_diacritics: bool = False,
-    preserve_nordic: bool = True
-) -> str:
-    """
-    Normalize for matching.
+    # If file exists but is invalid, remove it
+    if pdf_path.exists() and not _is_valid_pdf(pdf_path):
+        pdf_path.unlink()
 
-    Parameters
-    ----------
-    preserve_diacritics : bool
-        If True, keep all diacritics (Å, Ä, Ö, Ø, É, etc.)
-    preserve_nordic : bool
-        When stripping diacritics, optionally preserve å, ä, ö, ø
+    if pdf_path.exists() and not force_download:
+        return pdf_path, False, f"Cached PDF used: {pdf_path}"
 
-    Examples
-    --------
-    "Virum"             -> "virum"
-    "Nørre"             -> "norre"  (unless preserve_diacritics=True)
-    "Åby"               -> "åby"    (if preserve_nordic=True)
-    """
-    s = name.strip()
-    s = re.sub(r"\s+", " ", s)
-    s = s.lower()
+    url = f"https://resultat.ondata.se/ViewClassPDF.php?tournamentID={tournament_id_ext}&classID={class_id_ext}&stage={stage}"
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if preserve_diacritics:
-        return s
+    try:
+        resp = requests.get(url, timeout=20)
+        if resp.status_code != 200 or not resp.content.startswith(b"%PDF-"):
+            return None, False, f"No valid PDF for stage {stage} (status: {resp.status_code})"
 
-    normalized = []
-    for ch in s:
-        if preserve_nordic and ch in "åäöø":
-            normalized.append(ch)
-        else:
-            decomp = unicodedata.normalize("NFKD", ch)
-            normalized.append("".join(c for c in decomp if not unicodedata.combining(c)))
-    return "".join(normalized)
+        with open(pdf_path, "wb") as f:
+            f.write(resp.content)
+        return pdf_path, True, f"Downloaded PDF: {pdf_path} ({_format_size(pdf_path.stat().st_size)})"
 
-
-def name_keys_for_lookup_all_splits(name: str) -> List[str]:
-    """
-    Generate normalized name keys:
-      - the raw normalized string
-      - for every split point i (1..n-1): 
-          * "prefix suffix" where prefix = tokens[:i] (firstname(s)), suffix = tokens[i:] (lastname(s))
-          * "suffix prefix" (reversed for lastname firstname order)
-    This covers any number of first-/last-name tokens and possible order flips in PDFs.
-    Example: For "John Doe Smith": ['smith john doe', 'john doe smith', 'doe smith john']
-    Deduplicates unique keys.
-    """
-    n = normalize_key(name)
-    parts = n.split()
-    if len(parts) <= 1:
-        return [n]
-    keys = [n]  # Include raw normalized full string
-    for i in range(1, len(parts)):
-        prefix = " ".join(parts[:i])
-        suffix = " ".join(parts[i:])
-        fn_ln = f"{prefix} {suffix}"  # firstname(s) lastname(s)
-        ln_fn = f"{suffix} {prefix}"  # lastname(s) firstname(s)
-        keys.append(fn_ln)
-        if fn_ln != ln_fn:  # Avoid dup if symmetric
-            keys.append(ln_fn)
-    return list(set(keys))  # Dedup and return as list
+    except Exception as e:
+        return None, False, f"Failed to download PDF from {url}: {e}"
 
 class OperationLogger:
     """
@@ -327,7 +333,9 @@ class OperationLogger:
         verbosity:      int = 1,
         print_output:   bool = True,
         log_to_db:      bool = False,
-        cursor:         Optional[sqlite3.Cursor] = None
+        cursor:         Optional[sqlite3.Cursor] = None,
+        object_type:    Optional[str] = None,   # e.g., 'tournament_raw',
+        run_type:       Optional[str] = None    # e.g., 'scrape', 'resolve', 'update'
     ):
         self.run_id             = str(uuid.uuid4())  # Unique ID for this run/script execution
         self.verbosity          = verbosity
@@ -337,52 +345,60 @@ class OperationLogger:
         self.results            = defaultdict(lambda: {"success": 0, "failed": 0, "skipped": 0})
         self.reasons            = {"success": defaultdict(int), "failed": defaultdict(int), "skipped": defaultdict(int), "warning": defaultdict(int)}
         self.individual_logs    = []
+        self.object_type        = object_type   
+        self.run_type           = run_type
+        self.processed          = 0
+        self.start_time         = time.time()
 
         if log_to_db and not cursor:
             raise ValueError("Cursor required if log_to_db is True")
-        
+
+    def inc_processed(self, n: int = 1):
+        """Increment number of processed records (used for overhead tracking)."""
+        self.processed += n
+
     def _format_msg(self, context: dict, reason: str) -> str:
         return f"({', '.join(f'{k}: {v}' for k,v in context.items())}): {reason}"
         
     def _enrich_context(self, context: dict) -> dict:
-            """
-            Enrich context dict with name conversions by querying DB.
-            Adds fields like 'player_name', 'yearborn', 'club_shortname' if IDs present.
-            Skips if no cursor or no matching row.
-            """
-            enriched = context.copy()
+        """
+        Enrich context dict with name conversions by querying DB.
+        Adds fields like 'player_name', 'yearborn', 'club_shortname' if IDs present.
+        Skips if no cursor or no matching row.
+        """
+        enriched = context.copy()
 
-            # Convert dates to strings
-            for key, value in enriched.items():
-                if isinstance(value, date):
-                    enriched[key] = value.isoformat()  # Convert to YYYY-MM-DD
-            
-            if 'player_id' in enriched and self.cursor:
-                try:
-                    self.cursor.execute(
-                        "SELECT firstname, lastname, yearborn FROM players WHERE id = ?",
-                        (enriched['player_id'],)
-                    )
-                    row = self.cursor.fetchone()
-                    if row:
-                        enriched['player_name'] = f"{row[0]} {row[1]}".strip()
-                        enriched['yearborn'] = row[2]
-                except Exception:
-                    pass
-            
-            if 'club_id' in enriched and self.cursor:
-                try:
-                    self.cursor.execute(
-                        "SELECT shortname FROM club WHERE club_id = ?",
-                        (enriched['club_id'],)
-                    )
-                    row = self.cursor.fetchone()
-                    if row:
-                        enriched['club_shortname'] = row[0]
-                except Exception:
-                    pass
-            
-            return enriched
+        # Convert dates to strings
+        for key, value in enriched.items():
+            if isinstance(value, date):
+                enriched[key] = value.isoformat()  # Convert to YYYY-MM-DD
+        
+        if 'player_id' in enriched and self.cursor:
+            try:
+                self.cursor.execute(
+                    "SELECT firstname, lastname, yearborn FROM players WHERE id = ?",
+                    (enriched['player_id'],)
+                )
+                row = self.cursor.fetchone()
+                if row:
+                    enriched['player_name'] = f"{row[0]} {row[1]}".strip()
+                    enriched['yearborn'] = row[2]
+            except Exception:
+                pass
+        
+        if 'club_id' in enriched and self.cursor:
+            try:
+                self.cursor.execute(
+                    "SELECT shortname FROM club WHERE club_id = ?",
+                    (enriched['club_id'],)
+                )
+                row = self.cursor.fetchone()
+                if row:
+                    enriched['club_shortname'] = row[0]
+            except Exception:
+                pass
+        
+        return enriched
     
     def _parse_context_str(self, context_str: str) -> Dict[str, any]:
         """
@@ -410,53 +426,53 @@ class OperationLogger:
             # Fallback for compat
             return {'key': context_str}
         
-    def log_error_to_db(
-            self,
-            severity: str,
-            message: str,
-            context_dict: dict,
-            msg_id: Optional[str] = None
-        ):
-            """
-            New method to log structured errors to log_output table.
-            - severity: 'error', 'warning', 'skipped', etc.
-            - message: Error/warning description
-            - context_dict: Dict of key-value pairs (e.g., {'player_id': None, 'club_id': 482})
-            - msg_id: Optional, e.g., 'E001' from error_catalog
-            Auto-captures: function_name, filename, timestamp (via DB).
-            Enriches: Adds player_name, yearborn, club_shortname to context.
-            Stores: In log_output table and self.individual_logs for export.
-            """
+    # def log_error_to_db(
+    #         self,
+    #         severity: str,
+    #         message: str,
+    #         context_dict: dict,
+    #         msg_id: Optional[str] = None
+    #     ):
+    #     """Structured error/warning/skipped logging to log_details."""
+    #     frame = inspect.currentframe().f_back
+    #     function_name = frame.f_code.co_name
+    #     filename = os.path.basename(inspect.getfile(frame))
 
-            # Get caller info
-            frame = inspect.currentframe().f_back
-            function_name = frame.f_code.co_name
-            filename = os.path.basename(inspect.getfile(frame))
-            
-            # Enrich context
-            enriched_context = self._enrich_context(context_dict)
-            context_json = json.dumps(enriched_context)
-            
-            # Write to log_output table
-            if self.cursor:
-                try:
-                    self.cursor.execute('''
-                        INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (self.run_id, function_name, filename, context_json, severity, message, msg_id))
-                    self.cursor.connection.commit()
-                except Exception as e:
-                    logging.error(f"Error in log_error_to_db: {e}")
-            
-            # Store for export/summary (optional, for later integration)
-            self.individual_logs.append({
-                'status': severity,
-                'context': enriched_context,
-                'message': message,
-                'msg_id': msg_id,
-                'function_name': function_name,
-                'filename': filename
-            })
+    #     enriched_context = self._enrich_context(context_dict)
+    #     context_json = json.dumps(enriched_context)
+
+    #     if self.cursor:
+    #         try:
+    #             self.cursor.execute('''
+    #                 INSERT INTO log_details (
+    #                     run_id, run_date, object_type, process_type,
+    #                     function_name, filename, context_json, status, message, msg_id
+    #                 ) VALUES (
+    #                     ?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?
+    #                 )
+    #             ''', (
+    #                 self.run_id,
+    #                 self.object_type or "unknown",
+    #                 self.run_type or "unknown",
+    #                 function_name,
+    #                 filename,
+    #                 context_json,
+    #                 severity,
+    #                 message,
+    #                 msg_id
+    #             ))
+    #             self.cursor.connection.commit()
+    #         except Exception as e:
+    #             logging.error(f"Error in log_error_to_db: {e}")
+
+    #     self.individual_logs.append({
+    #         'status': severity,
+    #         'context': enriched_context,
+    #         'message': message,
+    #         'msg_id': msg_id,
+    #         'function_name': function_name,
+    #         'filename': filename
+    #     })
 
     def clear_previous_logs(
             self,
@@ -545,10 +561,10 @@ class OperationLogger:
         context: Union[dict, str], 
         reason: Optional[str] = "Success",
         msg_id: Optional[str] = None,
-        *,
-        to_console: Optional[bool] = None,  # Optional console print control
-        emoji: str = "✅ ",  # Optional emoji with checkmark, similar to info() and failed()
-        show_key: bool = True,  # Optional show_key, similar to info() and failed()
+        *,  # keyword-only after this
+        to_console: Optional[bool] = None,
+        emoji: str = "✅ ",
+        show_key: bool = True,
     ):
         if isinstance(context, str):
             context = self._parse_context_str(context)
@@ -575,9 +591,21 @@ class OperationLogger:
             if self.cursor:
                 try:
                     self.cursor.execute('''
-                        INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ''', (self.run_id, function_name, filename, context_json, 'success', reason, msg_id))
+                        INSERT INTO log_details (
+                            run_id, run_date, object_type, process_type,
+                            function_name, filename, context_json, status, message, msg_id
+                        ) VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        self.run_id,
+                        self.object_type or "unknown",
+                        self.run_type or "unknown",
+                        function_name,
+                        filename,
+                        context_json,
+                        'success',
+                        reason,
+                        msg_id
+                    ))
                     self.cursor.connection.commit()
                 except Exception as e:
                     logging.error(f"Error logging success to DB: {e}")
@@ -598,17 +626,16 @@ class OperationLogger:
             'function_name': function_name,
             'filename': filename
         })
-
  
     def failed(
         self, 
-        context: Union[dict, str],  # Allow dict or str for compat
+        context: Union[dict, str],
         reason: Optional[str] = "Failed",
         msg_id: Optional[str] = None,
-        *,
-        to_console: Optional[bool] = None,  # Optional console print control
-        emoji: str = "❌ ",  # Optional emoji, similar to info()
-        show_key: bool = True,  # Optional show_key, similar to info()
+        *,  # keyword-only after this
+        to_console: Optional[bool] = None,
+        emoji: str = "❌ ",
+        show_key: bool = True,
     ):
         if isinstance(context, str):
             context = {'key': context}  # Backward compat: Treat string as simple key
@@ -624,13 +651,25 @@ class OperationLogger:
         enriched_context = self._enrich_context(context)
         context_json = json.dumps(enriched_context)
         
-        # Write to log_output table (structured DB log, always for failed)
+        # Write to log_details table (structured DB log, always for failed)
         if self.cursor:
             try:
                 self.cursor.execute('''
-                    INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (self.run_id, function_name, filename, context_json, 'error', reason, msg_id))
+                    INSERT INTO log_details (
+                        run_id, run_date, object_type, process_type,
+                        function_name, filename, context_json, status, message, msg_id
+                    ) VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    self.run_id,
+                    self.object_type or "unknown",
+                    self.run_type or "unknown",
+                    function_name,
+                    filename,
+                    context_json,
+                    'error',
+                    reason,
+                    msg_id
+                ))
                 self.cursor.connection.commit()
             except Exception as e:
                 logging.error(f"Error logging failed to DB: {e}")
@@ -659,17 +698,17 @@ class OperationLogger:
             'function_name': function_name,
             'filename': filename
         })
-  
+
 
     def skipped(
         self, 
         context: Union[dict, str],
         reason: Optional[str] = "Skipped",
         msg_id: Optional[str] = None,
-        *,
-        to_console: Optional[bool] = None,  # Optional console print control
-        emoji: str = "⏭️  ",  # Optional emoji for skipped
-        show_key: bool = True,  # Optional show_key, similar to others
+        *,  # keyword-only after this
+        to_console: Optional[bool] = None,
+        emoji: str = "⏭️  ",
+        show_key: bool = True,
     ):
         if isinstance(context, str):
             context = self._parse_context_str(context)
@@ -695,9 +734,21 @@ class OperationLogger:
         if self.cursor and self.verbosity >= 3:
             try:
                 self.cursor.execute('''
-                    INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (self.run_id, function_name, filename, context_json, 'skipped', reason, msg_id))
+                    INSERT INTO log_details (
+                        run_id, run_date, object_type, process_type,
+                        function_name, filename, context_json, status, message, msg_id
+                    ) VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    self.run_id,
+                    self.object_type or "unknown",
+                    self.run_type or "unknown",
+                    function_name,
+                    filename,
+                    context_json,
+                    'skipped',
+                    reason,
+                    msg_id
+                ))
                 self.cursor.connection.commit()
             except Exception as e:
                 logging.error(f"Error logging skipped to DB: {e}")
@@ -777,6 +828,7 @@ class OperationLogger:
             'filename': filename
         })
 
+
     def summarize(self):
         """Generate and print/log the full summary, always including totals, one line at a time."""
         total_success   = sum(d["success"]          for d in self.results.values())
@@ -807,7 +859,29 @@ class OperationLogger:
             for reason, count in self.reasons["warning"].items():
                 lines.append(f"      • {reason}: {count}")
 
-        # Log/print each line so your formatter prefixes every one
+        if hasattr(self, "start_time"):
+            runtime_seconds = time.time() - self.start_time
+            lines.append("")
+            lines.append(f"   ⏱️  Runtime: {runtime_seconds:.1f}s")
+            if hasattr(self, "processed"):
+                lines.append(f"   📦 Records processed: {self.processed}")
+                if runtime_seconds > 0:
+                    throughput = self.processed / runtime_seconds
+                    lines.append(f"   ⚡ Throughput: {throughput:.1f} records/sec")
+
+        # if hasattr(self, "start_time"):
+        #     runtime_seconds = time.time() - self.start_time
+        #     lines.append(f"   ⏱️  Runtime: {runtime_seconds:.1f}s")
+        #     lines.append(f"   ⚡ Throughput: {throughput:.1f} records/sec")
+
+        # if hasattr(self, "processed"):
+        #     runtime_seconds = time.time() - self.start_time
+        #     lines.append(f"   📦 Records processed: {self.processed}")
+        #     lines.append(f"   ⏱️ Runtime: {runtime_seconds:.1f}s")
+        #     if runtime_seconds > 0:
+        #         throughput = self.processed / runtime_seconds
+        #         lines.append(f"   ⚡ Throughput: {throughput:.1f} records/sec")
+                
         logging.info("")
         print("")
         for line in lines:
@@ -815,54 +889,121 @@ class OperationLogger:
             print(line)
         logging.info("")
         print("")
-    
+
+    def commit_run_summary(self, cursor: sqlite3.Cursor, remarks: Optional[str] = None):
+        runtime_seconds = time.time() - self.start_time
+        total_success   = sum(d["success"] for d in self.results.values())
+        total_failed    = sum(d["failed"] for d in self.results.values())
+        total_skipped   = sum(d["skipped"] for d in self.results.values())
+        total_warnings  = sum(self.reasons["warning"].values())
         
-def export_to_excel(output_file='logs.xlsx'):
+        cursor.execute("""
+            INSERT INTO run_log (
+                run_id, object_type, process_type, records_processed,
+                records_success, records_failed, records_skipped,
+                records_warnings, runtime_seconds, remarks
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            self.run_id,
+            self.object_type or "unknown",
+            self.run_type or "unknown",
+            self.processed, total_success, total_failed,
+            total_skipped, total_warnings, runtime_seconds, remarks
+        ))
+        cursor.connection.commit()
+        
+def export_logs_to_excel():
+    """
+    Export the latest run's record-level logs (log_details) to logs.xlsx.
+    Always rewrites the file, so it only contains the most recent run.
+    """
     conn, cursor = get_conn()
-    df = pd.read_sql_query("SELECT * FROM log_output WHERE run_id = (SELECT MAX(run_id) FROM log_output)", conn)  # Changed to log_output
+    df = pd.read_sql_query(
+        "SELECT * FROM log_details WHERE run_id = (SELECT MAX(run_id) FROM log_details)",
+        conn
+    )
     conn.close()
-    
+
     if df.empty:
         print("ℹ️  No logs to export.")
         logging.info("No logs to export.")
         return
-    
-    # Parse and flatten context_json
+
+    # Parse and flatten context_json into columns
     df['context'] = df['context_json'].apply(lambda x: json.loads(x) if x else {})
     context_df = pd.json_normalize(df['context'])
     df = pd.concat([df.drop(['context', 'context_json'], axis=1), context_df], axis=1)
-    
-    with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+
+    with pd.ExcelWriter("logs.xlsx", engine='openpyxl') as writer:
         # All logs
         df.to_excel(writer, sheet_name='All_Logs', index=False)
-        
-        # By status
-        for status in ['error', 'warning', 'skipped']:  # Adjust based on your severities
+
+        # By status (split into tabs)
+        for status in ['error', 'warning', 'skipped']:
             subset = df[df['status'] == status]
             if not subset.empty:
                 subset.to_excel(writer, sheet_name=status.capitalize(), index=False)
-        
-        # Separate tab per msg_id
+
+        # Separate tab per msg_id (if present)
         error_groups = df[df['msg_id'].notna()]
         for msg_id in error_groups['msg_id'].unique():
             subset = error_groups[error_groups['msg_id'] == msg_id]
-            sheet_name = f'{subset["status"].iloc[0]}_{msg_id}'[:31]
+            sheet_name = f'{subset["status"].iloc[0]}_{msg_id}'[:31]  # Excel sheet name limit
             subset.to_excel(writer, sheet_name=sheet_name, index=False)
-    
-    print(f"ℹ️  Exported logs to {output_file}")
-    logging.info(f"Exported logs to {output_file}")
 
-def clear_log_output_table(cursor: sqlite3.Cursor):
+    print("ℹ️  Exported latest run logs to logs.xlsx")
+    logging.info("Exported latest run logs to logs.xlsx")
+
+
+def export_runs_to_excel():
     """
-    Manually clear the log_output table.
-    - cursor: The DB cursor to use.
+    Export the latest run-level summary (log_runs) to run_log.xlsx.
+    Always rewrites the file, so it only contains the most recent run.
+    """
+    conn, cursor = get_conn()
+    df = pd.read_sql_query(
+        "SELECT * FROM log_runs WHERE run_id = (SELECT MAX(run_id) FROM log_runs)",
+        conn
+    )
+    conn.close()
+
+    if df.empty:
+        print("ℹ️  No run summaries to export.")
+        logging.info("No run summaries to export.")
+        return
+
+    with pd.ExcelWriter("run_log.xlsx", engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Run_Summary', index=False)
+
+    print("ℹ️  Exported latest run summary to run_log.xlsx")
+    logging.info("Exported latest run summary to run_log.xlsx")
+
+
+def clear_debug_tables(cursor: sqlite3.Cursor, clear_logs: bool = True, clear_runs: bool = False):
+    """
+    Clear debug tables based on flags.
+
+    - clear_logs=True  → clears log_details table (record-level logs).
+    - clear_runs=True  → clears log_runs table (run-level summaries).
+
+    Typical usage:
+    - clear only logs between runs, but keep run history:
+        clear_debug_tables(cursor, clear_logs=True, clear_runs=False)
+    - clear everything (fresh start):
+        clear_debug_tables(cursor, clear_logs=True, clear_runs=True)
     """
     try:
-        cursor.execute("DELETE FROM log_output")
-        cursor.connection.commit()
-        logging.info("Logger table cleared.")
-        print("ℹ️  Logger table cleared.")
-    except Exception as e:
-        logging.error(f"Error clearing logger table: {e}")
-        print(f"❌ Error clearing logger table: {e}")
+        if clear_logs:
+            cursor.execute("DELETE FROM log_details")
+            logging.info("log_details table cleared.")
+            print("ℹ️  log_details table cleared.")
 
+        if clear_runs:
+            cursor.execute("DELETE FROM log_runs")
+            logging.info("log_runs table cleared.")
+            print("ℹ️  log_runs table cleared.")
+
+        cursor.connection.commit()
+    except Exception as e:
+        logging.error(f"Error clearing tables: {e}")
+        print(f"❌ Error clearing tables: {e}")

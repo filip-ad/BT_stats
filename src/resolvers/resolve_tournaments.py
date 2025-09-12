@@ -13,10 +13,12 @@ def resolve_tournaments(cursor) -> List[Tournament]:
     Handles parsing, validation, and insert.
     """
     logger = OperationLogger(
-        verbosity=2,
-        print_output=False,
-        log_to_db=True,
-        cursor=cursor
+        verbosity       = 2,
+        print_output    = False,
+        log_to_db       = True,
+        cursor          = cursor,
+        object_type     = "tournament",
+        run_type        = "resolve"
     )
 
     # Fetch all raw tournament records

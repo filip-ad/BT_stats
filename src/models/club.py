@@ -142,28 +142,6 @@ class Club(CacheMixin):
        
         return None
 
-
-    # @staticmethod
-    # def _prefix_match(norm: str, club_map: Dict[str, "Club"], min_ratio: float = 0.75) -> Optional["Club"]:
-    #     """
-    #     Find best club whose normalized key shares at least `min_ratio`
-    #     of prefix characters with `norm`.
-    #     Example: 'lubeckertsde' vs 'lubeckerts' → ratio ≈ 0.83 → match.
-    #     """
-    #     best, best_ratio = None, 0.0
-    #     for key, club in club_map.items():
-    #         common = 0
-    #         for a, b in zip(norm, key):
-    #             if a != b:
-    #                 break
-    #             common += 1
-    #         # ratio = common / max(len(norm), len(key))
-    #         ratio = common / len(norm) 
-    #         if ratio > best_ratio:
-    #             best, best_ratio = club, ratio
-    #     logging.info(f"Prefix match for '{norm}': {best} (ratio: {best_ratio})")
-    #     return best if best_ratio >= min_ratio else None
-
     @staticmethod
     def _prefix_match(norm: str, club_map: Dict[str, "Club"], min_ratio: float = 0.75, mode: str = "strict"):
         """

@@ -1,5 +1,6 @@
 # src/scrapers/scrape_tournaments_ondata_listed.py
 
+import sqlite3
 from typing import Optional
 from bs4 import BeautifulSoup
 import requests
@@ -22,15 +23,19 @@ def scrape_tournaments_ondata_listed(cursor) -> None:
     """
 
     logger = OperationLogger(
-        verbosity=2,
-        print_output=False,
-        log_to_db=True,
-        cursor=cursor
+        verbosity       = 2,
+        print_output    = False,
+        log_to_db       = True,
+        cursor          = cursor,
+        object_type     = "tournament_raw",
+        run_type        = "scrape"
     )
 
+    nbr_of_tnmnts_scraped = 0
+    start_time = time.time()
     cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
-
-    logger.info(f"Scraping ondata for listed tournaments, cut off date: {cutoff_date}...")
+    sleep_time = 0.3 # Seconds between requests to avoid overloading server- 0.3 seems fine.
+    logger.info(f"Scraping ondata for listed tournaments, cut off date: {cutoff_date}. Using {sleep_time}s sleep time between requests.")
 
     SCRAPE_TOURNAMENTS_URL_ONDATA = "https://resultat.ondata.se/?viewAll=1"
 
@@ -146,33 +151,47 @@ def scrape_tournaments_ondata_listed(cursor) -> None:
                 tournament_id_ext=ondata_id,
                 longname=longname,
                 shortname=shortname,
-                startdate=start_date.isoformat(),
-                enddate=end_date.isoformat(),
-                city=city,
-                arena=arena,
+                startdate=start_date,
+                enddate=end_date,
+                city=city or None,
+                arena=arena or None,
                 country_code=country_code,
                 url=full_url,
                 data_source_id=1,
                 is_listed=True
             )
 
+            nbr_of_tnmnts_scraped += 1
+            logger.inc_processed()
+
             # Light validation for certain missing fields
             is_valid, error_message = raw.validate()
             if not is_valid:
                 logger.failed(logger_keys, error_message)
                 continue
+            try: 
+                action = raw.upsert(cursor)
+            except sqlite3.Error as e:
+                logger.failed(logger_keys, f"Database error during upsert: {e}")
+                action = None
 
-            action = raw.upsert(cursor)
-            if action:
-                logger.info(f"Tournament (raw listed) {raw.shortname} on {raw.startdate} successfully {action}")
-                logger.success(logger_keys, f"Tournament (raw listed) successfully {action}")
+            if action == "inserted" or action == "updated":
+                logger.success(logger_keys, f"Raw tournament successfully {action}")
+            elif action == "unchanged":
+                logger.success(logger_keys, "Raw tournament unchanged (already up-to-date)")
             else:
-                logger.failed(logger_keys, f"Tournament (raw listed) upsert failed")
+                logger.failed(logger_keys, "Raw tournament upsert failed")
 
-            # Add delay to respect server rate limits
-            time.sleep(0.5)  # Increased from 0.5s to 1s to reduce load
+            logger.info(f"Tournament (raw listed) {raw.shortname} on {raw.startdate} successfully {action}", to_console=True, show_key=False)
 
+            time.sleep(sleep_time)
+
+    run_time = time.time() - start_time
+    logger.info(f"Completed scraping {nbr_of_tnmnts_scraped} listed tournaments in {run_time:.1f} seconds.")
     logger.summarize()
+    logger.commit_run_summary(cursor)
+
+    # run_time and nbr_of_tnmnts_scraped can be used for overhead tracking
 
 
 def _fetch_tournament_longname(ondata_id: str, session: requests.Session, headers: dict, logger: OperationLogger, logger_keys: dict) -> Optional[str]:
