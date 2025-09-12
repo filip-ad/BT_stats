@@ -151,7 +151,7 @@ def main():
         # Populate RAW tables first
         #   
 
-        scrp_tournaments              = True
+        scrp_tournaments              = False
         scrp_tournament_classes       = False
         scrp_player_licenses          = False
         scrp_player_transitions       = False

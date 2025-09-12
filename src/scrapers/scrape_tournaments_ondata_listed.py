@@ -32,7 +32,6 @@ def scrape_tournaments_ondata_listed(cursor) -> None:
     )
 
     nbr_of_tnmnts_scraped = 0
-    start_time = time.time()
     cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
     sleep_time = 0.3 # Seconds between requests to avoid overloading server- 0.3 seems fine.
     logger.info(f"Scraping ondata for listed tournaments, cut off date: {cutoff_date}. Using {sleep_time}s sleep time between requests.")
@@ -186,8 +185,7 @@ def scrape_tournaments_ondata_listed(cursor) -> None:
 
             time.sleep(sleep_time)
 
-    run_time = time.time() - start_time
-    logger.info(f"Completed scraping {nbr_of_tnmnts_scraped} listed tournaments in {run_time:.1f} seconds.")
+    logger.info(f"Completed scraping {nbr_of_tnmnts_scraped} listed tournaments.")
     logger.summarize()
     logger.commit_run_summary(cursor)
 

@@ -40,30 +40,33 @@ def resolve_tournaments(cursor) -> List[Tournament]:
     seen_ext_ids = set()
 
     for raw in raw_objects:
+
+        logger.inc_processed()
+
         logger_keys = {
             "row_id": raw.row_id,
-            "tournament_id_ext": str(raw.tournament_id_ext) if raw.tournament_id_ext else 'None',
-            "longname": raw.longname or 'None',
-            "shortname": raw.shortname or 'None',
-            "startdate": str(raw.startdate) if raw.startdate else 'None',
-            "enddate": str(raw.enddate) if raw.enddate else 'None',
-            "city": raw.city or 'None',
-            "arena": raw.arena or 'None',
-            "country_code": raw.country_code or 'None',
-            "url": raw.url or 'None'
+            "tournament_id_ext":    str(raw.tournament_id_ext) if raw.tournament_id_ext else 'None',
+            "longname":             raw.longname or 'None',
+            "shortname":            raw.shortname or 'None',
+            "startdate":            str(raw.startdate) if raw.startdate else 'None',
+            "enddate":              str(raw.enddate) if raw.enddate else 'None',
+            "city":                 raw.city or 'None',
+            "arena":                raw.arena or 'None',
+            "country_code":         raw.country_code or 'None',
+            "url":                  raw.url or 'None'
         }
 
         # Parse dates
-        start_date = parse_date(raw.startdate, context=f"row_id: {raw.row_id}")
-        end_date = parse_date(raw.enddate, context=f"row_id: {raw.row_id}")
+        start_date  = parse_date(raw.startdate, context=f"row_id: {raw.row_id}")
+        end_date    = parse_date(raw.enddate, context=f"row_id: {raw.row_id}")
 
         if not start_date or not end_date:
             logger.warning(logger_keys, "Invalid start date or end date")
             continue
 
         logger_keys.update({
-            "startdate": str(start_date),
-            "enddate": str(end_date)
+            "startdate":    str(start_date),
+            "enddate":      str(end_date)
         })
 
         # Calculate status (default to 6 for incomplete data)
