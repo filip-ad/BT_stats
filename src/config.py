@@ -5,8 +5,8 @@ LOG_LEVEL                               = "INFO"    # Options: DEBUG, INFO, WARN
 DB_NAME                                 = "../data/table_tennis.db"
 PDF_CACHE_DIR                           = "data/pdfs"
 
-SCRAPE_LICENSES_MAX_CLUBS               = 1         # How many clubs to iterate, 0 for all clubs
-SCRAPE_LICENSES_NBR_OF_SEASONS          = 3         # Amount of seasons to iterate for each club, always starting with the oldest, 0 for all seasons
+SCRAPE_LICENSES_MAX_CLUBS               = 10         # How many clubs to iterate, 0 for all clubs
+SCRAPE_LICENSES_NBR_OF_SEASONS          = 1         # Amount of seasons to iterate for each club, always starting with the oldest, 0 for all seasons
 SCRAPE_LICENSES_ORDER                   = "newest"  # Order of seasons to scrape, "oldest" or "newest"
 
 SCRAPE_RANKINGS_NBR_OF_RUNS             = 1         # How many rankings runs to scrape, 0 for all runs

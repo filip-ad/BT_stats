@@ -122,6 +122,8 @@ def scrape_player_licenses(cursor):
     # Counting
     total_inserted = 0
     total_skipped = 0
+    total_updated = 0
+    total_unchanged = 0
     current_season_count = 0
 
     def fetch_club_html(club, season_id_ext, selenium_cookies):
@@ -279,16 +281,35 @@ def scrape_player_licenses(cursor):
                             total_skipped += 1
                             continue
 
-                        inserted = raw.upsert_one(cursor, raw)
-                        if inserted is not None:
-                            logger.success(logger_keys.copy(), "Raw player license record successfully upserted")
+                        # inserted = raw.upsert_one(cursor, raw)
+                        # if inserted is not None:
+                        #     logger.success(logger_keys.copy(), "Raw player license record successfully upserted")
 
-                        if inserted:
+                        # if inserted:
+                        #     total_inserted += 1
+                        #     club_season_inserted += 1
+                        # else:
+                        #     total_skipped += 1
+                        #     club_season_skipped += 1
+
+                        result = raw.upsert(cursor)
+
+                        if result == "inserted":
                             total_inserted += 1
                             club_season_inserted += 1
+                            logger.success(logger_keys.copy(), "Raw license inserted")
+                        elif result == "updated":
+                            # optional: track updates separately
+                            # total_updated += 1
+                            # club_season_updated += 1
+                            total_updated += 1   # or keep a separate counter; up to you
+                            logger.success(logger_keys.copy(), "Raw license updated")
+                        elif result == "unchanged":  # "unchanged" or None
+                            total_unchanged += 1
+                            logger.success(logger_keys.copy(), "Raw license unchanged")
                         else:
-                            total_skipped += 1
-                            club_season_skipped += 1
+                            logger.failed(logger_keys.copy(), "Upsert failed")
+
 
                     cursor.connection.commit()
                     step3_time = time.time() - step3_start
@@ -309,6 +330,6 @@ def scrape_player_licenses(cursor):
         current_season_count += 1
         logger.info(f"Completed season {season_label} in {season_time:.2f} seconds.", to_console=True)
 
-    logger.info(f"Scraping completed — Total inserted: {total_inserted}, Total skipped: {total_skipped}", to_console=True)
+    logger.info(f"Scraping completed — Total inserted: {total_inserted}, total updated: {total_updated}, total unchanged: {total_unchanged}", to_console=True)
     driver.quit()
     logger.summarize()

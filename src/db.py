@@ -142,20 +142,25 @@ def create_raw_tables(cursor, logger):
 
         "player_license_raw": '''
             CREATE TABLE IF NOT EXISTS player_license_raw (
-                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                season_label TEXT NOT NULL,
-                season_id_ext INTEGER NOT NULL,
-                club_name TEXT NOT NULL,
-                club_id_ext INT NOT NULL,
-                player_id_ext INTEGER NOT NULL,
-                firstname TEXT NOT NULL,
-                lastname TEXT NOT NULL,
-                gender TEXT NOT NULL,
-                year_born INTEGER NOT NULL,
-                license_info_raw TEXT NOT NULL,
-                ranking_group_raw TEXT,
-                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(season_id_ext, player_id_ext, club_name, year_born, firstname, lastname, license_info_raw)
+                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                season_label                    TEXT,
+                season_id_ext                   TEXT,
+                club_name                       TEXT,
+                club_id_ext                     TEXT,
+                player_id_ext                   TEXT,
+                firstname                       TEXT,
+                lastname                        TEXT,
+                gender                          TEXT,
+                year_born                       TEXT,
+                license_info_raw                TEXT,
+                ranking_group_raw               TEXT,
+                data_source_id                  INTEGER DEFAULT 1,
+                content_hash                    TEXT,
+                last_seen_at                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                UNIQUE(season_id_ext, player_id_ext, club_name, year_born, firstname, lastname, license_info_raw),
             )
         ''',
 
