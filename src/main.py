@@ -1,4 +1,3 @@
-
 # src/main.py
 
 import logging
@@ -149,23 +148,27 @@ def main():
         ################################################################################################
         
         # Populate RAW tables first
-        #   
+        #
 
-        scrp_tournaments              = False
+        upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
+        # upd_player_rankings_raw()
+        # upd_players_verified()
+
+        scrp_tournaments              = True
         scrp_tournament_classes       = True
         scrp_player_licenses          = False
         scrp_player_transitions       = False
         scrp_participants             = False
 
-        rsv_tournaments             = False
-        rsv_tournament_classes      = False
+        rsv_tournaments             = True
+        rsv_tournament_classes      = True
         rsv_player_licenses         = False
         rsv_player_ranking_groups   = False
         rsv_player_transitions      = False
         rsv_participants            = False
 
-        scrape_data     (scrp_tournaments,      scrp_tournament_classes)
-        resolve_data    (rsv_tournaments,       rsv_tournament_classes,     rsv_player_licenses,    rsv_player_ranking_groups,  rsv_player_transitions,     rsv_participants)
+        # scrape_data     (scrp_tournaments,      scrp_tournament_classes)
+        # resolve_data    (rsv_tournaments,       rsv_tournament_classes,     rsv_player_licenses,    rsv_player_ranking_groups,  rsv_player_transitions,     rsv_participants)
 
         # upd_players_verified()
         # upd_clubs()

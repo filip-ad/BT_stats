@@ -147,13 +147,7 @@ def resolve_player_licenses(cursor) -> List[PlayerLicense]:
         player_id = player.player_id if player else None
         if not player:
             player_cache_misses += 1
-            logger.failed(item_key, "Could not resolve player_id")
-            logger.log_error_to_db(
-                    severity='error',
-                    message='Could not resolve player_id',
-                    context_dict={'row_id': raw.row_id, 'player_id': player_id, 'club_id': club_id, 'season_id': season_id, 'license_id': license_id},
-                    error_id='E001'
-                )
+            logger.failed(logger_keys.copy(), "Could not resolve player_id")
             continue
 
         # Resolve club_id
@@ -161,33 +155,25 @@ def resolve_player_licenses(cursor) -> List[PlayerLicense]:
         club_id = club.club_id if club else None
         if not club:
             club_cache_misses += 1
-            logger.warning(item_key, "No club found in cache")
+            logger.warning(logger_keys.copy(), "No club found in cache")
 
         # Resolve license_id
         license_obj = license_map.get((type_, age_group))
         license_id = license_obj.license_id if license_obj else None
         if not license_obj:
             license_cache_misses += 1
-            logger.warning(item_key, "No license found in cache")
+            logger.warning(logger_keys.copy(), "No license found in cache")
 
         # Prevent duplicates in same run
         final_key = (player_id, club_id, season_id, license_id)
         if final_key in seen_final_keys:
-            logger.skipped(item_key, "Duplicate license in same batch")
+            logger.skipped(logger_keys.copy(), "Duplicate license in same batch")
             continue
         seen_final_keys.add(final_key)
 
         # Check required fields
         if not all([player_id, club_id, season_id, license_id, valid_from, valid_to]):
-            logger.failed(item_key, "Missing required fields")
-
-            logger.log_error_to_db(
-                    severity='error',
-                    message='Missing required field',
-                    context_dict={'row_id': raw.row_id, 'player_id': player_id, 'club_id': club_id, 'season_id': season_id, 'license_id': license_id},
-                    error_id='E001'
-                )
-
+            logger.failed(logger_keys.copy(), "Missing required fields")
             continue
 
         licenses.append(PlayerLicense(
