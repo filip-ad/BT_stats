@@ -1,8 +1,12 @@
 # src/main.py
 
 import logging
+
+import uuid
+
+from upd_player_data import upd_player_data
+
 from utils import clear_debug_tables, export_logs_to_excel, export_runs_to_excel, setup_logging, OperationLogger
-from scrape_data import scrape_data
 from resolve_data import resolve_data
 
 from upd_clubs import upd_clubs
@@ -27,24 +31,25 @@ def main():
 
     try:
 
+        pipeline_run_id = str(uuid.uuid4())
+
         # Get the connection and cursor
         conn, cursor = get_conn()
         
         # Set up logging (set the output format etc)
         setup_logging()
         logger = OperationLogger(
+            run_id = pipeline_run_id,
             verbosity=2,
             print_output=False,
             log_to_db=True,
             cursor=cursor
         )
 
-
         ### DB stuff
         ################################################################################################        
 
         # compact_sqlite()
-        
 
 
         # Drop existing tables to ensure a clean slate
@@ -70,17 +75,17 @@ def main():
 
 
                 # # Raw tables
-                # 'player_license_raw',
+                # 'player_license_raw'
                 # 'player_transition_raw',
                 # 'player_ranking_raw',
                 # 'tournament_raw'
                 # 'tournament_class_raw',
 
                 # # License, ranking, transitions
-                # 'player_license',                     # FK player (verified), club, season, license
-                # 'player_ranking',                     # FK player (verified)
-                # 'player_ranking_group',               # FK player (verified), ranking_group
-                # 'player_transition',                  # FK player, club
+                # 'player_license'                       # FK player (verified), club, season, license
+                # 'player_ranking'                       # FK player (verified)
+                # 'player_ranking_group',                 # FK player (verified), ranking_group
+                # 'player_transition'                   # FK player, club
 
                 # # Game and match-related
                 # 'match_competition',                  # match, competition_type, tournament_class, fixture, tournament_class_stage, tournament_class_group 
@@ -117,7 +122,8 @@ def main():
                 # 'club',
 
                 # # Player
-                # 'player_id_ext',                       # References player (verified)
+                # 'player_unverified_appearance',         # References player (unverified)
+                # 'player_id_ext',                        # References player (verified)
                 # 'player'
 
                 # # Debugging tables (no FKs assumed)
@@ -147,28 +153,14 @@ def main():
         ### NEW WORKFLOW
         ################################################################################################
         
-        # Populate RAW tables first
-        #
 
-        upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
-        # upd_player_rankings_raw()
-        # upd_players_verified()
-
-        scrp_tournaments              = True
-        scrp_tournament_classes       = True
-        scrp_player_licenses          = False
-        scrp_player_transitions       = False
-        scrp_participants             = False
-
-        rsv_tournaments             = True
-        rsv_tournament_classes      = True
-        rsv_player_licenses         = False
-        rsv_player_ranking_groups   = False
-        rsv_player_transitions      = False
-        rsv_participants            = False
-
-        # scrape_data     (scrp_tournaments,      scrp_tournament_classes)
-        # resolve_data    (rsv_tournaments,       rsv_tournament_classes,     rsv_player_licenses,    rsv_player_ranking_groups,  rsv_player_transitions,     rsv_participants)
+        # Update player data
+        upd_player_data(
+            run_id                          = pipeline_run_id,
+            do_scrape_player_licenses       = False, 
+            do_scrape_player_rankings       = False,
+            do_scrape_player_transitions    = False
+        )
 
         # upd_players_verified()
         # upd_clubs()

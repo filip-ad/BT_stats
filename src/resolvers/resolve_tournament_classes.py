@@ -19,6 +19,8 @@ def resolve_tournament_classes(cursor) -> List[TournamentClass]:
         print_output=False,
         log_to_db=True,
         cursor=cursor,
+        object_type     = "tournament_class",
+        run_type        = "resolve"
     )
 
     # Fetch all raw tournament class records

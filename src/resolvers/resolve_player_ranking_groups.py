@@ -9,7 +9,7 @@ from models.player_license_raw import PlayerLicenseRaw
 from models.ranking_group import RankingGroup
 from utils import OperationLogger
 
-def resolve_player_ranking_groups(cursor) -> dict:
+def resolve_player_ranking_groups(cursor, run_id=None) -> dict:
     """
     Build and APPLY the current (player_id, ranking_group_id) relations from ALL rows in player_license_raw
     that have non-empty ranking_group_raw. Season is irrelevant (current-only model).
@@ -28,7 +28,10 @@ def resolve_player_ranking_groups(cursor) -> dict:
         verbosity       = 2, 
         print_output    = False, 
         log_to_db       = False, 
-        cursor          = cursor
+        cursor          = cursor,
+        object_type     = "player_ranking_group",
+        run_type        = "resolve",
+        run_id          = run_id
     )
 
     logger.info("Resolving player ranking groups...", to_console=True)

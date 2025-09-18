@@ -24,15 +24,20 @@ for grp in DUPLICATE_EXT_GROUPS:
     for alias_ext in grp:
         CANONICAL_EXT[alias_ext] = keep
 
-def upd_players_verified():
-    conn, cursor = get_conn()
-    logging.info("Updating player table...")
-    print("ℹ️  Updating player table...")
+def upd_players_verified(cursor, run_id = None):
+
 
     logger = OperationLogger(
-        verbosity=2,
-        print_output=False, 
-        log_to_db=False)
+        verbosity           = 2,
+        print_output        = False,
+        log_to_db           = True,
+        cursor              = cursor,
+        object_type         = "player",
+        run_type            = "update",
+        run_id              = run_id
+    )
+
+    logger.info("Updating player table...")
 
     try:
         # ── Load raw license rows ────────────────────────────────────────
@@ -88,8 +93,7 @@ def upd_players_verified():
                     int(yb)
                 )
 
-        logging.info(f"Found {len(player_data):,} unique external players in license and ranking tables")
-        print(f"ℹ️  Found {len(player_data):,} unique external players in license and ranking tables")
+        logger.info(f"Found {len(player_data):,} unique external players in license and ranking tables")
 
         # ── Process manual duplicate groups first ────────────────────────
         groups: Dict[int, Set[int]] = {}
@@ -113,7 +117,6 @@ def upd_players_verified():
 
             if not can_tuple:
                 msg = f"No source data for group with canonical ext; skipping"
-                # logging.warning(f"No source data for group with canonical ext {can_ext}; skipping {sorted(all_exts)}")
                 logger.failed(f"Group {can_ext}", msg)
                 continue
 
@@ -133,7 +136,6 @@ def upd_players_verified():
                         existing_player_id = row[0]
                     elif existing_player_id != row[0]:
                         conflict_msg = f"Conflict: ext points to different player_id than"
-                        # logging.warning(f"Conflict: ext {ext_id} points to different player_id {row[0]} than {existing_player_id}")
                         logger.warning(player_name, conflict_msg)
                     # Continue to collect, but use first found
 
@@ -142,10 +144,18 @@ def upd_players_verified():
                 player = Player.get_by_id(cursor, existing_player_id)
                 if not player:
                     error_msg = f"Existing player_id not found"
-                    # logging.error(f"Existing player_id {existing_player_id} not found")
                     logger.failed(player_name, error_msg)
                     continue
-                logger.skipped(player_name, "Existing player for group")
+                logger_keys = {
+                    "canonical_ext":   can_ext,
+                    "all_exts":        list(all_exts),
+                    "player_id":       existing_player_id,
+                    "firstname":       can_fn,
+                    "lastname":        can_ln,
+                    "year_born":       can_yb,
+                    "source":          "manual_duplicate_group"
+                }
+                logger.warning(logger_keys, "Manual duplicate group → already merged to existing player")
             else:
                 # Insert new player with canonical ext
                 p = Player(firstname=can_fn, lastname=can_ln, year_born=can_yb, is_verified=True)
@@ -177,39 +187,53 @@ def upd_players_verified():
                     """, (existing_player_id, str(ext_id), data_source_id))
                     logger.success(player_name, f"Added additional player_id_ext for existing player")
                 else:
-                    logger.skipped(player_name, f"Ext_id already exists")
+                    logger_keys = {
+                        "player_id":       existing_player_id,
+                        "ext_id":          ext_id,
+                        "canonical_ext":   can_ext,
+                        "firstname":       can_fn,
+                        "lastname":        can_ln,
+                        "year_born":       can_yb,
+                        "source":          "alias_check"
+                    }
+                    logger.warning(logger_keys, "Ext_id already linked to player (no new alias added)")
 
         # ── Handle remaining non-duplicate externals ─────────────────────
         processed_exts = set()
         for grp in DUPLICATE_EXT_GROUPS:
             processed_exts.update(grp)
         remaining = [k for k in player_data if k not in processed_exts]
-        print(f"ℹ️  Processing {len(remaining):,} non-duplicate external players…")
-        logging.info("Processing %d non-duplicate externals", len(remaining))
+        logger.info("Processing %d non-duplicate externals", len(remaining))
+        logger.inc_processed(len(remaining))
+
+        
 
         for ext_id in sorted(remaining):
             fn, ln, yb = player_data[ext_id]
             p = Player(firstname=fn, lastname=ln, year_born=yb, is_verified=True)
             res = p.save_to_db(cursor, player_id_ext=str(ext_id), data_source_id=data_source_id)
+            
+            logger_keys = {
+                "player_id_ext":   ext_id,
+                "firstname":       fn,
+                "lastname":        ln,
+                "year_born":       yb,
+                "source":          "non_duplicate"
+            }
+                             
             if res["status"] == "success":
-                logger.success(res["player"], res["reason"])
+                logger.success(logger_keys, res["reason"])
             elif res["status"] == "failed":
-                logger.failed(res["player"], res["reason"])
+                logger.failed(logger_keys, res["reason"])
             elif res["status"] == "skipped":
-                logger.skipped(res["player"], res["reason"])
+                logger.skipped(logger_keys, res["reason"])
 
         # ── Commit & report ──────────────────────────────────────────────
-        conn.commit()
+        cursor.connection.commit()
         logger.summarize()
         logging.info("Done updating players")
 
     except Exception as e:
         logging.error(f"Error in upd_players: {e}")
         print(f"❌ Error updating players: {e}")
-        conn.rollback()
-
-    finally:
-        conn.close()
-
-if __name__ == "__main__":
-    upd_players_verified()
+        cursor.connection.rollback()

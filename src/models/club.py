@@ -1,7 +1,7 @@
 # src/models/club.py
 
 from dataclasses import dataclass
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 import logging
 import re
 import unicodedata
@@ -22,6 +22,8 @@ class Club(CacheMixin):
     district_id:   Optional[int]    = None
     aliases:       List[dict]       = None     # {"alias": str, "alias_type": "short"|"long"}
     id_exts:       List[dict]       = None     # {"id_ext": int, "source": str}
+
+    _name_cache:    Dict[str, "Club"] = None
 
     def __post_init__(self):
         # Initialize aliases as empty list if None
@@ -55,6 +57,16 @@ class Club(CacheMixin):
             aliases=data.get("aliases", [])
         )
     
+    @classmethod
+    def _ensure_name_cache(cls, cursor):
+        """
+        Ensure that _name_cache is populated.
+        Builds it once per run, unless cleared/reset.
+        """
+        if cls._name_cache is None:
+            cls._name_cache = cls.cache_name_map(cursor)
+        return cls._name_cache
+    
     # @classmethod
     # def resolve(
     #     cls,
@@ -85,62 +97,111 @@ class Club(CacheMixin):
 
     #     return club
 
+    # @classmethod
+    # def resolve(
+    #     cls,
+    #     cursor,
+    #     clubname_raw: str,
+    #     club_map: Dict[str, "Club"],
+    #     logger,
+    #     item_key: str,
+    #     *,
+    #     allow_prefix: bool = False,
+    #     min_ratio: float = 0.8,
+    #     fallback_to_unknown: bool = False,
+    # ) -> "Club":
+    #     """
+    #     Resolve a club name to a Club object.
+
+    #     Resolution stages:
+    #     1) Exact match with diacritics preserved
+    #     2) Exact match with relaxed normalization (strip diacritics, preserve nordic)
+    #     3) Optional prefix match (first strict, then relaxed)
+    #         - if multiple candidates tie at the best score → log ambiguity and return None
+    #     4) Fallback to Unknown club (id=9999) if allowed
+    #     """
+
+    #     # --- Stage 1: exact strict (diacritics preserved)
+    #     norm_strict = normalize_key(clubname_raw, preserve_diacritics=True)
+    #     club = club_map.get(norm_strict)
+    #     if club:
+    #         return club
+
+    #     # --- Stage 2: exact relaxed (strip diacritics, keep åäöø)
+    #     norm_ascii = normalize_key(clubname_raw, preserve_diacritics=False, preserve_nordic=True)
+    #     club = club_map.get(norm_ascii)
+    #     if club:
+    #         logger.warning(item_key, "Matched club by relaxed ASCII normalization")
+    #         return club
+
+    #     # --- Stage 3: prefix similarity (only if allowed)
+    #     if allow_prefix and len(norm_strict) >= 3:
+    #         # Try strict first
+    #         club = cls._prefix_match(norm_strict, club_map, min_ratio=min_ratio, mode="strict")
+    #         if not club:
+    #             # Then relaxed
+    #             club = cls._prefix_match(norm_ascii, club_map, min_ratio=min_ratio, mode="ascii")
+    #         if club:
+    #             logger.warning(item_key, "Club matched by prefix similarity")
+    #             return club
+
+    #     # --- Stage 4: unknown club
+    #     if fallback_to_unknown:
+    #         club = cls.get_by_id(cursor, 9999)
+    #         # with open("missing_clubs.txt", "a", encoding="utf-8") as f:
+    #         #     f.write(f"Context: {item_key}, Club Raw: {clubname_raw}\n")
+    #         return club
+       
+    #     return None
+
     @classmethod
     def resolve(
         cls,
         cursor,
         clubname_raw: str,
-        club_map: Dict[str, "Club"],
-        logger,
-        item_key: str,
         *,
         allow_prefix: bool = False,
         min_ratio: float = 0.8,
         fallback_to_unknown: bool = False,
-    ) -> "Club":
+    ) -> Tuple[Optional["Club"], Optional[str]]:
         """
         Resolve a club name to a Club object.
 
-        Resolution stages:
-        1) Exact match with diacritics preserved
-        2) Exact match with relaxed normalization (strip diacritics, preserve nordic)
-        3) Optional prefix match (first strict, then relaxed)
-            - if multiple candidates tie at the best score → log ambiguity and return None
-        4) Fallback to Unknown club (id=9999) if allowed
+        Returns:
+            (Club | None, message | None)
+            - Club object if resolved (or Unknown if fallback_to_unknown=True)
+            - message string if resolution was fuzzy/ambiguous (caller can log it)
         """
+
+        club_map = cls._ensure_name_cache(cursor)
 
         # --- Stage 1: exact strict (diacritics preserved)
         norm_strict = normalize_key(clubname_raw, preserve_diacritics=True)
         club = club_map.get(norm_strict)
         if club:
-            return club
+            return club, None
 
         # --- Stage 2: exact relaxed (strip diacritics, keep åäöø)
         norm_ascii = normalize_key(clubname_raw, preserve_diacritics=False, preserve_nordic=True)
         club = club_map.get(norm_ascii)
         if club:
-            logger.warning(item_key, "Matched club by relaxed ASCII normalization")
-            return club
+            return club, "Matched club by relaxed ASCII normalization"
 
         # --- Stage 3: prefix similarity (only if allowed)
         if allow_prefix and len(norm_strict) >= 3:
-            # Try strict first
             club = cls._prefix_match(norm_strict, club_map, min_ratio=min_ratio, mode="strict")
             if not club:
-                # Then relaxed
                 club = cls._prefix_match(norm_ascii, club_map, min_ratio=min_ratio, mode="ascii")
             if club:
-                logger.warning(item_key, "Club matched by prefix similarity")
-                return club
+                return club, "Club matched by prefix similarity"
 
-        # --- Stage 4: unknown club
+        # --- Stage 4: fallback to Unknown club
         if fallback_to_unknown:
             club = cls.get_by_id(cursor, 9999)
-            # with open("missing_clubs.txt", "a", encoding="utf-8") as f:
-            #     f.write(f"Context: {item_key}, Club Raw: {clubname_raw}\n")
-            return club
-       
-        return None
+            return club, f"Club not found, using fallback Unknown (id=9999)"
+
+        # nothing found
+        return None, f"No match for club '{clubname_raw}'"
 
     @staticmethod
     def _prefix_match(norm: str, club_map: Dict[str, "Club"], min_ratio: float = 0.75, mode: str = "strict"):
@@ -178,9 +239,7 @@ class Club(CacheMixin):
                 return None
         return None
 
-
-    
-
+    # Used when parsing participants...
     @classmethod
     def cache_name_map(cls, cursor) -> Dict[str, "Club"]:
         """
@@ -338,6 +397,24 @@ class Club(CacheMixin):
             else:
                 logging.warning(f"Alias for unknown club_id {cid}: ext={ext}")
         return id_ext_map    
+
+
+    # Use in resolve_player_licenses.py
+    @staticmethod
+    def cache_id_ext_to_id(cursor) -> Dict[int, int]:
+        """
+        Map external club IDs (club_id_ext) to canonical club_id.
+        Single query, integer keys.
+        """
+        cursor.execute("SELECT club_id_ext, club_id FROM club_id_ext")
+        out: Dict[int, int] = {}
+        for ext, cid in cursor.fetchall():
+            # ext and cid should already be ints; cast defensively anyway
+            try:
+                out[int(ext)] = int(cid)
+            except (TypeError, ValueError):
+                continue
+        return out
 
 
     

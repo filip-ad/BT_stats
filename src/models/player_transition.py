@@ -6,22 +6,22 @@ import logging
 
 @dataclass
 class PlayerTransition:
-    season_id: int
-    player_id: int
-    club_id_from: int
-    club_id_to: int
-    transition_date: str
-    row_created: Optional[str] = None
+    season_id:          int
+    player_id:          int
+    club_id_from:       int
+    club_id_to:         int
+    transition_date:    str
+    row_created:        Optional[str] = None
 
     @staticmethod
     def from_dict(data: dict):
         return PlayerTransition(
-            season_id=data.get("season_id"),
-            player_id=data.get("player_id"),
-            club_id_from=data.get("club_id_from"),
-            club_id_to=data.get("club_id_to"),
-            transition_date=data.get("transition_date"),
-            row_created=data.get("row_created")
+            season_id           = data.get("season_id"),
+            player_id           = data.get("player_id"),
+            club_id_from        = data.get("club_id_from"),
+            club_id_to          = data.get("club_id_to"),
+            transition_date     = data.get("transition_date"),
+            row_created         = data.get("row_created")
         )
 
     @staticmethod

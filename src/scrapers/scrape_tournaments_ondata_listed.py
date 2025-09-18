@@ -27,8 +27,8 @@ def scrape_tournaments_ondata_listed(cursor) -> None:
         print_output    = False,
         log_to_db       = True,
         cursor          = cursor,
-        object_type     = "tournament_raw",
-        run_type        = "scrape"
+        object_type     = "tournament",
+        run_type        = "scrape_ondata_listed"
     )
 
     nbr_of_tnmnts_scraped = 0

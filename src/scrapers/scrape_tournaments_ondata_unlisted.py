@@ -25,8 +25,8 @@ def scrape_tournaments_ondata_unlisted(cursor) -> None:
         print_output    = False,
         log_to_db       = True,
         cursor          = cursor,
-        object_type     = "tournament_raw",
-        process_type    = "scrape_unlisted"
+        object_type     = "tournament",
+        process_type    = "scrape_ondata_unlisted"
     )
 
     # Fetch all tournament_id_ext and is_listed from tournament_raw table

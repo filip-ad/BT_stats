@@ -23,16 +23,16 @@ class Tournament(CacheMixin):
     arena:                      Optional[str] = None        # Arena name
     country_code:               Optional[str] = None        # Country code (e.g., 'SWE')
     url:                        Optional[str] = None        # Full tournament URL
-    tournament_level_id:        Optional[int] = 1        # Tournament level (e.g., 'Professional')
-    tournament_type_id:         Optional[int] = 1        # Tournament type (e.g., 'Single Elimination')
-    tournament_status_id:       Optional[int] = 6        # Status: 'ONGOING', 'UPCOMING', or 'ENDED'
+    tournament_level_id:        Optional[int] = 1           # Tournament level (e.g., 'Professional')
+    tournament_type_id:         Optional[int] = 1           # Tournament type (e.g., 'Single Elimination')
+    tournament_status_id:       Optional[int] = 6           # Status: 'ONGOING', 'UPCOMING', or 'ENDED'
     organiser_name:             Optional[str] = None        # Organiser name
     organiser_email:            Optional[str] = None        # Organiser email
     organiser_phone:            Optional[str] = None        # Organiser phone
-    is_valid:                   Optional[bool] = True        # Validation flag (set after validate() call)
+    is_valid:                   Optional[bool] = True       # Validation flag (set after validate() call)
     data_source_id:             Optional[int] = 1           # Data source ID (default 1 for 'ondata')
-
-
+    row_created:                Optional[str] = None        # Timestamp of creation
+    row_updated:                Optional[str] = None        # Timestamp of last update
 
     @staticmethod
     def from_dict(data: dict) -> 'Tournament':
@@ -62,7 +62,9 @@ class Tournament(CacheMixin):
             organiser_email             = data.get("organiser_email"),
             organiser_phone             = data.get("organiser_phone"),
             data_source_id              = data.get("data_source_id", 1),
-            is_valid                    = data.get("is_valid", True)
+            is_valid                    = data.get("is_valid", True),
+            row_created                 = data.get("row_created"),
+            row_updated                 = data.get("row_updated")
         )
 
     def validate(self) -> Tuple[bool, str]:

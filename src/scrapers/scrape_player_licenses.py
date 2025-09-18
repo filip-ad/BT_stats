@@ -39,27 +39,9 @@ COMMON_HEADERS = {
 
 LICENSES_URL = "https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_public.php"
 
-def _get_worker_session(cookies_dict):
-    s = getattr(thread_local, "session", None)
-    if s is None:
-        s = requests.Session()
-        s.headers.update(COMMON_HEADERS)
-        retry = Retry(
-            total=3,
-            backoff_factor=0.3,
-            status_forcelist=(429, 500, 502, 503, 504),
-            allowed_methods={"POST"},
-            respect_retry_after_header=True,
-        )
-        adapter = HTTPAdapter(pool_connections=MAX_WORKERS, pool_maxsize=MAX_WORKERS, max_retries=retry)
-        s.mount("https://", adapter)
-        # copy Selenium cookies once per worker
-        for k, v in cookies_dict.items():
-            s.cookies.set(k, v)
-        thread_local.session = s
-    return s
 
-def scrape_player_licenses(cursor):
+
+def scrape_player_licenses(cursor, run_id=None):
     """
     Scrape the player licenses raw data, process each row, 
     and insert/update into the player_license_raw table.
@@ -69,7 +51,10 @@ def scrape_player_licenses(cursor):
         verbosity       = 2, 
         print_output    = False, 
         log_to_db       = True, 
-        cursor          = cursor
+        cursor          = cursor,
+        object_type     = "player_license",
+        run_type        = "scrape",
+        run_id          = run_id
     )
     
     driver = setup_driver()
@@ -117,11 +102,8 @@ def scrape_player_licenses(cursor):
 
     logger.info(f"Scraping {len(clubs)} clubs for {len(seasons_to_process)} season(s) in {SCRAPE_LICENSES_ORDER.lower()} order.", to_console=True)
 
-
-
     # Counting
     total_inserted = 0
-    total_skipped = 0
     total_updated = 0
     total_unchanged = 0
     current_season_count = 0
@@ -161,14 +143,6 @@ def scrape_player_licenses(cursor):
         season_id_ext = int(season_value)
         season_label  = season_value_to_label.get(str(season_value), str(season_value))
 
-        # # Re-fetch the dropdown to avoid stale reference
-        # period_dropdown     = Select(driver.find_element(By.NAME, "periode"))
-        # selected_option     = period_dropdown.first_selected_option
-        # season_label        = selected_option.text.strip()
-        # season_id_ext       = int(selected_option.get_attribute("value"))
-
-        
-
         logger.info(f"Scraping raw license data for season {season_label}...", to_console=True)
 
         if USE_CONCURRENCY:
@@ -176,11 +150,10 @@ def scrape_player_licenses(cursor):
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
                 
                 futures = []
+                remaining = len(clubs)
 
                 for i, club in enumerate(clubs, start=1):
                     futures.append(ex.submit(fetch_club_html, club, season_id_ext, selenium_cookies))
-
-                processed = 0
 
                 for fut in as_completed(futures):
                     try:
@@ -199,7 +172,8 @@ def scrape_player_licenses(cursor):
                     step2_time = time.time() - step2_start
 
                     club_season_inserted = 0
-                    club_season_skipped  = 0
+                    club_season_updated  = 0
+                    club_season_unchanged = 0
 
                     logger_keys = {
                         "player_id_ext":     None,
@@ -216,16 +190,9 @@ def scrape_player_licenses(cursor):
 
                     if not table:
                         logger.failed(logger_keys.copy(), "No table found for club in season")
-                        processed += 1
-                        remaining = len(clubs) - processed
+                        logger.inc_processed()
+                        remaining -= 1
                         total_time = step1_time + step2_time  # no insert
-                        print(
-                            f"✅ Finished club {club_name:<25} | Season: {season_label:<12} | "
-                            f"Inserted: {club_season_inserted:<3} | Skipped: {club_season_skipped:<3} | "
-                            f"Remaining: {remaining} clubs, {len(seasons_to_process) - current_season_count} seasons "
-                            f"({total_time:.2f} sec | select: {step1_time:.2f}s, parse: {step2_time:.2f}s, insert: 0.00s)",
-                            flush=True
-                        )
                         continue
 
                     # Insert (main thread)
@@ -243,6 +210,13 @@ def scrape_player_licenses(cursor):
                         license_info_raw  = cols[5].get_text(strip=True)
                         ranking_group_raw = cols[6].get_text(strip=True)
 
+                        # Strip known suffix from license info
+                        # If warning is removed / added later this would have become a new line
+                        # Similar to ranking group info I guess, its on global level attached to the player id ext, not by season
+                        warning_suffix = " - Finns inte med i medlemsregistret. Föreningen lägger in medlemmen i IdrottOnline snarast!"
+                        if warning_suffix in license_info_raw:
+                            license_info_raw = license_info_raw.replace(warning_suffix, "").strip()
+
                         logger_keys.update({
                             "player_id_ext":        player_id_ext,
                             "firstname":            firstname,
@@ -251,13 +225,6 @@ def scrape_player_licenses(cursor):
                             "license_info_raw":     license_info_raw,
                             "ranking_group_raw":    ranking_group_raw
                         })
-
-                        yb = int(year_born) if year_born.isdigit() else None
-                        if yb is None:
-                            logger.failed(logger_keys.copy(), "Invalid year_born")
-                            club_season_skipped += 1
-                            total_skipped += 1
-                            continue
 
                         raw = PlayerLicenseRaw(
                             row_id=None,
@@ -269,42 +236,30 @@ def scrape_player_licenses(cursor):
                             firstname=firstname,
                             lastname=lastname,
                             gender=gender,
-                            year_born=yb,
+                            year_born=year_born,
                             license_info_raw=license_info_raw,
                             ranking_group_raw=ranking_group_raw
                         )
 
+                        logger.inc_processed()
+
                         is_valid, error_msg = raw.validate()
                         if not is_valid:
                             logger.failed(logger_keys.copy(), error_msg)
-                            club_season_skipped += 1
-                            total_skipped += 1
                             continue
-
-                        # inserted = raw.upsert_one(cursor, raw)
-                        # if inserted is not None:
-                        #     logger.success(logger_keys.copy(), "Raw player license record successfully upserted")
-
-                        # if inserted:
-                        #     total_inserted += 1
-                        #     club_season_inserted += 1
-                        # else:
-                        #     total_skipped += 1
-                        #     club_season_skipped += 1
 
                         result = raw.upsert(cursor)
 
                         if result == "inserted":
-                            total_inserted += 1
                             club_season_inserted += 1
+                            total_inserted += 1
                             logger.success(logger_keys.copy(), "Raw license inserted")
                         elif result == "updated":
-                            # optional: track updates separately
-                            # total_updated += 1
-                            # club_season_updated += 1
-                            total_updated += 1   # or keep a separate counter; up to you
+                            club_season_updated += 1
+                            total_updated += 1 
                             logger.success(logger_keys.copy(), "Raw license updated")
-                        elif result == "unchanged":  # "unchanged" or None
+                        elif result == "unchanged":
+                            club_season_unchanged += 1
                             total_unchanged += 1
                             logger.success(logger_keys.copy(), "Raw license unchanged")
                         else:
@@ -314,13 +269,12 @@ def scrape_player_licenses(cursor):
                     cursor.connection.commit()
                     step3_time = time.time() - step3_start
 
-                    processed += 1
-                    remaining = len(clubs) - processed
+                    remaining -= 1
                     total_time = step1_time + step2_time + step3_time
 
                     print(
-                        f"✅ Finished club {club_name:<25} | Season: {season_label:<12} | "
-                        f"Inserted: {club_season_inserted:<3} | Skipped: {club_season_skipped:<3} | "
+                        f"✅ Finished club {club_name:<25}  Season: {season_label:<12}"
+                        f" [ Inserted: {club_season_inserted:<3}  Updated: {club_season_updated:<3}  Unchanged: {club_season_unchanged:<3}] "
                         f"Remaining: {remaining} clubs, {len(seasons_to_process) - current_season_count} seasons "
                         f"({total_time:.2f} sec | select: {step1_time:.2f}s, parse: {step2_time:.2f}s, insert: {step3_time:.2f}s)",
                         flush=True
@@ -333,3 +287,24 @@ def scrape_player_licenses(cursor):
     logger.info(f"Scraping completed — Total inserted: {total_inserted}, total updated: {total_updated}, total unchanged: {total_unchanged}", to_console=True)
     driver.quit()
     logger.summarize()
+
+
+def _get_worker_session(cookies_dict):
+    s = getattr(thread_local, "session", None)
+    if s is None:
+        s = requests.Session()
+        s.headers.update(COMMON_HEADERS)
+        retry = Retry(
+            total=3,
+            backoff_factor=0.3,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods={"POST"},
+            respect_retry_after_header=True,
+        )
+        adapter = HTTPAdapter(pool_connections=MAX_WORKERS, pool_maxsize=MAX_WORKERS, max_retries=retry)
+        s.mount("https://", adapter)
+        # copy Selenium cookies once per worker
+        for k, v in cookies_dict.items():
+            s.cookies.set(k, v)
+        thread_local.session = s
+    return s

@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-# backfill_player_license_hashes.py
+# backfill_player_ranking_hashes.py
 import hashlib
 import re
 import sqlite3
 import time
+from datetime import date
 from config import DB_NAME
 
-# >>> EDIT THIS <<<
+# Configuration
 DB_PATH = DB_NAME
 BATCH_SIZE = 5000
 
-# ---- helpers (mirrors your utils.compute_content_hash rules) ----
+# ---- Helpers (mirrors compute_content_hash rules) ----
 _ws_re = re.compile(r"\s+")
 
 def normalize_key(s: str) -> str:
@@ -19,19 +20,19 @@ def normalize_key(s: str) -> str:
     return s.lower()
 
 def compute_row_hash(row: sqlite3.Row) -> str:
-    # Exclude: row_id, data_source_id, row_created, row_updated, last_seen_at, content_hash
+    # Fields to hash, excluding: row_id, data_source_id, row_created, row_updated, last_seen_at, content_hash
     fields_to_hash = [
-        "season_label",
-        "season_id_ext",
-        "club_name",
-        "club_id_ext",
+        "run_id_ext",
+        "run_date",
         "player_id_ext",
         "firstname",
         "lastname",
-        "gender",
         "year_born",
-        "license_info_raw",
-        "ranking_group_raw",
+        "club_name",
+        "points",
+        "points_change_since_last",
+        "position_world",
+        "position"
     ]
     parts = []
     for key in fields_to_hash:
@@ -40,6 +41,8 @@ def compute_row_hash(row: sqlite3.Row) -> str:
             parts.append("")
         elif isinstance(v, str):
             parts.append(normalize_key(v))
+        elif isinstance(v, date):
+            parts.append(v.isoformat())
         elif isinstance(v, (int, float)):
             parts.append(str(v))
         else:
@@ -54,7 +57,7 @@ def backfill(db_path: str, batch_size: int = 5000) -> None:
         conn.execute("PRAGMA synchronous=NORMAL;")
 
         total_missing = conn.execute(
-            "SELECT COUNT(*) FROM player_license_raw WHERE content_hash IS NULL;"
+            "SELECT COUNT(*) FROM player_ranking_raw WHERE content_hash IS NULL;"
         ).fetchone()[0]
 
         if total_missing == 0:
@@ -69,11 +72,10 @@ def backfill(db_path: str, batch_size: int = 5000) -> None:
         while True:
             rows = conn.execute(
                 """
-                SELECT row_id, season_label, season_id_ext, club_name, club_id_ext,
-                       player_id_ext, firstname, lastname, gender, year_born,
-                       license_info_raw, ranking_group_raw,
-                       data_source_id, content_hash, last_seen_at, row_created, row_updated
-                FROM player_license_raw
+                SELECT row_id, run_id_ext, run_date, player_id_ext, firstname, lastname,
+                       year_born, club_name, points, points_change_since_last, position_world,
+                       position, data_source_id, content_hash, last_seen_at, row_created, row_updated
+                FROM player_ranking_raw
                 WHERE content_hash IS NULL AND row_id > ?
                 ORDER BY row_id
                 LIMIT ?;
@@ -84,12 +86,12 @@ def backfill(db_path: str, batch_size: int = 5000) -> None:
             if not rows:
                 break
 
-            with conn:  # one transaction per batch
+            with conn:  # One transaction per batch
                 for r in rows:
                     h = compute_row_hash(r)
                     conn.execute(
                         """
-                        UPDATE player_license_raw
+                        UPDATE player_ranking_raw
                         SET content_hash = ?
                         WHERE row_id = ? AND content_hash IS NULL;
                         """,

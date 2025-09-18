@@ -14,7 +14,7 @@ from utils import OperationLogger, setup_driver, parse_date
 
 LICENSES_URL = "https://www.profixio.com/fx/ranking_sbtf/ranking_sbtf_public.php"
 
-def scrape_player_transitions(cursor):
+def scrape_player_transitions(cursor, run_id=None):
     """
     Scrape the player transitions raw data, process each row, 
     and insert/update into the player_transition_raw table.
@@ -24,7 +24,10 @@ def scrape_player_transitions(cursor):
         verbosity       = 2, 
         print_output    = False, 
         log_to_db       = True, 
-        cursor          = cursor
+        cursor          = cursor,
+        object_type     = "player_transition",
+        run_type        = "scrape",
+        run_id          = run_id
     )
     
     driver = setup_driver()
@@ -39,13 +42,25 @@ def scrape_player_transitions(cursor):
 
     # Season dropdown
     period_dropdown = Select(driver.find_element(By.ID, "periode"))
-    all_seasons = [opt.get_attribute("value") for opt in period_dropdown.options if opt.get_attribute("value").isdigit()]
-    if SCRAPE_TRANSITIONS_ORDER.lower() == 'oldest':
-        reverse = False
-    else:
-        reverse = True
+    all_seasons = [
+        opt.get_attribute("value")
+        for opt in period_dropdown.options
+        if opt.get_attribute("value").isdigit() and opt.get_attribute("value") != "0"
+    ]
+
+    # if SCRAPE_TRANSITIONS_ORDER.lower() == 'oldest':
+    #     reverse = False
+    # else:
+    #     reverse = True
+
+    reverse = SCRAPE_TRANSITIONS_ORDER.lower() != 'oldest'
     all_seasons = sorted(all_seasons, key=int, reverse=reverse)
-    seasons_to_process = all_seasons[:SCRAPE_TRANSITIONS_NBR_OF_SEASONS] if SCRAPE_TRANSITIONS_NBR_OF_SEASONS > 0 else all_seasons
+
+    seasons_to_process = (
+        all_seasons[:SCRAPE_TRANSITIONS_NBR_OF_SEASONS]
+        if SCRAPE_TRANSITIONS_NBR_OF_SEASONS > 0
+        else all_seasons
+    )
 
     logger.info(f"Scraping {len(seasons_to_process)} season(s) in {SCRAPE_TRANSITIONS_ORDER.lower()} order.", to_console=True)
 
@@ -99,6 +114,8 @@ def scrape_player_transitions(cursor):
                 cols = row.find_all("td")
                 if len(cols) < 6:
                     continue
+
+                logger.inc_processed()
 
                 lastname                = cols[0].get_text(strip=True)
                 firstname               = cols[1].get_text(strip=True)

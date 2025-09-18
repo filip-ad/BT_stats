@@ -27,7 +27,9 @@ def scrape_participants_ondata(cursor, include_positions: bool = True) -> List[T
         verbosity=2,
         print_output=False,
         log_to_db=True,
-        cursor=cursor
+        cursor=cursor,
+        object_type     = "participant",
+        run_type        = "scrape"
     )
 
     cutoff_date = parse_date(SCRAPE_PARTICIPANTS_CUTOFF_DATE)

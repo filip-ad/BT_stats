@@ -493,3 +493,14 @@ class Player(CacheMixin):
         elif res["status"] == "skipped" and "player_id" in res:
             return {"status": "reused", "player_id": res["player_id"]}
         return {"status": "failed", "player_id": None}
+    
+    # Used in player_ranking validation
+    @staticmethod
+    def cache_id_ext_set(cursor) -> set[tuple[str, int]]:
+        """
+        Load all valid (player_id_ext, data_source_id) pairs into memory.
+        Returns a set of tuples for fast membership checks.
+        """
+        cursor.execute("SELECT player_id_ext, data_source_id FROM player_id_ext")
+        rows = cursor.fetchall()
+        return {(str(pid_ext), ds_id) for pid_ext, ds_id in rows if pid_ext is not None}

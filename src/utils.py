@@ -366,10 +366,11 @@ class OperationLogger:
         print_output:   bool = True,
         log_to_db:      bool = False,
         cursor:         Optional[sqlite3.Cursor] = None,
-        object_type:    Optional[str] = None,   # e.g., 'tournament_raw',
-        run_type:       Optional[str] = None    # e.g., 'scrape', 'resolve', 'update'
+        object_type:    Optional[str] = None,       # e.g., 'tournament_raw',
+        run_type:       Optional[str] = None,       # e.g., 'scrape', 'resolve', 'update',
+        run_id:         Optional[str] = None        # provide if single run-id for multiple jobs/loggers is wanted
     ):
-        self.run_id             = str(uuid.uuid4())  # Unique ID for this run/script execution
+        self.run_id             = run_id or str(uuid.uuid4())  # Unique ID for this run/script execution
         self.verbosity          = verbosity
         self.print_output       = print_output
         self.log_to_db          = log_to_db
@@ -832,13 +833,37 @@ class OperationLogger:
         else:
             msg = reason
         
-        # Write to log_output table (always for warning)
-        if self.cursor:
+        # # Write to log_output table (always for warning)
+        # if self.cursor:
+        #     try:
+        #         self.cursor.execute('''
+        #             INSERT INTO log_details (run_id, function_name, filename, context_json, status, message, msg_id)
+        #             VALUES (?, ?, ?, ?, ?, ?, ?)
+        #         ''', (self.run_id, function_name, filename, context_json, 'warning', reason, msg_id))
+        #         self.cursor.connection.commit()
+        #     except Exception as e:
+        #         logging.error(f"Error logging warning to DB: {e}")
+
+                # DB logging controlled by verbosity
+
+        if self.cursor and self.verbosity >= 1:
             try:
                 self.cursor.execute('''
-                    INSERT INTO log_output (run_id, function_name, filename, context_json, status, message, msg_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (self.run_id, function_name, filename, context_json, 'warning', reason, msg_id))
+                    INSERT INTO log_details (
+                        run_id, run_date, object_type, process_type,
+                        function_name, filename, context_json, status, message, msg_id
+                    ) VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    self.run_id,
+                    self.object_type or "unknown",
+                    self.run_type or "unknown",
+                    function_name,
+                    filename,
+                    context_json,
+                    'warning',
+                    reason,
+                    msg_id
+                ))
                 self.cursor.connection.commit()
             except Exception as e:
                 logging.error(f"Error logging warning to DB: {e}")
@@ -866,7 +891,6 @@ class OperationLogger:
         total_success   = sum(d["success"]          for d in self.results.values())
         total_failed    = sum(d["failed"]           for d in self.results.values())
         total_skipped   = sum(d["skipped"]          for d in self.results.values())
-        # total_warnings  = sum(len(d["warnings"])    for d in self.results.values())
         total_warnings  = sum(self.reasons["warning"].values())
 
         lines = []
@@ -890,6 +914,18 @@ class OperationLogger:
         if self.verbosity >= 1:
             for reason, count in self.reasons["warning"].items():
                 lines.append(f"      • {reason}: {count}")
+
+        # --- NEW: integrity check ---
+        total_accounted = total_success + total_failed + total_skipped
+        if self.processed != 0 and total_accounted != self.processed:
+            msg = (f"Integrity mismatch: processed={self.processed}, "
+                f"accounted={total_accounted} "
+                f"(ok:{total_success} fail:{total_failed} skip:{total_skipped})")
+            lines.append(f"   ❗ {msg}")
+            logging.error(f"[{self.run_id}] {msg}")
+            # also persist in remark for DB
+            self.run_remark = (self.run_remark or "") + f" [{msg}]"
+
 
         if hasattr(self, "start_time"):
             runtime_seconds = time.time() - self.start_time
@@ -941,6 +977,14 @@ class OperationLogger:
         total_failed    = sum(d["failed"] for d in self.results.values())
         total_skipped   = sum(d["skipped"] for d in self.results.values())
         total_warnings  = sum(self.reasons["warning"].values())
+
+        total_accounted = total_success + total_failed + total_skipped
+        if self.processed != 0 and total_accounted != self.processed:
+            msg = (f"Integrity mismatch: processed={self.processed}, "
+                f"accounted={total_accounted} "
+                f"(s:{total_success} f:{total_failed} k:{total_skipped})")
+            logging.error(f"[{self.run_id}] {msg}")
+            self.run_remark = (self.run_remark or "") + f" [{msg}]"
         
         self.cursor.execute("""
             INSERT INTO log_runs (
@@ -958,16 +1002,23 @@ class OperationLogger:
         self.cursor.connection.commit()
         
         
-def export_logs_to_excel():
+def export_logs_to_excel(run_id=None):
     """
     Export the latest run's record-level logs (log_details) to logs.xlsx.
     Always rewrites the file, so it only contains the most recent run.
     """
     conn, cursor = get_conn()
-    df = pd.read_sql_query(
-        "SELECT * FROM log_details WHERE run_id = (SELECT MAX(run_id) FROM log_details)",
-        conn
-    )
+    if run_id:
+        df = pd.read_sql_query(
+            "SELECT * FROM log_details WHERE run_id = ?",
+            conn,
+            params=(run_id,)
+        )
+    else:
+        df = pd.read_sql_query(
+            "SELECT * FROM log_details WHERE run_id = (SELECT MAX(run_id) FROM log_details)",
+            conn
+        )
     conn.close()
 
     if df.empty:

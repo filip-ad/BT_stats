@@ -60,24 +60,29 @@ class PlayerLicenseRaw:
             return False, f"Missing/invalid fields: {', '.join(missing)}"
         return True, ""
 
-    # def to_dict(self) -> Dict[str, Any]:
-    #     """
-    #     Dict for DB insert/upsert.
-    #     """
-    #     return {
-    #         "season_id_ext":        self.season_id_ext,
-    #         "season_label":         self.season_label,
-    #         "club_name":            self.club_name,
-    #         "club_id_ext":          self.club_id_ext,
-    #         "player_id_ext":        self.player_id_ext,
-    #         "firstname":            self.firstname,
-    #         "lastname":             self.lastname,
-    #         "gender":               self.gender,
-    #         "year_born":            self.year_born,
-    #         "license_info_raw":     self.license_info_raw,
-    #         "ranking_group_raw":    self.ranking_group_raw,
-    #         "raw_payload":          json.dumps(self.raw_payload) if self.raw_payload else None
-    #     }
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Dict for DB insert/upsert.
+        """
+        return {
+            "row_id":               self.row_id,
+            "season_id_ext":        self.season_id_ext,
+            "season_label":         self.season_label,
+            "club_name":            self.club_name,
+            "club_id_ext":          self.club_id_ext,
+            "player_id_ext":        self.player_id_ext,
+            "firstname":            self.firstname,
+            "lastname":             self.lastname,
+            "gender":               self.gender,
+            "year_born":            self.year_born,
+            "license_info_raw":     self.license_info_raw,
+            "ranking_group_raw":    self.ranking_group_raw,
+            "data_source_id":       self.data_source_id,
+            "content_hash":         self.content_hash,
+            "last_seen_at":         self.last_seen_at,
+            "row_created":          self.row_created, 
+            "row_updated":          self.row_updated
+        }
 
     @staticmethod
     def from_row(row: tuple) -> "PlayerLicenseRaw":
@@ -85,7 +90,7 @@ class PlayerLicenseRaw:
         Construct from SELECT row (same column order as in resolver).
         """
         (row_id, season_id_ext, season_label, club_name, club_id_ext,
-         player_id_ext_str, firstname, lastname, gender, year_born, license_info_raw) = row
+         player_id_ext_str, firstname, lastname, gender, year_born, license_info_raw, ranking_group_raw) = row
         return PlayerLicenseRaw(
             row_id=row_id,
             season_id_ext       = season_id_ext,
@@ -97,7 +102,8 @@ class PlayerLicenseRaw:
             lastname            = lastname,
             gender              = gender,
             year_born           = year_born,
-            license_info_raw    = license_info_raw
+            license_info_raw    = license_info_raw,
+            ranking_group_raw   = ranking_group_raw
         )
 
     def compute_content_hash(self) -> str:
@@ -122,55 +128,33 @@ class PlayerLicenseRaw:
         Fetch all rows from player_license_raw and return as dataclass objects.
         """
         cursor.execute("""
-            SELECT 
+            SELECT
                 row_id, season_id_ext, season_label, club_name, club_id_ext,
                 CAST(player_id_ext AS TEXT) AS player_id_ext_str,
-                firstname, lastname, gender, year_born, license_info_raw
+                firstname, lastname, gender, year_born, license_info_raw, ranking_group_raw
             FROM player_license_raw
         """)
         return [cls.from_row(r) for r in cursor.fetchall()]
-    
+
     @classmethod
     def get_duplicates(cls, cursor: sqlite3.Cursor) -> Dict[Tuple[str, str, str, str], int]:
         """
         Return a map of duplicate raw licenses:
-        key = (player_id_ext, club_id_ext, season_id_ext, license_key)
+        key = (player_id_ext, club_id_ext, season_id_ext, license_info_raw)
         value = min(row_id)
         """
         cursor.execute("""
-            SELECT 
+            SELECT
                 CAST(player_id_ext AS TEXT) AS player_id_ext,
-                CAST(club_id_ext   AS TEXT) AS club_id_ext,
+                CAST(club_id_ext AS TEXT) AS club_id_ext,
                 CAST(season_id_ext AS TEXT) AS season_id_ext,
-                LOWER(TRIM(SUBSTR(license_info_raw, 1, INSTR(license_info_raw, '(') - 1))) AS license_key,
+                license_info_raw,
                 MIN(row_id) AS min_row_id
             FROM player_license_raw
-            GROUP BY 1,2,3,4
+            GROUP BY player_id_ext, club_id_ext, season_id_ext, license_info_raw
             HAVING COUNT(*) > 1
         """)
         return {(r[0], r[1], r[2], r[3]): r[4] for r in cursor.fetchall()}
-
-    # @staticmethod
-    # def upsert_one(cursor, raw: "PlayerLicenseRaw") -> bool:
-    #     """
-    #     Upsert one row into player_license_raw.
-
-    #     Behavior: "staging-only"
-    #     - Try INSERT OR IGNORE to avoid dupes based on your natural/unique key.
-    #     - No special-case updates (incl. ranking_group_raw). Reprocessing happens in resolvers/updaters.
-    #     Returns:
-    #         inserted (bool): True if a new row was inserted, False if it already existed.
-    #     """
-    #     cursor.execute("""
-    #         INSERT OR IGNORE INTO player_license_raw (
-    #             season_label, season_id_ext, club_name, club_id_ext, player_id_ext,
-    #             firstname, lastname, gender, year_born, license_info_raw, ranking_group_raw
-    #         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    #     """, (
-    #         raw.season_label, raw.season_id_ext, raw.club_name, raw.club_id_ext, raw.player_id_ext,
-    #         raw.firstname, raw.lastname, raw.gender, raw.year_born, raw.license_info_raw, raw.ranking_group_raw
-    #     ))
-    #     return cursor.rowcount > 0
 
     # Used by resolve_player_ranking_groups
     @staticmethod
@@ -190,17 +174,11 @@ class PlayerLicenseRaw:
     def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
         """
         Upsert with content-hash gating.
-
         Returns one of: "inserted", "updated", "unchanged", or None (invalid).
         """
-        is_valid, err = self.validate()
-        if not is_valid:
-            return None
-
+        
         new_hash = self.compute_content_hash()
 
-        # NOTE: we intentionally DO NOT update any UNIQUE-key columns on conflict:
-        #   (season_id_ext, player_id_ext, club_name, year_born, firstname, lastname, license_info_raw)
         sql = """
         INSERT INTO player_license_raw (
             season_label, season_id_ext, club_name, club_id_ext, player_id_ext,
@@ -208,18 +186,27 @@ class PlayerLicenseRaw:
             data_source_id, content_hash, last_seen_at
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT (season_id_ext, player_id_ext, club_name, year_born, firstname, lastname, license_info_raw)
+        ON CONFLICT (season_id_ext, player_id_ext, club_id_ext, license_info_raw)
         DO UPDATE SET
-            -- only update non-key columns if content actually changed
+            -- update non-key columns if content actually changed
             season_label = CASE
                 WHEN player_license_raw.content_hash IS NULL OR player_license_raw.content_hash <> excluded.content_hash
                 THEN excluded.season_label ELSE player_license_raw.season_label END,
-            club_id_ext = CASE
+            club_name = CASE
                 WHEN player_license_raw.content_hash IS NULL OR player_license_raw.content_hash <> excluded.content_hash
-                THEN excluded.club_id_ext ELSE player_license_raw.club_id_ext END,
+                THEN excluded.club_name ELSE player_license_raw.club_name END,
+            firstname = CASE
+                WHEN player_license_raw.content_hash IS NULL OR player_license_raw.content_hash <> excluded.content_hash
+                THEN excluded.firstname ELSE player_license_raw.firstname END,
+            lastname = CASE
+                WHEN player_license_raw.content_hash IS NULL OR player_license_raw.content_hash <> excluded.content_hash
+                THEN excluded.lastname ELSE player_license_raw.lastname END,
             gender = CASE
                 WHEN player_license_raw.content_hash IS NULL OR player_license_raw.content_hash <> excluded.content_hash
                 THEN excluded.gender ELSE player_license_raw.gender END,
+            year_born = CASE
+                WHEN player_license_raw.content_hash IS NULL OR player_license_raw.content_hash <> excluded.content_hash
+                THEN excluded.year_born ELSE player_license_raw.year_born END,
             ranking_group_raw = CASE
                 WHEN player_license_raw.content_hash IS NULL OR player_license_raw.content_hash <> excluded.content_hash
                 THEN excluded.ranking_group_raw ELSE player_license_raw.ranking_group_raw END,
@@ -232,43 +219,35 @@ class PlayerLicenseRaw:
         WHERE player_license_raw.content_hash IS NULL OR player_license_raw.content_hash <> excluded.content_hash
         RETURNING row_id;
         """
-
         vals = (
             self.season_label, self.season_id_ext, self.club_name, self.club_id_ext, self.player_id_ext,
             self.firstname, self.lastname, self.gender, self.year_born, self.license_info_raw, self.ranking_group_raw,
             self.data_source_id, new_hash
         )
-
         cursor.execute(sql, vals)
         row = cursor.fetchone()
-
         if row:
             # Either inserted or updated-with-change
             self.row_id = row[0]
-            # Heuristic same as your tournaments: INSERT sets lastrowid == row_id
+            # Heuristic: INSERT sets lastrowid == row_id
             if cursor.lastrowid == self.row_id:
                 return "inserted"
             return "updated"
-
         # Unchanged content (conflict existed but WHERE prevented update).
-        # We still "touch" last_seen_at without changing content.
+        # Touch last_seen_at without changing content.
         touch_sql = """
         UPDATE player_license_raw
-           SET last_seen_at = CURRENT_TIMESTAMP
-         WHERE season_id_ext = ?
-           AND player_id_ext = ?
-           AND club_name     = ?
-           AND year_born     = ?
-           AND firstname     = ?
-           AND lastname      = ?
-           AND license_info_raw = ?
+        SET last_seen_at = CURRENT_TIMESTAMP
+        WHERE season_id_ext = ?
+        AND player_id_ext = ?
+        AND club_id_ext = ?
+        AND license_info_raw = ?
         RETURNING row_id;
         """
         cursor.execute(
             touch_sql,
             (
-                self.season_id_ext, self.player_id_ext, self.club_name, self.year_born,
-                self.firstname, self.lastname, self.license_info_raw
+                self.season_id_ext, self.player_id_ext, self.club_id_ext, self.license_info_raw
             ),
         )
         touched = cursor.fetchone()

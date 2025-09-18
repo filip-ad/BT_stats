@@ -30,8 +30,8 @@ def scrape_tournament_classes_ondata(cursor) -> None:
         print_output    = False,
         log_to_db       = True,
         cursor          = cursor,
-        object_type     = "tournament_class_raw",
-        run_type        = "scrape"
+        object_type     = "tournament_class",
+        run_type        = "scrape_ondata"
     )
 
     cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)

@@ -10,7 +10,7 @@ from models.player import Player
 from models.license import License
 from utils import OperationLogger, parse_date
 
-def resolve_player_licenses(cursor) -> List[PlayerLicense]:
+def resolve_player_licenses(cursor, run_id=None) -> List[PlayerLicense]:
     """
     Resolve player_license_raw → player_license.
     Handles duplicate detection, parsing, validation, and insert.
@@ -20,88 +20,63 @@ def resolve_player_licenses(cursor) -> List[PlayerLicense]:
         verbosity       = 2, 
         print_output    = False, 
         log_to_db       = True, 
-        cursor          = cursor
+        cursor          = cursor,
+        object_type     = "player_license",
+        run_type        = "resolve",
+        run_id          = run_id
     )
 
     logger.info("Resolving player licenses...", to_console=True)
 
-    start_time = time.time()
+    # For duplication detection
     seen_final_keys = set()
 
     # Cache mappings
-    season_map          = Season.cache_all(cursor) 
-    club_name_map       = Club.cache_name_map(cursor)
-    club_id_ext_map     = Club.cache_id_ext_map(cursor)
+    season_map          = Season.cache_all(cursor)
+    club_id_ext_map     = Club.cache_id_ext_to_id(cursor)
     player_id_ext_map   = Player.cache_id_ext_map(cursor)
     license_map         = License.cache_all(cursor)
 
     # Cache duplicate licenses
-    duplicate_map = PlayerLicenseRaw.get_duplicates(cursor)
+    duplicate_map       = PlayerLicenseRaw.get_duplicates(cursor)
 
     # Fetch all raw player license records
-    raw_objects = PlayerLicenseRaw.get_all(cursor)
-    '''
-    row_id, 
-    season_id_ext, 
-    season_label, 
-    club_name, 
-    club_id_ext,
-    CAST(player_id_ext AS TEXT) AS player_id_ext,
-    firstname, 
-    lastname, 
-    gender, 
-    year_born, 
-    license_info_raw
-    '''
+    raw_objects         = PlayerLicenseRaw.get_all(cursor)
     if not raw_objects:
-        logger.skipped("global", "No player license data found in player_license_raw")
+        logger.failed({}, "No player license data found in player_license_raw")
         return []
-
-    # Regex for parsing license strings
-    # license_regex = re.compile(
-    #     r"(?P<type>(?:[A-D]-licens|48-timmarslicens|Paralicens))(?: (?P<age>\w+))? \((?P<date>\d{4}\.\d{2}\.\d{2})\)"
-    # )
-
-    # license_regex = re.compile(
-    #     r"(?P<type>(?:[A-D]-licens|48-timmarslicens|Paralicens))(?: (?P<age>\w+))?\s*\((?P<date>\d{4}\.\d{2}\.\d{2})\)"
-    # )
 
     # Allow missing date -- later set to season start and end dates if missing
     license_regex = re.compile(r"(?P<type>(?:[A-D]-licens|48-timmarslicens|Paralicens))(?: (?P<age>\w+))?\s*\((?P<date>\d{4}\.\d{2}\.\d{2})?\)")
 
-    licenses = []
-    data_source_id = 3
-    player_cache_misses = club_cache_misses = license_cache_misses = 0
-
     for raw in raw_objects:
 
+        logger.inc_processed()
+    
         logger_keys = {
-            "row_id":           getattr(raw, "row_id", None),
-            "season_label":     getattr(raw, "season_label", None),
-            "player_id":        None,
-            "player_id_ext":    getattr(raw, "player_id_ext", None),
-            "firstname":        getattr(raw, "firstname", None),
-            "lastname":         getattr(raw, "lastname", None),
-            "year_born":        getattr(raw, "year_born", None),
-            "gender":           getattr(raw, "gender", None),
-            "club_id_ext":      getattr(raw, "club_id_ext", None),
-            "club_id":          None,
-            "club_name":        getattr(raw, "club_name", None),
-            "valid_from":       None,
-            "license_info_raw": getattr(raw, "license_info_raw", None) or "".strip()
-        }
-
-        item_key = f"{raw.firstname} {raw.lastname} (id ext: {raw.player_id_ext}, club: {raw.club_name}, season: {raw.season_label}, row_id: {raw.row_id})"
-        license_info_raw = (raw.license_info_raw or "").strip()
+                "raw_row_id":           raw.row_id,
+                "season_label":         raw.season_label,
+                "player_id_ext":        raw.player_id_ext,
+                "firstname":            raw.firstname,
+                "lastname":             raw.lastname,
+                "year_born":            raw.year_born,
+                "gender":               raw.gender,
+                "club_id_ext":          raw.club_id_ext,
+                "club_name":            raw.club_name,
+                "license_info_raw":     raw.license_info_raw or "".strip(),
+                "player_id":            None,
+                "club_id":              None,
+                "season_id":            None,
+                "license_id":           None,
+                "valid_from":           None,
+                "valid_to":             None
+            }
 
         # Parse license_info_raw
-        match = license_regex.search(license_info_raw.strip())
+        license_info_raw    = (raw.license_info_raw or "").strip()
+        match               = license_regex.search(license_info_raw.strip())
         if not match:
-            # logger.failed(item_key, "Invalid license format")
-            logger.failed(
-                logger_keys.copy(),
-                "Invalid license format"
-            )
+            logger.failed(logger_keys.copy(), "Invalid license format")
             continue
         type_           = match.group("type").strip().capitalize()
         license_date    = match.group("date")
@@ -114,48 +89,76 @@ def resolve_player_licenses(cursor) -> List[PlayerLicense]:
             logger.failed(logger_keys.copy(), "Duplicate license detected")
             continue
 
-        # Season lookup
-        season = season_map.get(raw.season_label)
-        if not season:
-            logger_keys["valid_to"] = None
-            logger.failed(logger_keys.copy(), "Season not found")
-            continue
-        season_id                   = season.season_id
-        valid_to                    = season.end_date
-        logger_keys["season_id"]    = season_id
-        logger_keys["valid_to"]     = valid_to
-
         # Parse valid_from
         if not license_date:
             # Missing date: Use season dates and warn
-            logger_keys["valid_from"]   = season.start_date
-            logger_keys["valid_to"]     = season.end_date
+            logger_keys.update({
+                "valid_from":       season.start_date,
+                "valid_to":         season.end_date
+            })
             logger.warning(logger_keys.copy(), "Missing license date, using season dates")
         else:
             valid_from = parse_date(license_date, context=f"license_info_raw {license_info_raw}")
             if not valid_from:
-                logger_keys["valid_from"] = None
-                logger.failed(
-                    logger_keys.copy(),
-                    "Invalid date format"
-                )
+                # logger_keys["valid_from"] = None
+                logger.failed(logger_keys.copy(), "Invalid date format")
                 continue
             logger_keys["valid_from"] = valid_from
 
+        # Get season ID (internal) and valid_to from season_map
+        season = season_map.get(raw.season_label)
+        if not season:
+            # logger_keys["valid_to"] = None
+            logger.failed(logger_keys.copy(), "Season not found")
+            continue
+        season_id                   = season.season_id
+        valid_to                    = season.end_date
+        logger_keys.update({
+            "season_id":            season_id,
+            "valid_to":             valid_to
+        })
+
+        # Reassign season if valid_from is outside bounds
+        if valid_from and not (season.start_date <= valid_from <= season.end_date):
+            new_season = Season.get_by_date(cursor, valid_from)
+            if not new_season:
+                logger.failed(logger_keys, f"No season found for valid_from date")
+                continue
+            if new_season.season_id != season_id:
+                logger.warning(logger_keys, f"Season reassigned to proper season based on valid_from date")
+                season_id = new_season.season_id
+                valid_to = new_season.end_date
+                logger_keys.update({
+                    "season_id": season_id,
+                    "valid_to": valid_to
+                })
+
+        # If no valid_from, use season start date
+        if not valid_from:
+            valid_from = season.start_date
+            valid_to = season.end_date
+            logger_keys.update({
+                "valid_from": valid_from,
+                "valid_to": valid_to
+            })
+
         # Resolve player_id
-        player = player_id_ext_map.get((raw.player_id_ext, data_source_id))
+        player = player_id_ext_map.get((raw.player_id_ext, 3)) # data_source_id 3 = 'Profixio'. Hardocded for now since only source for player id ext is Profixio. Data source ID for the player license raw is = 1 'ondata', hence cant use that here.
         player_id = player.player_id if player else None
         if not player:
             player_cache_misses += 1
             logger.failed(logger_keys.copy(), "Could not resolve player_id")
             continue
 
-        # Resolve club_id
-        club = club_id_ext_map.get(raw.club_id_ext) or club_name_map.get(raw.club_name.strip().lower())
-        club_id = club.club_id if club else None
-        if not club:
-            club_cache_misses += 1
-            logger.warning(logger_keys.copy(), "No club found in cache")
+        # Resolve club_id strictly via club_id_ext
+        ext = int(str(raw.club_id_ext).strip())
+        if ext is None:
+            logger.failed(logger_keys.copy(), "Invalid club_id_ext (not numeric)")
+            continue
+        club_id = club_id_ext_map.get(ext)
+        if club_id is None:
+            logger.failed(logger_keys.copy(), f"Unknown club_id_ext {ext}")
+            continue
 
         # Resolve license_id
         license_obj = license_map.get((type_, age_group))
@@ -171,26 +174,38 @@ def resolve_player_licenses(cursor) -> List[PlayerLicense]:
             continue
         seen_final_keys.add(final_key)
 
-        # Check required fields
-        if not all([player_id, club_id, season_id, license_id, valid_from, valid_to]):
-            logger.failed(logger_keys.copy(), "Missing required fields")
-            continue
-
-        licenses.append(PlayerLicense(
+        lic = PlayerLicense(
             player_id=player_id,
             club_id=club_id,
             season_id=season_id,
             license_id=license_id,
             valid_from=valid_from,
-            valid_to=valid_to,
-            row_id=raw.row_id
-        ))
+            valid_to=valid_to
+        )
 
-    # Validate + Insert
-    validation_results = PlayerLicense.batch_validate(cursor, licenses, logger)
-    valid_licenses = [licenses[i] for i, res in enumerate(validation_results) if res["status"] == "success"]
-    PlayerLicense.batch_insert(cursor, valid_licenses, logger)
+        # Validate (pass season_map to avoid DB query)
+        is_valid, err = lic.validate(cursor)
+        if not is_valid:
+            if err == "Season_id reassigned":
+                logger.warning(logger_keys, "Season_id reassigned during validation")
+            if err == 'License already exists':
+                logger.skipped(logger_keys, "License already exists")
+                continue
+            else:
+                logger.failed(logger_keys, err)
+                continue
+
+        # Upsert
+        result = lic.upsert(cursor)
+        if result == "inserted":
+            logger.success(logger_keys, "Player license inserted")
+        elif result == "updated":
+            logger.success(logger_keys, "Player license updated")
+        elif result == "unchanged":
+            logger.success(logger_keys, "Player license unchanged")
+        else:
+            logger.failed(logger_keys, "Upsert failed")
+            continue
 
     logger.summarize()
 
-    return valid_licenses

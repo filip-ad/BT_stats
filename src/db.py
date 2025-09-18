@@ -84,7 +84,8 @@ def drop_tables(cursor, logger, tables):
 def create_raw_tables(cursor, logger):
 
     raw_tables = {
-        "tournament_raw": '''
+        "tournament_raw": 
+        '''
             CREATE TABLE IF NOT EXISTS tournament_raw (
                 row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
                 tournament_id_ext               TEXT,
@@ -116,7 +117,8 @@ def create_raw_tables(cursor, logger):
             )
         ''',
 
-        "tournament_class_raw": '''
+        "tournament_class_raw": 
+        '''
             CREATE TABLE IF NOT EXISTS tournament_class_raw (
                 row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
                 tournament_id_ext               TEXT,
@@ -140,7 +142,8 @@ def create_raw_tables(cursor, logger):
             )
         ''',
 
-        "player_license_raw": '''
+        "player_license_raw": 
+        '''
             CREATE TABLE IF NOT EXISTS player_license_raw (
                 row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
                 season_label                    TEXT,
@@ -154,31 +157,36 @@ def create_raw_tables(cursor, logger):
                 year_born                       TEXT,
                 license_info_raw                TEXT,
                 ranking_group_raw               TEXT,
-                data_source_id                  INTEGER DEFAULT 1,
+                data_source_id                  INTEGER DEFAULT 3,
                 content_hash                    TEXT,
                 last_seen_at                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-                UNIQUE(season_id_ext, player_id_ext, club_name, year_born, firstname, lastname, license_info_raw),
+                UNIQUE(season_id_ext, player_id_ext, club_id_ext, license_info_raw)
             )
         ''',
 
         "player_ranking_raw": '''
             CREATE TABLE IF NOT EXISTS player_ranking_raw (
-                row_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id INTEGER,
-                run_date DATE,
-                player_id_ext INTEGER,
-                firstname TEXT,
-                lastname TEXT,
-                year_born INTEGER,
-                club_name TEXT,
-                points INTEGER,
-                points_change_since_last INTEGER,
-                position_world INTEGER,
-                position INTEGER,
-                row_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id_ext                      TEXT,
+                run_date                        DATE,
+                player_id_ext                   TEXT,
+                firstname                       TEXT,
+                lastname                        TEXT,
+                year_born                       TEXT,
+                club_name                       TEXT,
+                points                          INTEGER,
+                points_change_since_last        INTEGER,
+                position_world                  INTEGER,
+                position                        INTEGER,
+                data_source_id                  INTEGER DEFAULT 3,
+                content_hash                    TEXT,
+                last_seen_at                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
                 UNIQUE (run_id, player_id_ext)
             )
         ''',
@@ -567,10 +575,13 @@ def create_tables(cursor):
                 license_id                      INTEGER NOT NULL,
                 season_id                       INTEGER NOT NULL,
                 row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (player_id) REFERENCES player(player_id),
-                FOREIGN KEY (club_id) REFERENCES club(club_id),
-                FOREIGN KEY (season_id) REFERENCES season(season_id),
-                FOREIGN KEY (license_id) REFERENCES license(license_id),
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                       
+                FOREIGN KEY (player_id)         REFERENCES player(player_id),
+                FOREIGN KEY (club_id)           REFERENCES club(club_id),
+                FOREIGN KEY (season_id)         REFERENCES season(season_id),
+                FOREIGN KEY (license_id)        REFERENCES license(license_id),
+                       
                 UNIQUE (player_id, license_id, season_id, club_id)
             )
         ''')
@@ -617,16 +628,20 @@ def create_tables(cursor):
         # Create player ranking table
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS player_ranking (
-                run_id                          INTEGER NOT NULL,
+                run_id_ext                      TEXT NOT NULL,
                 run_date                        DATE NOT NULL,
-                player_id                       INTEGER NOT NULL, 
-                points                          INTEGER NOT NULL,
-                points_change_since_last        INTEGER NOT NULL,
-                position_world                  INTEGER NOT NULL,
-                position                        INTEGER NOT NULL,
-                       
-                PRIMARY KEY (player_id, run_date),
-                FOREIGN KEY (player_id) REFERENCES player(player_id)
+                player_id_ext                   TEXT NOT NULL,
+                points                          INTEGER DEFAULT 0,
+                points_change_since_last        INTEGER DEFAULT 0,
+                position_world                  INTEGER DEFAULT 0,
+                position                        INTEGER DEFAULT 0,
+                data_source_id                  INTEGER DEFAULT 3,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (player_id_ext, data_source_id) REFERENCES player_id_ext(player_id_ext, data_source_id),
+
+                PRIMARY KEY (player_id_ext, data_source_id, run_date)
             )
         ''')
 
@@ -1328,7 +1343,7 @@ def create_views(cursor):
                 tct.description AS tournament_class_type,
                 tcs.description AS tournament_class_structure,
                 ts.description  AS tournament_status,
-                tc.date       AS class_date,
+                tc.startdate       AS class_date,
                 t.country_code,
                 t.url         AS tournament_url,
                 tc.tournament_class_id,

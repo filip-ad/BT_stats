@@ -1698,7 +1698,8 @@ CLUB_ID_EXT = [
 (281, 3303),
 (677, 3340),
 (515, 3322),
-(840, 3353)
+(840, 3353),
+(952, 32377)
 ]
 
 CLUBS_COUNTRY_TEAMS = [
@@ -3381,6 +3382,7 @@ CLUBS = [
 (515, 'Winnö IF', 'Winnö Idrottsförening', 1, None, None, None, None, None, 15),
 (840, 'Yttersjöns BTK', 'Yttersjöns Bordtennisklubb', 1, None, None, None, None, None, 22),
 (951, 'Göteborgs Bordtennisförbund', 'Göteborgs BTF', 2, None, None, None, None, None, 27),
+(952, 'Molkoms Racketklubb', 'Molkoms Racketklubb', 1, None, None, None, None, None, 21),
 (1000, 'Figgjo BTK', 'Figgjo Bordtennisklubb', 1, None, 'NOR', None, None, None, None),
 (1001, 'Haugesund BTK', 'Haugesund Bordtennisklubb', 1, None, 'NOR', None, None, None, None),
 (1002, 'Randesund IL', 'Randesund Idrettslag', 1, None, 'NOR', None, None, None, None),

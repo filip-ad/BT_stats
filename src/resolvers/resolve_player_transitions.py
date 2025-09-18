@@ -10,7 +10,7 @@ from models.player import Player
 from models.player_license import PlayerLicense
 from utils import OperationLogger, parse_date, sanitize_name
 
-def resolve_player_transitions(cursor) -> List[PlayerTransition]:
+def resolve_player_transitions(cursor, run_id=None) -> List[PlayerTransition]:
     """
     Resolve player_transition_raw → player_transition.
     Handles duplicate detection, parsing, validation, and insert.
@@ -20,12 +20,13 @@ def resolve_player_transitions(cursor) -> List[PlayerTransition]:
         verbosity       = 2, 
         print_output    = False, 
         log_to_db       = True, 
-        cursor          = cursor
+        cursor          = cursor,
+        object_type     = "player_transition",
+        run_type        = "resolve",
+        run_id          = run_id
     )
 
     logger.info("Resolving player transitions...", to_console=True)
-
-    start_time = time.time()
 
     # Cache mappings
     club_name_map       = Club.cache_name_map(cursor)
@@ -43,10 +44,11 @@ def resolve_player_transitions(cursor) -> List[PlayerTransition]:
         return []
 
     transitions = []
-    player_cache_misses = club_cache_misses = 0
     seen_final_keys = set()
 
     for raw in raw_objects:
+
+        logger.inc_processed()
 
         logger_keys = {
             "row_id":           raw.row_id,
@@ -76,12 +78,20 @@ def resolve_player_transitions(cursor) -> List[PlayerTransition]:
 
         logger_keys["transition_date"] = transition_date
 
+        # # Resolve clubs
+        # club_from_obj   = Club.resolve(cursor, raw.club_from, club_name_map, logger, item_key, allow_prefix=True)
+        # club_to_obj     = Club.resolve(cursor, raw.club_to, club_name_map, logger, item_key, allow_prefix=True)
+
         # Resolve clubs
-        club_from_obj   = Club.resolve(cursor, raw.club_from, club_name_map, logger, item_key, allow_prefix=True)
-        club_to_obj     = Club.resolve(cursor, raw.club_to, club_name_map, logger, item_key, allow_prefix=True)
+        club_from_obj, msg_from = Club.resolve(cursor, raw.club_from, allow_prefix=True)
+        club_to_obj,   msg_to   = Club.resolve(cursor, raw.club_to,   allow_prefix=True)
+
+        if msg_from:
+            logger.warning(item_key, msg_from)
+        if msg_to:
+            logger.warning(item_key, msg_to)
 
         if not club_from_obj or not club_to_obj or club_from_obj.club_id == 9999 or club_to_obj.club_id == 9999:
-            club_cache_misses += 1
             logger.failed(logger_keys.copy(), "Could not resolve club_from or club_to")
             continue
 
@@ -112,7 +122,6 @@ def resolve_player_transitions(cursor) -> List[PlayerTransition]:
         if not candidates:
             candidates = Player.search_by_name_and_year(cursor, firstname, lastname, raw.year_born)
         if not candidates:
-            player_cache_misses += 1
             logger.failed(logger_keys.copy(), "No players found matching name and year born")
             continue
 

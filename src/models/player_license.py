@@ -7,17 +7,19 @@ from typing import Optional, List, Tuple, Dict, Any, Set, Iterable
 from collections import defaultdict
 import sqlite3
 from models.cache_mixin import CacheMixin
+from models.season import Season
 from utils import normalize_key
 
 @dataclass
 class PlayerLicense(CacheMixin):
-    player_id:    int
-    club_id:      int
-    season_id:    int
-    license_id:   int
-    valid_from:   date
-    valid_to:     date
-    row_id:       Optional[int] = None
+    player_id:                  int
+    club_id:                    int
+    valid_from:                 date
+    valid_to:                   date
+    license_id:                 int
+    season_id:                  int
+    row_created:                Optional[date] = None
+    row_updated:                Optional[date] = None
 
     @staticmethod
     def from_dict(data: dict) -> "PlayerLicense":
@@ -28,8 +30,101 @@ class PlayerLicense(CacheMixin):
             license_id          = data["license_id"],
             valid_from          = data["valid_from"],
             valid_to            = data["valid_to"],
-            row_id              = data.get("row_id")
+            row_created         = data.get("row_created"),
+            row_updated         = data.get("row_updated")
         )
+    
+    def validate(self, cursor: sqlite3.Cursor) -> Tuple[bool, str]:
+        """
+        Validate a single PlayerLicense instance, focusing on date ranges, duplicates, and overlaps.
+        Assumes player_id, club_id, and license_id are valid (checked in resolver).
+        Season_map can be passed to avoid DB queries for season validation.
+        Returns (is_valid, error_message)
+        """
+
+        # Check required fields
+        if not all([self.player_id, self.club_id, self.season_id, self.license_id, self.valid_from, self.valid_to]):
+            return False, "Missing required field(s)"
+        
+        # Check valid_to >= valid_from
+        if self.valid_to < self.valid_from:
+            return False, f"Invalid date range: valid_to {self.valid_to} before valid_from {self.valid_from}"
+
+        # Season validation
+        cursor.execute("SELECT start_date, end_date FROM season WHERE season_id = ?", (self.season_id,))
+        season_row = cursor.fetchone()
+        if not season_row:
+            return False, f"Invalid season_id {self.season_id}"
+        sd, ed = season_row
+
+        # Check valid_from and valid_to within season bounds
+        if not (sd <= self.valid_from <= ed):
+            return False, f"Valid_from {self.valid_from} outside season bounds {sd} to {ed}"
+        if not (sd <= self.valid_to <= ed):
+            return False, f"Valid_to {self.valid_to} outside season bounds {sd} to {ed}"
+
+        # Check DB duplicate
+        cursor.execute("""
+            SELECT 1 FROM player_license
+            WHERE player_id = ? AND club_id = ? AND season_id = ? AND license_id = ?
+        """, (self.player_id, self.club_id, self.season_id, self.license_id))
+        if cursor.fetchone():
+            return False, "License already exists"
+
+        # Overlap check (same player, license, season)
+        cursor.execute("""
+            SELECT valid_from, valid_to FROM player_license
+            WHERE player_id = ? AND license_id = ? AND season_id = ?
+        """, (self.player_id, self.license_id, self.season_id))
+        for vf, vt in cursor.fetchall():
+            if isinstance(vf, str):
+                vf = date.fromisoformat(vf)
+            if isinstance(vt, str):
+                vt = date.fromisoformat(vt)
+            if not (self.valid_to < vf or self.valid_from > vt):
+                return False, "Overlaps existing license period"
+
+        return True, ""
+    
+
+    def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
+        """
+        Upsert a single PlayerLicense with change detection.
+        Returns one of: "inserted", "updated", "unchanged", or None (invalid).
+        """
+
+        sql = """
+        INSERT INTO player_license
+        (player_id, club_id, season_id, license_id, valid_from, valid_to)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (player_id, license_id, season_id, club_id)
+        DO UPDATE SET
+            valid_from = CASE
+                WHEN player_license.valid_from != excluded.valid_from OR player_license.valid_to != excluded.valid_to
+                THEN excluded.valid_from ELSE player_license.valid_from END,
+            valid_to = CASE
+                WHEN player_license.valid_from != excluded.valid_from OR player_license.valid_to != excluded.valid_to
+                THEN excluded.valid_to ELSE player_license.valid_to END,
+            row_updated = CASE
+                WHEN player_license.valid_from != excluded.valid_from OR player_license.valid_to != excluded.valid_to
+                THEN CURRENT_TIMESTAMP ELSE player_license.row_updated END
+        RETURNING player_id;
+        """
+        vals = (
+            self.player_id, self.club_id, self.season_id, self.license_id,
+            self.valid_from, self.valid_to
+        )
+        cursor.execute(sql, vals)
+        row = cursor.fetchone()
+        if row:
+            # Either inserted or updated-with-change
+            # Heuristic: INSERT sets lastrowid
+            if cursor.lastrowid:
+                return "inserted"
+            return "updated"
+
+        # Unchanged (conflict but no update needed)
+        return "unchanged"
     
     @classmethod
     def cache_name_club_map(cls, cursor) -> Dict[Tuple[str, int], List[Dict[str, Any]]]:
@@ -78,12 +173,7 @@ class PlayerLicense(CacheMixin):
         return license_map
 
     @staticmethod
-    def has_license(
-        license_map: Dict[int, Set[Tuple[int, int]]],
-        player_id: int,
-        club_id: int,
-        seasons: Iterable[int]
-    ) -> bool:
+    def has_license(license_map: Dict[int, Set[Tuple[int, int]]], player_id: int, club_id: int, seasons: Iterable[int]) -> bool:
         """
         Check if the given player_id has a license in club_id for any of the specified seasons.
         """
@@ -127,70 +217,158 @@ class PlayerLicense(CacheMixin):
         logger
     ) -> List[Dict[str, Any]]:
         """
-        Batch-insert PlayerLicense objects in safe-sized chunks to avoid exceeding
-        SQLite’s default variable limit (~999). Returns one dict per input license
-        summarizing skip/insert/fail.
-        Aligns with Player.save_to_db pattern but for batch.
+        Batch upsert PlayerLicense objects in safe-sized chunks.
+        Updates valid_from, valid_to, and row_updated on conflict if content changes.
+        Returns one dict per input license summarizing skip/insert/update/fail.
         """
-        # Assume all licenses are validated as new; no need to re-fetch existing
+        if not licenses:
+            return []
 
-        to_insert: List[tuple] = []
+        to_upsert: List[tuple] = []
         results: List[Dict[str, Any]] = []
 
-        # Prepare insert data
+        # Prepare upsert data
         for lic in licenses:
             key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
+            content_hash = lic.compute_content_hash()
             item_key = f"(player_id: {lic.player_id}, club_id: {lic.club_id}, season_id: {lic.season_id}, license_id: {lic.license_id})"
-            to_insert.append((
+            to_upsert.append((
                 lic.player_id,
                 lic.club_id,
                 lic.season_id,
                 lic.license_id,
                 lic.valid_from,
-                lic.valid_to
+                lic.valid_to,
+                content_hash
             ))
             results.append({
                 "status": "pending",
                 "key": item_key,
-                "reason": "Will insert"
+                "reason": "Will upsert"
             })
 
-        # Nothing to insert?
-        if not to_insert:
+        # Nothing to upsert?
+        if not to_upsert:
             return results
 
         # Chunk size calculation
         MAX_VARS = 999
-        COLS_PER_ROW = 6
-        chunk_size = MAX_VARS // COLS_PER_ROW  # ~166
+        COLS_PER_ROW = 7  # Updated for content_hash
+        chunk_size = MAX_VARS // COLS_PER_ROW  # ~142
 
         insert_sql = """
-            INSERT OR IGNORE INTO player_license
-            (player_id, club_id, season_id, license_id, valid_from, valid_to)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO player_license
+            (player_id, club_id, season_id, license_id, valid_from, valid_to, row_updated)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (player_id, license_id, season_id, club_id)
+            DO UPDATE SET
+                valid_from = CASE
+                    WHEN player_license.row_updated IS NULL OR excluded.valid_from != player_license.valid_from OR excluded.valid_to != player_license.valid_to
+                    THEN excluded.valid_from ELSE player_license.valid_from END,
+                valid_to = CASE
+                    WHEN player_license.row_updated IS NULL OR excluded.valid_from != player_license.valid_from OR excluded.valid_to != player_license.valid_to
+                    THEN excluded.valid_to ELSE player_license.valid_to END,
+                row_updated = CASE
+                    WHEN player_license.row_updated IS NULL OR excluded.valid_from != player_license.valid_from OR excluded.valid_to != player_license.valid_to
+                    THEN CURRENT_TIMESTAMP ELSE player_license.row_updated END
+            RETURNING player_id, club_id, season_id, license_id
         """
 
         # Execute chunks
         inserted_count = 0
-        for start in range(0, len(to_insert), chunk_size):
-            chunk = to_insert[start : start + chunk_size]
+        updated_count = 0
+        for start in range(0, len(to_upsert), chunk_size):
+            chunk = to_upsert[start : start + chunk_size]
             try:
                 cursor.executemany(insert_sql, chunk)
-                inserted_count += cursor.rowcount
+                for row in cursor.fetchall():
+                    inserted_count += 1 if cursor.lastrowid else 0
+                    updated_count += 1 if not cursor.lastrowid else 0
+                for i in range(start, start + len(chunk)):
+                    results[i]["status"] = "success"
+                    results[i]["reason"] = "Inserted" if cursor.lastrowid else "Updated"
+                    logger.success(results[i]["key"], results[i]["reason"])
             except sqlite3.Error as e:
-                logging.error(f"Chunk insert error: {e}")
+                logging.error(f"Chunk upsert error: {e}")
                 for i in range(start, start + len(chunk)):
                     results[i]["status"] = "failed"
                     results[i]["reason"] = str(e)
-                    logger.failed(results[i]["key"], "Player license insert failed")
-            else:
-                for i in range(start, start + len(chunk)):
-                    results[i]["status"] = "success"
-                    results[i]["reason"] = "Inserted"
-                    logger.success(results[i]["key"], "Player license inserted successfully")
-
-        logging.info(f"Batch insert completed: {inserted_count} new licenses")
+                    logger.failed(results[i]["key"], "Player license upsert failed")
+        
+        logging.info(f"Batch upsert completed: {inserted_count} inserted, {updated_count} updated")
         return results
+        
+    # @staticmethod
+    # def batch_insert(
+    #     cursor, 
+    #     licenses: List["PlayerLicense"], 
+    #     logger
+    # ) -> List[Dict[str, Any]]:
+    #     """
+    #     Batch-insert PlayerLicense objects in safe-sized chunks to avoid exceeding
+    #     SQLite’s default variable limit (~999). Returns one dict per input license
+    #     summarizing skip/insert/fail.
+    #     Aligns with Player.save_to_db pattern but for batch.
+    #     """
+    #     # Assume all licenses are validated as new; no need to re-fetch existing
+
+    #     to_insert: List[tuple] = []
+    #     results: List[Dict[str, Any]] = []
+
+    #     # Prepare insert data
+    #     for lic in licenses:
+    #         key = (lic.player_id, lic.club_id, lic.season_id, lic.license_id)
+    #         item_key = f"(player_id: {lic.player_id}, club_id: {lic.club_id}, season_id: {lic.season_id}, license_id: {lic.license_id})"
+    #         to_insert.append((
+    #             lic.player_id,
+    #             lic.club_id,
+    #             lic.season_id,
+    #             lic.license_id,
+    #             lic.valid_from,
+    #             lic.valid_to
+    #         ))
+    #         results.append({
+    #             "status": "pending",
+    #             "key": item_key,
+    #             "reason": "Will insert"
+    #         })
+
+    #     # Nothing to insert?
+    #     if not to_insert:
+    #         return results
+
+    #     # Chunk size calculation
+    #     MAX_VARS = 999
+    #     COLS_PER_ROW = 6
+    #     chunk_size = MAX_VARS // COLS_PER_ROW  # ~166
+
+    #     insert_sql = """
+    #         INSERT OR IGNORE INTO player_license
+    #         (player_id, club_id, season_id, license_id, valid_from, valid_to)
+    #         VALUES (?, ?, ?, ?, ?, ?)
+    #     """
+
+    #     # Execute chunks
+    #     inserted_count = 0
+    #     for start in range(0, len(to_insert), chunk_size):
+    #         chunk = to_insert[start : start + chunk_size]
+    #         try:
+    #             cursor.executemany(insert_sql, chunk)
+    #             inserted_count += cursor.rowcount
+    #         except sqlite3.Error as e:
+    #             logging.error(f"Chunk insert error: {e}")
+    #             for i in range(start, start + len(chunk)):
+    #                 results[i]["status"] = "failed"
+    #                 results[i]["reason"] = str(e)
+    #                 logger.failed(results[i]["key"], "Player license insert failed")
+    #         else:
+    #             for i in range(start, start + len(chunk)):
+    #                 results[i]["status"] = "success"
+    #                 results[i]["reason"] = "Inserted"
+    #                 logger.success(results[i]["key"], "Player license inserted successfully")
+
+    #     logging.info(f"Batch insert completed: {inserted_count} new licenses")
+    #     return results
 
     @staticmethod
     def batch_validate(
