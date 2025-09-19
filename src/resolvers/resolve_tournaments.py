@@ -7,7 +7,7 @@ from models.tournament import Tournament
 from models.tournament_raw import TournamentRaw
 from utils import OperationLogger, parse_date
 
-def resolve_tournaments(cursor) -> List[Tournament]:
+def resolve_tournaments(cursor, run_id=None) -> List[Tournament]:
     """
     Resolve tournament_raw → tournament.
     Handles parsing, validation, and insert.
@@ -18,7 +18,8 @@ def resolve_tournaments(cursor) -> List[Tournament]:
         log_to_db       = True,
         cursor          = cursor,
         object_type     = "tournament",
-        run_type        = "resolve"
+        run_type        = "resolve",
+        run_id          = run_id
     )
 
     # Fetch all raw tournament records

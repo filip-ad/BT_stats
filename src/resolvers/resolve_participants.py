@@ -12,9 +12,18 @@ import sqlite3
 from datetime import date
 from collections import defaultdict
 
-def resolve_participants(cursor: sqlite3.Cursor, tournament_class_id_ext: Optional[str] = None) -> None:
+def resolve_participants(cursor: sqlite3.Cursor, tournament_class_id_ext: Optional[str] = None, run_id = None) -> None:
     """Resolve raw player participants into participant and participant_player tables for a class or all classes."""
-    logger = OperationLogger(verbosity=2, print_output=False, log_to_db=True, cursor=cursor)
+    
+    logger = OperationLogger(
+        verbosity       = 2, 
+        print_output    = False, 
+        log_to_db       = True, 
+        cursor          = cursor,
+        object_type     = "participant",
+        run_type        = "resolve",
+        run_id          = run_id
+        )
 
     # Fetch all raw rows using class method
     raw_rows = ParticipantPlayerRawTournament.get_all(cursor)
@@ -69,7 +78,7 @@ def resolve_participants(cursor: sqlite3.Cursor, tournament_class_id_ext: Option
                 if not first_row.fullname_raw or not first_row.clubname_raw:
                     logger.failed(logger_keys, "Missing required raw data in group")
                     continue
-                logger.info(logger_keys, f"Processing group {group_id} with first row: {first_row.fullname_raw}, {first_row.clubname_raw}")
+                # logger.info(logger_keys, f"Processing group {group_id} with first row: {first_row.fullname_raw}, {first_row.clubname_raw}")
                 participant_data = {
                     "tournament_class_id": tournament_class_id,
                     "tournament_class_seed": int(first_row.seed_raw) if first_row.seed_raw and first_row.seed_raw.isdigit() else None,

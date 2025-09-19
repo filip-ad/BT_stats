@@ -1,30 +1,30 @@
 # src/main.py
 
 import logging
-
 import uuid
+from upd_player_data        import upd_player_data
+from upd_tournament_data    import upd_tournament_data
 
-from upd_player_data import upd_player_data
+from utils import (
+    clear_debug_tables, 
+    export_logs_to_excel, 
+    export_runs_to_excel, 
+    setup_logging, 
+    OperationLogger
+)
 
-from utils import clear_debug_tables, export_logs_to_excel, export_runs_to_excel, setup_logging, OperationLogger
-from resolve_data import resolve_data
-
-from upd_clubs import upd_clubs
-from upd_players_verified import upd_players_verified
-
-from upd_player_licenses import upd_player_licenses
-
-from upd_player_rankings_raw import upd_player_rankings_raw
-from upd_player_rankings import upd_player_rankings
-
-from upd_player_transitions import upd_player_transitions
-
-from upd_tournaments import upd_tournaments
-from upd_tournament_classes import upd_tournament_classes
-
-from upd_participants import upd_participants
-
-from db import create_raw_tables, get_conn, drop_tables, create_tables, create_and_populate_static_tables, create_indexes, create_triggers, create_views, compact_sqlite, execute_custom_sql
+from db import (
+    create_raw_tables, 
+    get_conn, 
+    drop_tables, 
+    create_tables, 
+    create_and_populate_static_tables, 
+    create_indexes, 
+    create_triggers, 
+    create_views, 
+    compact_sqlite, 
+    execute_custom_sql
+)
 
 
 def main():
@@ -32,11 +32,8 @@ def main():
     try:
 
         pipeline_run_id = str(uuid.uuid4())
-
-        # Get the connection and cursor
         conn, cursor = get_conn()
         
-        # Set up logging (set the output format etc)
         setup_logging()
         logger = OperationLogger(
             run_id = pipeline_run_id,
@@ -48,7 +45,6 @@ def main():
 
         ### DB stuff
         ################################################################################################        
-
         # compact_sqlite()
 
 
@@ -155,44 +151,20 @@ def main():
         
 
         # Update player data
-        upd_player_data(
+        # upd_player_data(
+        #     run_id                          = pipeline_run_id,
+        #     do_scrape_player_licenses       = False, 
+        #     do_scrape_player_rankings       = False,
+        #     do_scrape_player_transitions    = False
+        # )
+
+        # Update tournament data
+        upd_tournament_data(
             run_id                          = pipeline_run_id,
-            do_scrape_player_licenses       = False, 
-            do_scrape_player_rankings       = False,
-            do_scrape_player_transitions    = False
+            do_scrape_tournaments           = False,
+            do_scrape_tournament_classes    = False,
+            do_scrape_participants          = True
         )
-
-        # upd_players_verified()
-        # upd_clubs()
-
-        # resolvers...
-
-
-        #
-        # Describe all functions, what they do, what tables are updated, variables etc etc
-        #
-
-        # 1 Scrape and populate raw tables.
-        # upd_player_licenses(scrape=True, resolve=False, update_ranking_groups=False)
-        # upd_player_rankings_raw()
-        # upd_players_verified()
-        # upd_player_licenses(scrape=False, resolve=True, update_ranking_groups=True)
-
-        # 2 update clubs, verified players and player ranking groups
-        # upd_clubs()
-        
-        # upd_player_transitions(scrape=True, resolve=True)
-
-
-        ################################################################################################
-
-        # # Get tournaments
-        # upd_tournaments(scrape_ondata=False, resolve=True)
-        # upd_tournament_classes(scrape_ondata=True, resolve=True)
-
-        # upd_participants(scrape_ondata=False, resolve=True)
-        # upd_player_positions()
-        # upd_tournament_group_stage()
 
         export_runs_to_excel()
         export_logs_to_excel()

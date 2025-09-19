@@ -8,19 +8,20 @@ from models.tournament_class_raw import TournamentClassRaw
 from models.tournament import Tournament
 from datetime import date
 
-def resolve_tournament_classes(cursor) -> List[TournamentClass]:
+def resolve_tournament_classes(cursor, run_id=None) -> List[TournamentClass]:
     """
     Resolve tournament_class_raw -> tournament_class.
     Fetch all raw entries, resolve dependencies, infer fields, validate, and upsert to regular table.
     Returns list of successfully upserted TournamentClass objects.
     """
     logger = OperationLogger(
-        verbosity=2,
-        print_output=False,
-        log_to_db=True,
-        cursor=cursor,
+        verbosity       = 2,
+        print_output    = False,
+        log_to_db       = True,
+        cursor          = cursor,
         object_type     = "tournament_class",
-        run_type        = "resolve"
+        run_type        = "resolve",
+        run_id          = run_id
     )
 
     # Fetch all raw tournament class records

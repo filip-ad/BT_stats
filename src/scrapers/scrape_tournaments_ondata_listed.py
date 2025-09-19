@@ -15,8 +15,9 @@ from models.tournament_raw import TournamentRaw
 
 from config import SCRAPE_TOURNAMENTS_CUTOFF_DATE
 
+SCRAPE_TOURNAMENTS_URL_ONDATA = "https://resultat.ondata.se/?viewAll=1"
 
-def scrape_tournaments_ondata_listed(cursor) -> None:
+def scrape_tournaments_ondata_listed(cursor, run_id=None) -> None:
     """
     Scrape raw HTML rows from ondata.se tables.
     Upserts raw data into tournament_raw table.
@@ -28,15 +29,15 @@ def scrape_tournaments_ondata_listed(cursor) -> None:
         log_to_db       = True,
         cursor          = cursor,
         object_type     = "tournament",
-        run_type        = "scrape_ondata_listed"
+        run_type        = "scrape_ondata_listed",
+        run_id          = run_id
     )
 
-    nbr_of_tnmnts_scraped = 0
-    cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
-    sleep_time = 0.3 # Seconds between requests to avoid overloading server- 0.3 seems fine.
-    logger.info(f"Scraping ondata for listed tournaments, cut off date: {cutoff_date}. Using {sleep_time}s sleep time between requests.")
+    nbr_of_tnmnts_scraped   = 0
+    cutoff_date             = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
+    sleep_time              = 0.3 # Seconds between requests to avoid overloading server- 0.3 seems fine.
 
-    SCRAPE_TOURNAMENTS_URL_ONDATA = "https://resultat.ondata.se/?viewAll=1"
+    logger.info(f"Scraping ondata for listed tournaments, cut off date: {cutoff_date}. Using {sleep_time}s sleep time between requests.")
 
     # Configure session with retry logic
     session = requests.Session()
@@ -114,6 +115,7 @@ def scrape_tournaments_ondata_listed(cursor) -> None:
 
             if start_date < cutoff_date:
                 logger.skipped(logger_keys.copy(), f"Tournament before cutoff date {cutoff_date}")
+                logger.inc_processed()
                 continue
 
             logger_keys.update({
@@ -181,16 +183,13 @@ def scrape_tournaments_ondata_listed(cursor) -> None:
             else:
                 logger.failed(logger_keys, "Raw tournament upsert failed")
 
-            logger.info(f"Tournament (raw listed) {raw.shortname} on {raw.startdate} successfully {action}", to_console=True, show_key=False)
+            logger.info(f"Tournament {raw.shortname} on {raw.startdate} successfully {action}", to_console=True, show_key=False)
 
             time.sleep(sleep_time)
 
     logger.info(f"Completed scraping {nbr_of_tnmnts_scraped} listed tournaments.")
     logger.summarize()
-    logger.commit_run_summary(cursor)
-
-    # run_time and nbr_of_tnmnts_scraped can be used for overhead tracking
-
+    logger.commit_run_summary()
 
 def _fetch_tournament_longname(ondata_id: str, session: requests.Session, headers: dict, logger: OperationLogger, logger_keys: dict) -> Optional[str]:
     """

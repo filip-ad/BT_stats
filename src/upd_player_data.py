@@ -17,16 +17,17 @@ def upd_player_data (
         do_scrape_player_transitions  = False,
         run_id                        = None
     ):
-    """
-    Updater entry point: Scrape raw data, process through pipeline, aggregate results.
-    """
+
     conn, cursor = get_conn()
 
+    # Scraping
     try:
 
         if do_scrape_player_licenses:
             try: 
+
                 scrape_player_licenses(cursor, run_id = run_id)
+
             except Exception as e:
                 logging.error(f"Error in scrape_player_licenses: {e}", stack_info=True, stacklevel=3, exc_info=True)
                 print(f"Error in scrape_player_licenses: {e}")
@@ -34,7 +35,9 @@ def upd_player_data (
 
         if do_scrape_player_rankings:
             try:
+
                 scrape_player_rankings(cursor, run_id=run_id)
+
             except Exception as e:
                 logging.error(f"Error in scrape_player_rankings: {e}", stack_info=True, stacklevel=3, exc_info=True)
                 print(f"Error in scrape_player_rankings: {e}")
@@ -42,17 +45,25 @@ def upd_player_data (
 
         if do_scrape_player_transitions:
             try:
+                
                 scrape_player_transitions(cursor, run_id=run_id)
+
             except Exception as e:
                 logging.error(f"Error in scrape_player_transitions: {e}", stack_info=True, stacklevel=3, exc_info=True)
                 print(f"Error in scrape_player_transitions: {e}")
                 pass
 
-        # upd_players_verified(cursor, run_id=run_id)
-        resolve_player_rankings(cursor, run_id=run_id)
-        resolve_player_ranking_groups(cursor, run_id=run_id)
-        # resolve_player_licenses(cursor, run_id=run_id)
-        # resolve_player_transitions(cursor, run_id=run_id)
+        # Resolving
+        try:
+            upd_players_verified(cursor, run_id=run_id)
+            resolve_player_rankings(cursor, run_id=run_id)
+            resolve_player_ranking_groups(cursor, run_id=run_id)
+            resolve_player_licenses(cursor, run_id=run_id)
+            resolve_player_transitions(cursor, run_id=run_id)
+
+        except Exception as e:
+            logging.error(f"Error in resolving player data: {e}", stack_info=True, stacklevel=3, exc_info=True)
+            print(f"Error in resolving player data: {e}")
 
 
     except Exception as e:

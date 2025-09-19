@@ -20,7 +20,7 @@ from urllib3.util.retry import Retry
 PDF_BASE = "https://resultat.ondata.se/ViewClassPDF.php"
 CACHE_DIR = Path(PDF_CACHE_DIR)
 
-def scrape_tournament_classes_ondata(cursor) -> None:
+def scrape_tournament_classes_ondata(cursor, run_id=None) -> None:
     """
     Scrape raw tournament classes from ondata for tournaments after cutoff or specific ext_ids,
     perform light validation, and insert into tournament_class_raw table.
@@ -31,7 +31,8 @@ def scrape_tournament_classes_ondata(cursor) -> None:
         log_to_db       = True,
         cursor          = cursor,
         object_type     = "tournament_class",
-        run_type        = "scrape_ondata"
+        run_type        = "scrape_ondata",
+        run_id          = run_id
     )
 
     cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)

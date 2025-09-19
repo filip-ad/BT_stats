@@ -19,31 +19,32 @@ from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 import time
 
-def scrape_participants_ondata(cursor, include_positions: bool = True) -> List[TournamentClass]:
+def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=None) -> List[TournamentClass]:
     """Scrape and populate raw participant data from PDFs for filtered tournament classes.
     Returns the list of processed TournamentClass instances.
     """
     logger = OperationLogger(
-        verbosity=2,
-        print_output=False,
-        log_to_db=True,
-        cursor=cursor,
+        verbosity       = 2,
+        print_output    = False,
+        log_to_db       = True,
+        cursor          = cursor,
         object_type     = "participant",
-        run_type        = "scrape"
+        run_type        = "scrape",
+        run_id          = run_id
     )
 
     cutoff_date = parse_date(SCRAPE_PARTICIPANTS_CUTOFF_DATE)
 
     classes = TournamentClass.get_filtered_classes(
         cursor,
-        data_source_id=1,
-        cutoff_date=cutoff_date,
-        require_ended=True,
-        allowed_type_ids=[1],
-        max_classes=SCRAPE_PARTICIPANTS_MAX_CLASSES,
-        class_id_exts=SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
-        tournament_id_exts=SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
-        order=SCRAPE_PARTICIPANTS_ORDER
+        data_source_id      = 1 ,
+        cutoff_date         = cutoff_date,
+        require_ended       = True,
+        allowed_type_ids    = [1],
+        max_classes         = SCRAPE_PARTICIPANTS_MAX_CLASSES,
+        class_id_exts       = SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+        tournament_id_exts  = SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
+        order               = SCRAPE_PARTICIPANTS_ORDER
     )
 
     logger.info(f"Processing {len(classes)} tournament classes (cutoff date: {cutoff_date})")

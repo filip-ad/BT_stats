@@ -97,7 +97,7 @@ class ParticipantPlayerRawTournament(CacheMixin):
 
     def insert(self, cursor: sqlite3.Cursor) -> None:
         """
-        Insert row into participant_raw_tournament table.
+        Insert row into participant_player_raw_tournament table.
         """
         cursor.execute("""
             INSERT INTO participant_player_raw_tournament (
