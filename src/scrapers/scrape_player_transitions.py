@@ -1,5 +1,7 @@
 # src/scrapers/scrape_player_transitions.py
 
+
+from unittest import result
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -67,6 +69,12 @@ def scrape_player_transitions(cursor, run_id=None):
     # Counting
     total_inserted = 0
     total_skipped = 0
+    total_updated = 0
+    total_unchanged = 0
+    season_inserted = 0
+    season_updated = 0
+    season_unchanged = 0
+    season_skipped = 0
     current_season_count = 0
 
     try:
@@ -79,7 +87,7 @@ def scrape_player_transitions(cursor, run_id=None):
             period_dropdown     = Select(driver.find_element(By.NAME, "periode"))
             selected_option     = period_dropdown.first_selected_option
             season_label        = selected_option.text.strip()
-            season_id_ext       = int(selected_option.get_attribute("value"))
+            season_id_ext       = str(selected_option.get_attribute("value"))
 
             logger.info(f"Scraping raw transition data for season {season_label}...", to_console=True)
 
@@ -156,16 +164,22 @@ def scrape_player_transitions(cursor, run_id=None):
                     logger.failed(logger_keys.copy(), error_msg)
                     continue
 
-                inserted = raw.upsert_one(cursor, raw)
+                result = raw.upsert_one(cursor)
 
-                if inserted:
+                if result == "inserted":
                     logger.success(logger_keys.copy(), "Raw player transition record successfully inserted")
                     total_inserted += 1
                     season_inserted += 1
+                elif result == "updated":
+                    logger.success(logger_keys.copy(), "Raw player transition record successfully updated")
+                    total_updated += 1
+                    season_updated += 1
+                elif result == "unchanged":
+                    logger.success(logger_keys.copy(), "Raw player transition record unchanged")
+                    total_unchanged += 1
+                    season_unchanged += 1
                 else:
-                    logger.skipped(logger_keys.copy(), "Raw player transition record already exists")
-                    total_skipped += 1
-                    season_skipped += 1
+                    logger.failed(logger_keys.copy(), "Upsert failed")
 
             # Commit changes after each season
             cursor.connection.commit()

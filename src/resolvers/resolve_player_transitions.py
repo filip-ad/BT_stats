@@ -1,6 +1,6 @@
 # src/resolvers/resolve_player_transitions.py
 
-import re, time
+import time
 from typing import List
 from models.player_transition import PlayerTransition
 from models.player_transition_raw import PlayerTransitionRaw
@@ -8,7 +8,7 @@ from models.season import Season
 from models.club import Club
 from models.player import Player
 from models.player_license import PlayerLicense
-from utils import OperationLogger, parse_date, sanitize_name
+from utils import OperationLogger, normalize_key, parse_date, sanitize_name
 
 def resolve_player_transitions(cursor, run_id=None) -> List[PlayerTransition]:
     """
@@ -29,10 +29,10 @@ def resolve_player_transitions(cursor, run_id=None) -> List[PlayerTransition]:
     logger.info("Resolving player transitions...", to_console=True)
 
     # Cache mappings
-    club_name_map       = Club.cache_name_map(cursor)
-    seasons_map         = Season.cache_by_ext(cursor)
-    player_name_year_map = Player.cache_name_year_map(cursor)
-    player_license_map  = PlayerLicense.cache_all(cursor)
+    seasons_map             = Season.cache_by_ext(cursor)
+    player_name_year_map    = Player.cache_name_year_map(cursor)
+    player_name_map         = Player.cache_name_map_verified(cursor) 
+    player_license_map      = PlayerLicense.cache_all(cursor)
 
     earliest_season_id = min(s.season_id for s in seasons_map.values() if s.season_id is not None)
 
@@ -61,13 +61,11 @@ def resolve_player_transitions(cursor, run_id=None) -> List[PlayerTransition]:
             "transition_date":  raw.transition_date
         }
 
-        item_key = f"{raw.firstname} {raw.lastname} (club_from: {raw.club_from}, club_to: {raw.club_to}, season: {raw.season_label}, row_id: {raw.row_id})"
-
-        # Sanitize names
+        # --- Sanitize names ---
         firstname = sanitize_name(raw.firstname)
         lastname = sanitize_name(raw.lastname)
 
-        # Parse transition date if needed (assuming it's already a date, but to be safe)
+        # --- Parse transition date ---
         if isinstance(raw.transition_date, str):
             transition_date = parse_date(raw.transition_date, context=f"row_id: {raw.row_id}")
             if not transition_date:
@@ -75,33 +73,27 @@ def resolve_player_transitions(cursor, run_id=None) -> List[PlayerTransition]:
                 continue
         else:
             transition_date = raw.transition_date
-
         logger_keys["transition_date"] = transition_date
 
-        # # Resolve clubs
-        # club_from_obj   = Club.resolve(cursor, raw.club_from, club_name_map, logger, item_key, allow_prefix=True)
-        # club_to_obj     = Club.resolve(cursor, raw.club_to, club_name_map, logger, item_key, allow_prefix=True)
-
-        # Resolve clubs
+        # --- Resolve clubs ---
         club_from_obj, msg_from = Club.resolve(cursor, raw.club_from, allow_prefix=True)
         club_to_obj,   msg_to   = Club.resolve(cursor, raw.club_to,   allow_prefix=True)
 
-        if msg_from:
-            logger.warning(item_key, msg_from)
-        if msg_to:
-            logger.warning(item_key, msg_to)
+        # if msg_from:
+        #     logger.warning(logger_keys.copy(), msg_from)
+        # if msg_to:
+        #     logger.warning(logger_keys.copy(), msg_to)
 
         if not club_from_obj or not club_to_obj or club_from_obj.club_id == 9999 or club_to_obj.club_id == 9999:
             logger.failed(logger_keys.copy(), "Could not resolve club_from or club_to")
             continue
 
-        club_id_from    = club_from_obj.club_id
-        club_id_to      = club_to_obj.club_id
-
+        club_id_from = club_from_obj.club_id
+        club_id_to   = club_to_obj.club_id
         logger_keys["club_id_from"] = club_id_from
-        logger_keys["club_id_to"] = club_id_to
+        logger_keys["club_id_to"]   = club_id_to
 
-        # Resolve season
+        # --- Resolve season ---
         season = seasons_map.get(raw.season_id_ext)
         if season:
             season_id = season.season_id
@@ -113,16 +105,28 @@ def resolve_player_transitions(cursor, run_id=None) -> List[PlayerTransition]:
                 logger.failed(logger_keys.copy(), "No matching season found for transition date")
                 continue
             season_id = season.season_id
-
         logger_keys["season_id"] = season_id
 
-        # Resolve player
+        # --- Resolve player ---
+        # player_key = (firstname, lastname, raw.year_born)
+        # candidates = player_name_year_map.get(player_key)
+        # if not candidates:
+        #     candidates = Player.search_by_name_and_year(cursor, firstname, lastname, raw.year_born)
+        # if not candidates:
+        #     logger.failed(logger_keys.copy(), "No players found matching name and year born")
+        #     continue
+
         player_key = (firstname, lastname, raw.year_born)
         candidates = player_name_year_map.get(player_key)
+
         if not candidates:
-            candidates = Player.search_by_name_and_year(cursor, firstname, lastname, raw.year_born)
+            # fallback to fullname-based lookup (verified only)
+            fullname_norm = normalize_key(f"{firstname} {lastname}".strip())
+            candidate_ids = player_name_map.get(fullname_norm, [])
+            candidates = [Player(player_id=pid) for pid in candidate_ids]
+
         if not candidates:
-            logger.failed(logger_keys.copy(), "No players found matching name and year born")
+            logger.failed(logger_keys.copy(), "No players found matching name/year/fullname")
             continue
 
         # Filter by license in club_from in previous seasons
@@ -143,14 +147,14 @@ def resolve_player_transitions(cursor, run_id=None) -> List[PlayerTransition]:
         player_id = valid_players[0].player_id
         logger_keys["player_id"] = player_id
 
-        # Prevent duplicates in same run
+        # --- Prevent duplicates ---
         final_key = (season_id, player_id, club_id_from, club_id_to, transition_date)
         if final_key in seen_final_keys:
             logger.skipped(logger_keys.copy(), "Duplicate transition in same batch")
             continue
         seen_final_keys.add(final_key)
 
-        # Check required fields
+        # --- Final required fields check ---
         if not all([season_id, player_id, club_id_from, club_id_to, transition_date]):
             logger.failed(logger_keys.copy(), "Missing required fields")
             continue
@@ -162,6 +166,8 @@ def resolve_player_transitions(cursor, run_id=None) -> List[PlayerTransition]:
             club_id_to=club_id_to,
             transition_date=transition_date
         ))
+
+
 
     # Insert using save_to_db
     results = []

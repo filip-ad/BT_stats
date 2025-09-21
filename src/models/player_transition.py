@@ -1,7 +1,8 @@
 # src/models/player_transition.py
 
 from dataclasses import dataclass
-from typing import Optional, List
+import sqlite3
+from typing import Any, Dict, Optional, List
 import logging
 
 @dataclass

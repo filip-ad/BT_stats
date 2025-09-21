@@ -102,7 +102,8 @@ def upd_players_verified(cursor, run_id = None):
             groups.setdefault(can, set()).update(grp)
 
         print(f"ℹ️  Processing {len(groups)} manual duplicate group(s)…")
-        logging.info("Processing %d manual duplicate groups", len(groups))
+        logger.info(f"Processing {len(groups)} non-duplicate externals")
+
 
         data_source_id = 3
 

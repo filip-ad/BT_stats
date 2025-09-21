@@ -10,7 +10,8 @@ from utils import (
     export_logs_to_excel, 
     export_runs_to_excel, 
     setup_logging, 
-    OperationLogger
+    OperationLogger,
+    export_db_dictionary
 )
 
 from db import (
@@ -138,6 +139,7 @@ def main():
         create_views(cursor)
         clear_debug_tables(cursor, clear_logs=True, clear_runs=False)
         # execute_custom_sql(cursor)
+        # export_db_dictionary()
         
 
         conn.commit()
@@ -151,23 +153,23 @@ def main():
         
 
         # Update player data
-        # upd_player_data(
-        #     run_id                          = pipeline_run_id,
-        #     do_scrape_player_licenses       = False, 
-        #     do_scrape_player_rankings       = False,
-        #     do_scrape_player_transitions    = False
-        # )
-
-        # Update tournament data
-        upd_tournament_data(
+        upd_player_data(
             run_id                          = pipeline_run_id,
-            do_scrape_tournaments           = False,
-            do_scrape_tournament_classes    = False,
-            do_scrape_participants          = True
+            do_scrape_player_licenses       = False, 
+            do_scrape_player_rankings       = False,
+            do_scrape_player_transitions    = False
         )
 
-        export_runs_to_excel()
-        export_logs_to_excel()
+        # # Update tournament data
+        # upd_tournament_data(
+        #     run_id                          = pipeline_run_id,
+        #     do_scrape_tournaments           = False,
+        #     do_scrape_tournament_classes    = False,
+        #     do_scrape_participants          = True
+        # )
+
+        # export_runs_to_excel()
+        # export_logs_to_excel()
 
     except Exception as e:
         logging.error(f"Error: {e}", stack_info=True, stacklevel=3, exc_info=True)

@@ -21,7 +21,7 @@ import os
 import re
 import unicodedata
 from datetime import datetime, date
-from config import LOG_FILE, LOG_LEVEL, PDF_CACHE_DIR
+from config import LOG_FILE, LOG_LEVEL, PDF_CACHE_DIR, DB_NAME
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 import sqlite3
 import uuid
@@ -163,6 +163,32 @@ def normalize_key(
             normalized.append("".join(c for c in decomp if not unicodedata.combining(c)))
     return "".join(normalized)
 
+def name_keys_for_lookup_all_splits(name: str) -> List[str]:
+    """
+    Generate normalized name keys:
+      - the raw normalized string
+      - for every split point i (1..n-1): 
+          * "prefix suffix" where prefix = tokens[:i] (firstname(s)), suffix = tokens[i:] (lastname(s))
+          * "suffix prefix" (reversed for lastname firstname order)
+    This covers any number of first-/last-name tokens and possible order flips in PDFs.
+    Example: For "John Doe Smith": ['smith john doe', 'john doe smith', 'doe smith john']
+    Deduplicates unique keys.
+    """
+    n = normalize_key(name)
+    parts = n.split()
+    if len(parts) <= 1:
+        return [n]
+    keys = [n]  # Include raw normalized full string
+    for i in range(1, len(parts)):
+        prefix = " ".join(parts[:i])
+        suffix = " ".join(parts[i:])
+        fn_ln = f"{prefix} {suffix}"  # firstname(s) lastname(s)
+        ln_fn = f"{suffix} {prefix}"  # lastname(s) firstname(s)
+        keys.append(fn_ln)
+        if fn_ln != ln_fn:  # Avoid dup if symmetric
+            keys.append(ln_fn)
+    return list(set(keys))  # Dedup and return as list
+
 def compute_content_hash(obj: Any, exclude_fields: Iterable[str] = None) -> str:
     """
     Compute a stable SHA256 hash for a dataclass-like object.
@@ -192,32 +218,6 @@ def compute_content_hash(obj: Any, exclude_fields: Iterable[str] = None) -> str:
             parts.append(str(value))  # int, float, fallback
 
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
-
-def name_keys_for_lookup_all_splits(name: str) -> List[str]:
-    """
-    Generate normalized name keys:
-      - the raw normalized string
-      - for every split point i (1..n-1): 
-          * "prefix suffix" where prefix = tokens[:i] (firstname(s)), suffix = tokens[i:] (lastname(s))
-          * "suffix prefix" (reversed for lastname firstname order)
-    This covers any number of first-/last-name tokens and possible order flips in PDFs.
-    Example: For "John Doe Smith": ['smith john doe', 'john doe smith', 'doe smith john']
-    Deduplicates unique keys.
-    """
-    n = normalize_key(name)
-    parts = n.split()
-    if len(parts) <= 1:
-        return [n]
-    keys = [n]  # Include raw normalized full string
-    for i in range(1, len(parts)):
-        prefix = " ".join(parts[:i])
-        suffix = " ".join(parts[i:])
-        fn_ln = f"{prefix} {suffix}"  # firstname(s) lastname(s)
-        ln_fn = f"{suffix} {prefix}"  # lastname(s) firstname(s)
-        keys.append(fn_ln)
-        if fn_ln != ln_fn:  # Avoid dup if symmetric
-            keys.append(ln_fn)
-    return list(set(keys))  # Dedup and return as list
 
 def print_db_insert_results(db_results):
     """
@@ -1104,3 +1104,119 @@ def clear_debug_tables(cursor: sqlite3.Cursor, clear_logs: bool = True, clear_ru
     except Exception as e:
         logging.error(f"Error clearing tables: {e}")
         print(f"❌ Error clearing tables: {e}")
+
+
+def export_db_dictionary(out_file: str = "BTstats_DB_Dictionary.xlsx") -> None:
+    """
+    Export SQLite schema (tables, columns, relationships, indexes) to Excel.
+
+    Parameters
+    ----------
+    out_file : str
+        Path to output Excel file (default: BTstats_DB_Dictionary.xlsx)
+
+    Output Sheets
+    -------------
+    - Tables: list of all tables with placeholder business metadata
+    - Columns: table/column definitions with types, PK, NN, defaults
+    - Relationships: foreign key constraints
+    - Indexes: index definitions
+    """
+
+    def get_tables(cursor):
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';")
+        return [r[0] for r in cursor.fetchall()]
+
+    def get_columns(cursor, table_name):
+        cursor.execute(f"PRAGMA table_info({table_name});")
+        cols = cursor.fetchall()
+        return [
+            {
+                "table": table_name,
+                "column_id": c[0],
+                "column_name": c[1],
+                "data_type": c[2],
+                "not_null": bool(c[3]),
+                "default": c[4],
+                "is_pk": bool(c[5]),
+            }
+            for c in cols
+        ]
+
+    def get_foreign_keys(cursor, table_name):
+        cursor.execute(f"PRAGMA foreign_key_list({table_name});")
+        fks = cursor.fetchall()
+        return [
+            {
+                "table": table_name,
+                "fk_id": fk[0],
+                "fk_seq": fk[1],
+                "fk_column": fk[3],
+                "ref_table": fk[2],
+                "ref_column": fk[4],
+                "on_update": fk[5],
+                "on_delete": fk[6],
+            }
+            for fk in fks
+        ]
+
+    def get_indexes(cursor, table_name):
+        cursor.execute(f"PRAGMA index_list({table_name});")
+        idxs = cursor.fetchall()
+        results = []
+        for idx in idxs:
+            idx_name = idx[1]
+            unique = bool(idx[2])
+            cursor.execute(f"PRAGMA index_info({idx_name});")
+            cols = [c[2] for c in cursor.fetchall()]
+            results.append(
+                {
+                    "table": table_name,
+                    "index_name": idx_name,
+                    "unique": unique,
+                    "columns": ", ".join(cols),
+                }
+            )
+        return results
+
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        tables = get_tables(cursor)
+
+        print(f"ℹ️  Exporting database dictionary for {len(tables)} tables to {out_file}...")
+
+        all_columns, all_foreign_keys, all_indexes = [], [], []
+        for t in tables:
+            all_columns.extend(get_columns(cursor, t))
+            all_foreign_keys.extend(get_foreign_keys(cursor, t))
+            all_indexes.extend(get_indexes(cursor, t))
+
+        # Build DataFrames
+        df_tables = pd.DataFrame({"table_name": tables})
+        df_columns = pd.DataFrame(all_columns)
+        df_foreign_keys = pd.DataFrame(all_foreign_keys)
+        df_indexes = pd.DataFrame(all_indexes)
+
+        # Add placeholders for business metadata
+        if not df_tables.empty:
+            df_tables["description"] = ""
+            df_tables["owner"] = ""
+            df_tables["notes"] = ""
+
+        if not df_columns.empty:
+            df_columns["description"] = ""
+
+        # Write to Excel
+        with pd.ExcelWriter(out_file, engine="openpyxl") as writer:
+            df_tables.to_excel(writer, sheet_name="Tables", index=False)
+            df_columns.to_excel(writer, sheet_name="Columns", index=False)
+            df_foreign_keys.to_excel(writer, sheet_name="Relationships", index=False)
+            df_indexes.to_excel(writer, sheet_name="Indexes", index=False)
+
+        logging.info(f"✅ Database dictionary exported to {out_file}")
+
+    except Exception as e:
+        logging.error(f"❌ Failed to export database dictionary: {e}")
+        raise

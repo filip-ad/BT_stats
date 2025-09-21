@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-# backfill_player_ranking_hashes.py
+# backfill_player_transition_hashes.py
+
 import hashlib
 import re
 import sqlite3
@@ -11,7 +12,7 @@ from config import DB_NAME
 DB_PATH = DB_NAME
 BATCH_SIZE = 5000
 
-# ---- Helpers (mirrors compute_content_hash rules) ----
+# ---- Helpers (same normalization rules) ----
 _ws_re = re.compile(r"\s+")
 
 def normalize_key(s: str) -> str:
@@ -22,17 +23,15 @@ def normalize_key(s: str) -> str:
 def compute_row_hash(row: sqlite3.Row) -> str:
     # Fields to hash, excluding: row_id, data_source_id, row_created, row_updated, last_seen_at, content_hash
     fields_to_hash = [
-        "run_id_ext",
-        "run_date",
-        "player_id_ext",
+        "season_id_ext",
+        "season_label",
         "firstname",
         "lastname",
+        "date_born",
         "year_born",
-        "club_name",
-        "points",
-        "points_change_since_last",
-        "position_world",
-        "position"
+        "club_from",
+        "club_to",
+        "transition_date",
     ]
     parts = []
     for key in fields_to_hash:
@@ -57,7 +56,7 @@ def backfill(db_path: str, batch_size: int = 5000) -> None:
         conn.execute("PRAGMA synchronous=NORMAL;")
 
         total_missing = conn.execute(
-            "SELECT COUNT(*) FROM player_ranking_raw WHERE content_hash IS NULL;"
+            "SELECT COUNT(*) FROM player_transition_raw WHERE content_hash IS NULL;"
         ).fetchone()[0]
 
         if total_missing == 0:
@@ -72,10 +71,10 @@ def backfill(db_path: str, batch_size: int = 5000) -> None:
         while True:
             rows = conn.execute(
                 """
-                SELECT row_id, run_id_ext, run_date, player_id_ext, firstname, lastname,
-                       year_born, club_name, points, points_change_since_last, position_world,
-                       position, data_source_id, content_hash, last_seen_at, row_created, row_updated
-                FROM player_ranking_raw
+                SELECT row_id, season_id_ext, season_label, firstname, lastname,
+                       date_born, year_born, club_from, club_to, transition_date,
+                       data_source_id, content_hash, last_seen_at, row_created, row_updated
+                FROM player_transition_raw
                 WHERE content_hash IS NULL AND row_id > ?
                 ORDER BY row_id
                 LIMIT ?;
@@ -91,7 +90,7 @@ def backfill(db_path: str, batch_size: int = 5000) -> None:
                     h = compute_row_hash(r)
                     conn.execute(
                         """
-                        UPDATE player_ranking_raw
+                        UPDATE player_transition_raw
                         SET content_hash = ?
                         WHERE row_id = ? AND content_hash IS NULL;
                         """,

@@ -10,7 +10,7 @@ To do
 - Clean up player license update -> user logger_keys etc.-- remove unused class methods
 - Same for transitions
 
-
+- Player transition raw--> add content hash, last seen etc...?
 
 
 Improvements long term
