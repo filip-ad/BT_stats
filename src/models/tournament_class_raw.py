@@ -6,7 +6,8 @@ import datetime
 import json
 from typing import Optional, Dict, Any, List, Tuple
 import sqlite3
-from utils import parse_date, compute_content_hash
+from utils import parse_date
+from utils import compute_content_hash as _compute_content_hash
 
 @dataclass
 class TournamentClassRaw:
@@ -79,7 +80,7 @@ class TournamentClassRaw:
         """
         Compute a stable hash for raw tournament class content to detect meaningful changes.
         """
-        return compute_content_hash(
+        return _compute_content_hash(
             self,
             exclude_fields={
                 "row_id",

@@ -3,7 +3,7 @@ import logging
 from models.tournament import Tournament
 from utils import _download_pdf_ondata_by_tournament_class_and_stage, normalize_key
 from models.tournament_class import TournamentClass
-from models.participant_player_raw_tournament import ParticipantPlayerRawTournament
+from models.tournament_class_entry_raw import TournamentClassEntryRaw
 from utils import OperationLogger, parse_date
 from config import (
     SCRAPE_PARTICIPANTS_CUTOFF_DATE,
@@ -47,6 +47,7 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
         order               = SCRAPE_PARTICIPANTS_ORDER
     )
 
+    logger.info("Scraping tournament class entries...")
     logger.info(f"Processing {len(classes)} tournament classes (cutoff date: {cutoff_date})")
     start_time = time.time()
 
@@ -83,7 +84,7 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
         logger_keys['stage_1_url'] = f"https://resultat.ondata.se/ViewClassPDF.php?tournamentID={tid_ext}&classID={tc.tournament_class_id_ext}&stage=1"
 
         # Remove existing raw data for this class
-        deleted_count = ParticipantPlayerRawTournament.remove_for_class(cursor, tc.tournament_class_id_ext)
+        deleted_count = TournamentClassEntryRaw.remove_for_class(cursor, tc.tournament_class_id_ext)
         if deleted_count > 0:
             # logger.info(logger_keys, f"Removed {deleted_count} existing raw player participants", to_console=False)
             pass
@@ -95,7 +96,7 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
         initial_success = False
         if message:
             if not ("Cached" in message or "Downloaded" in message):
-                logger.failed(logger_keys, message)
+                logger.failed(logger_keys.copy(), message)
                 total_failures += 1
                 continue
 
@@ -104,7 +105,7 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
                 pdf_path, tc.tournament_class_id_ext, tid_ext, 1  # data_source_id=1
             )
             if not participants:
-                logger.failed(logger_keys, "No participants parsed from initial PDF")
+                logger.failed(logger_keys.copy(), "No participants parsed from initial PDF")
                 print(f"❌ [{i}/{len(classes)}] Parsed class {tc.shortname or 'N/A'}, {tournament_shortname}, {tc.startdate or 'N/A'} "
                       f"(tcid: {tc.tournament_class_id}, tcid_ext: {tc.tournament_class_id_ext}, tid: {tc.tournament_id}, tid_ext: {tid_ext}). "
                       f"Expected {effective_expected_count if effective_expected_count is not None else '—'}, "
@@ -114,14 +115,15 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
             else:
                 # Insert raw participants
                 for participant_data in participants:
-                    raw_participant = ParticipantPlayerRawTournament.from_dict(participant_data)
-                    is_valid, error_message = raw_participant.validate()
+                    raw_entry = TournamentClassEntryRaw.from_dict(participant_data)
+                    is_valid, error_message = raw_entry.validate()
                     if is_valid:
-                        raw_participant.insert(cursor)
+                        raw_entry.compute_hash()
+                        raw_entry.insert(cursor)
                     else:
-                        logger.warning(logger_keys, f"Validation failed: {error_message}")
+                        logger.warning(logger_keys.copy(), f"Validation failed: {error_message}")
                         continue
-                # logger.success(logger_keys, f"Inserted raw player participants")
+
                 initial_success = True
 
                 found = len(participants)
@@ -131,7 +133,7 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
                 if effective_expected_count is not None and found != effective_expected_count:
                     partial_classes += 1
                     partial_participants += abs(found - effective_expected_count)
-                    logger.warning(logger_keys, f"Scraped participants did not match expected count")
+                    logger.warning(logger_keys.copy(), f"Scraped participants did not match expected count")
 
         # Handle final positions if requested
         final_positions_found = 0
@@ -139,7 +141,7 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
         if include_positions and initial_success:
             final_stage = tc.get_final_stage()
             if final_stage is None:
-                logger.warning(logger_keys, "No valid final stage determined")
+                logger.warning(logger_keys.copy(), "No valid final stage determined")
                 final_success = False
             else:
                 final_pdf_path, downloaded, message = _download_pdf_ondata_by_tournament_class_and_stage(
@@ -147,7 +149,7 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
                 )
                 if message:
                     if not ("Cached" in message or "Downloaded" in message):
-                        logger.warning(logger_keys, f"Failed to scrape final positions: {message}")
+                        logger.warning(logger_keys.copy(), f"Failed to scrape final positions: {message}")
                         final_success = False
 
                 if final_pdf_path and final_success:
@@ -155,17 +157,17 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
                     if positions:
                         final_positions_found = len(positions)
                         for pos_data in positions:
-                            cursor.execute(
-                                """
-                                UPDATE participant_player_raw_tournament
-                                SET final_position_raw = ?
-                                WHERE tournament_class_id_ext = ? AND fullname_raw = ? AND clubname_raw = ?
-                                """,
-                                (pos_data["final_position_raw"], tc.tournament_class_id_ext, pos_data["fullname_raw"], pos_data["clubname_raw"])
+                            TournamentClassEntryRaw.update_final_position(
+                                cursor,
+                                tournament_class_id_ext=tc.tournament_class_id_ext,
+                                fullname_raw=pos_data["fullname_raw"],
+                                clubname_raw=pos_data["clubname_raw"],
+                                data_source_id=pos_data["data_source_id"],
+                                final_position_raw=pos_data["final_position_raw"],
                             )
                         # logger.success(logger_keys, f"Updated {len(positions)} raw player participants with final positions")
                     else:
-                        logger.warning(logger_keys, "No positions parsed from final PDF")
+                        logger.warning(logger_keys.copy(), "No positions parsed from final PDF")
                         final_success = False
                 elif not final_success:
                     pass  # No additional failure increment here
@@ -173,9 +175,9 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
             # Update print statement with final positions if applicable
             if initial_success:
                 if final_success and final_positions_found > 0:
-                    logger.success(logger_keys, f"All expected participants inserted, including seeds and final positions")
+                    logger.success(logger_keys.copy(), f"All expected participants inserted, including seeds and final positions")
                 elif initial_success:
-                    logger.success(logger_keys, f"All expected participants inserted (could not resolve seeds and/or final positions)")
+                    logger.success(logger_keys.copy(), f"All expected participants inserted (could not resolve seeds and/or final positions)")
                 print(f"{icon} [{i}/{len(classes)}] Parsed class {tc.shortname or 'N/A'}, {tournament_shortname}, {tc.startdate or 'N/A'} "
                       f"(tcid: {tc.tournament_class_id}, tcid_ext: {tc.tournament_class_id_ext}, tid: {tc.tournament_id}, tid_ext: {tid_ext}). "
                       f"Expected {effective_expected_count if effective_expected_count is not None else '—'}, "

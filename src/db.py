@@ -1250,7 +1250,7 @@ def create_indexes(cursor):
         # "CREATE INDEX IF NOT EXISTS idx_participant_player_participant_id ON participant_player(participant_id)",  # Added for joins to participant
 
         # Tournament class entry
-        "CREATE INDEX IF NOT EXISTS idx_prt_class ON participant_player_raw_tournament(tournament_class_id_ext)",
+        # "CREATE INDEX IF NOT EXISTS idx_prt_class ON participant_player_raw_tournament(tournament_class_id_ext)",
             # Unique index for tournament class group
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_class_group ON tournament_class_group (tournament_class_id, tournament_class_group_id)",
 

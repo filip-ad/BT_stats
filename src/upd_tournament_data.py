@@ -14,7 +14,7 @@ from resolvers.resolve_tournaments              import resolve_tournaments
 def upd_tournament_data(
         run_id,
         do_scrape_tournaments           = False,
-        do_scrape_tournament_classes    = False,
+        do_scrape_tournament_classes    = True,
         do_scrape_participants          = False,
     ):
 
@@ -55,9 +55,10 @@ def upd_tournament_data(
 
     # Resolving
     try:
-        resolve_tournaments(cursor, run_id=run_id)
+        # resolve_tournaments(cursor, run_id=run_id)
         resolve_tournament_classes(cursor, run_id=run_id)
         # resolve_participants(cursor, run_id=run_id) 
+        pass
 
     except Exception as e:
         print(f"Error in resolve_tournaments: {e}")

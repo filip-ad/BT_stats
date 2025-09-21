@@ -9,7 +9,7 @@ from urllib.parse import urljoin, urlparse, parse_qs
 import requests
 from pathlib import Path
 import json
-from utils import parse_date, OperationLogger, _format_size, _is_valid_pdf, _get_pdf_path, _download_pdf_ondata_by_tournament_class_and_stage
+from utils import parse_date, OperationLogger, _format_size, _download_pdf_ondata_by_tournament_class_and_stage
 from config import SCRAPE_CLASSES_MAX_TOURNAMENTS, SCRAPE_CLASSES_TOURNAMENT_ID_EXTS, SCRAPE_TOURNAMENTS_ORDER, SCRAPE_TOURNAMENTS_CUTOFF_DATE, PDF_CACHE_DIR
 from models.tournament_class_raw import TournamentClassRaw
 from models.tournament import Tournament
@@ -160,10 +160,16 @@ def scrape_tournament_classes_ondata(cursor, run_id=None) -> None:
         bytes_downloaded += tournament_bytes_downloaded
 
 
+    # logger.info(
+    #     f"Processed {classes_processed} tournament classes from {len(filtered_tournaments[:limit])} tournaments "
+    #     f"in {time.time()-start_time:.2f} seconds. Downloaded {PDFs_downloaded} new PDFs "
+    #     f"(total size {_format_size(bytes_downloaded)})."
+    # )
+
     logger.info(
-        f"Processed {classes_processed} tournament classes from {len(filtered_tournaments[:limit])} tournaments "
-        f"in {time.time()-start_time:.2f} seconds. Downloaded {PDFs_downloaded} new PDFs "
-        f"(total size {_format_size(bytes_downloaded)})."
+        f"Processed {classes_processed} raw rows from {len(filtered_tournaments[:limit])} tournaments "
+        f"in {time.time()-start_time:.2f} seconds. "
+        f"📄 PDFs downloaded: {PDFs_downloaded} new ({_format_size(bytes_downloaded)})."
     )
 
     logger.summarize()
@@ -210,9 +216,17 @@ def _download_class_pdfs(tournament: Tournament, class_id_ext: str, raw_stage_hr
                     return bytes_downloaded, PDFs_downloaded
             if pdf_path:
                 size = pdf_path.stat().st_size
-                bytes_downloaded += size  # Update total bytes for all processed PDFs
+                # bytes_downloaded += size  # Update total bytes for all processed PDFs
+                # if was_downloaded:
+                #     PDFs_downloaded += 1  # Increment only for actual downloads
+                                # NEW: separate new vs cached
                 if was_downloaded:
-                    PDFs_downloaded += 1  # Increment only for actual downloads
+                    PDFs_downloaded += 1
+                    bytes_downloaded += size   # count only new files in bytes_downloaded
+                else:
+                    logging.debug(f"Using cached PDF: {pdf_path} ({_format_size(size)})")
+                    pass
+
             else:
                 logger.failed(logger_keys, f"No PDF available for stage to download")
         except ValueError as ve:
