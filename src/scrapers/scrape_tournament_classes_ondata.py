@@ -131,10 +131,7 @@ def scrape_tournament_classes_ondata(cursor, run_id=None) -> None:
                     continue
 
                 # Upsert to raw table
-                action = tc_raw.upsert(cursor)
-                # if action:
-                #     logger.success(logger_keys, f"Tournament class successfully {action}", to_console=False)
-                
+                action = tc_raw.upsert(cursor)                
                 download_pdf = False
                 if action == "inserted" or action == "updated":
                     logger.success(logger_keys, f"Raw tournament class successfully {action}")
@@ -158,13 +155,6 @@ def scrape_tournament_classes_ondata(cursor, run_id=None) -> None:
         logger.info(f"[{i}/{len(filtered_tournaments[:limit])}] Scraped {len(raw_classes)} classes for {t.shortname} (id: {t.tournament_id}, ext_id: {t.tournament_id_ext}). PDFs downloaded: {tournament_pdfs_downloaded} ({_format_size(tournament_bytes_downloaded)})", to_console=True)
         PDFs_downloaded += tournament_pdfs_downloaded
         bytes_downloaded += tournament_bytes_downloaded
-
-
-    # logger.info(
-    #     f"Processed {classes_processed} tournament classes from {len(filtered_tournaments[:limit])} tournaments "
-    #     f"in {time.time()-start_time:.2f} seconds. Downloaded {PDFs_downloaded} new PDFs "
-    #     f"(total size {_format_size(bytes_downloaded)})."
-    # )
 
     logger.info(
         f"Processed {classes_processed} raw rows from {len(filtered_tournaments[:limit])} tournaments "
@@ -216,10 +206,6 @@ def _download_class_pdfs(tournament: Tournament, class_id_ext: str, raw_stage_hr
                     return bytes_downloaded, PDFs_downloaded
             if pdf_path:
                 size = pdf_path.stat().st_size
-                # bytes_downloaded += size  # Update total bytes for all processed PDFs
-                # if was_downloaded:
-                #     PDFs_downloaded += 1  # Increment only for actual downloads
-                                # NEW: separate new vs cached
                 if was_downloaded:
                     PDFs_downloaded += 1
                     bytes_downloaded += size   # count only new files in bytes_downloaded
