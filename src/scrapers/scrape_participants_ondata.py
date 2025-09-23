@@ -61,8 +61,13 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
     partial_classes = 0
     partial_participants = 0
     total_failures = 0
+    total_participants = 0
+    total_expected = 0
 
     for i, tc in enumerate(classes, 1):
+
+        logger.inc_processed()
+
         logger_keys = {
             'tournament_id': str(tc.tournament_id or 'N/A'),
             'tournament_id_ext': 'N/A',
@@ -113,7 +118,8 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
                 total_failures += 1
                 continue
             else:
-                # Insert raw participants
+                total_expected += effective_expected_count if effective_expected_count is not None else 0
+                total_participants += effective_expected_count
                 for participant_data in participants:
                     raw_entry = TournamentClassEntryRaw.from_dict(participant_data)
                     is_valid, error_message = raw_entry.validate()
@@ -165,7 +171,6 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
                                 data_source_id=pos_data["data_source_id"],
                                 final_position_raw=pos_data["final_position_raw"],
                             )
-                        # logger.success(logger_keys, f"Updated {len(positions)} raw player participants with final positions")
                     else:
                         logger.warning(logger_keys.copy(), "No positions parsed from final PDF")
                         final_success = False
@@ -184,7 +189,7 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
                       f"found {found}, seeded: {seeded_count}, deleted: {deleted_count} old participants, "
                       f"final positions found: {final_positions_found}")
 
-    logger.info(f"Participants update completed in {time.time() - start_time:.2f} seconds")
+    logger.info(f"Participants update completed in {time.time() - start_time:.2f} seconds. Total participants processed: {total_participants} vs expected: {total_expected}. Total failures: {total_failures}.")
     if partial_classes > 0:
         logger.info(f"Partially parsed classes: {partial_classes} (participants impacted: {partial_participants})")
     logger.summarize()

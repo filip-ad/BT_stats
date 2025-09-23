@@ -164,7 +164,7 @@ def main():
         upd_tournament_data(
             run_id                          = pipeline_run_id,
             do_scrape_tournaments           = False,
-            do_scrape_tournament_classes    = True,
+            do_scrape_tournament_classes    = False,
             do_scrape_participants          = True
         )
 

@@ -56,7 +56,7 @@ def upd_tournament_data(
     # Resolving
     try:
         # resolve_tournaments(cursor, run_id=run_id)
-        resolve_tournament_classes(cursor, run_id=run_id)
+        # resolve_tournament_classes(cursor, run_id=run_id)
         # resolve_participants(cursor, run_id=run_id) 
         pass
 
