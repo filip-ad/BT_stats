@@ -14,6 +14,8 @@ DUPLICATE_EXT_GROUPS: List[Set[int]] = [
     {400241, 579767},   # Maxim Stevens, born 2003
     {15987, 58542},     # Davis Bui (b. 1995) 
     {40187, 588796},     # Terje Herting (b. 1978) 
+    {253796, 336669, 354740, 379720}   # Peter Svenningsen (b. 2001)
+
     # add more as you discover them...
 ]
 
@@ -25,7 +27,6 @@ for grp in DUPLICATE_EXT_GROUPS:
         CANONICAL_EXT[alias_ext] = keep
 
 def upd_players_verified(cursor, run_id = None):
-
 
     logger = OperationLogger(
         verbosity           = 2,
@@ -104,7 +105,6 @@ def upd_players_verified(cursor, run_id = None):
         print(f"ℹ️  Processing {len(groups)} manual duplicate group(s)…")
         logger.info(f"Processing {len(groups)} non-duplicate externals")
 
-
         data_source_id = 3
 
         for i, (can_ext, all_exts) in enumerate(sorted(groups.items()), start=1):
@@ -173,31 +173,128 @@ def upd_players_verified(cursor, run_id = None):
                     if not existing_player_id:
                         continue
 
-            # Add other ext_ids if not already present
+            # # Add other ext_ids if not already present
+            # for ext_id in all_exts:
+            #     if ext_id == can_ext and existing_player_id:
+            #         continue  # Already added if new, or existing
+            #     cursor.execute(
+            #         "SELECT 1 FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
+            #         (str(ext_id), data_source_id)
+            #     )
+            #     if not cursor.fetchone():
+            #         cursor.execute("""
+            #             INSERT INTO player_id_ext (player_id, player_id_ext, data_source_id)
+            #             VALUES (?, ?, ?)
+            #         """, (existing_player_id, str(ext_id), data_source_id))
+            #         logger.success(player_name, f"Added additional player_id_ext for existing player")
+            #     else:
+            #         logger_keys = {
+            #             "player_id":       existing_player_id,
+            #             "ext_id":          ext_id,
+            #             "canonical_ext":   can_ext,
+            #             "firstname":       can_fn,
+            #             "lastname":        can_ln,
+            #             "year_born":       can_yb,
+            #             "source":          "alias_check"
+            #         }
+            #         logger.warning(logger_keys, "Ext_id already linked to player (no new alias added)")
+
+            # Add or repoint other ext_ids if not already present
             for ext_id in all_exts:
                 if ext_id == can_ext and existing_player_id:
-                    continue  # Already added if new, or existing
+                    continue  # canonical ext already handled
+
                 cursor.execute(
-                    "SELECT 1 FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
+                    "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
                     (str(ext_id), data_source_id)
                 )
-                if not cursor.fetchone():
+                row = cursor.fetchone()
+                if row:
+                    old_player_id = row[0]
+                    if old_player_id != existing_player_id:
+                        # Repoint this ext_id to canonical player_id
+                        cursor.execute("""
+                            UPDATE player_id_ext
+                            SET player_id = ?
+                            WHERE player_id_ext = ? AND data_source_id = ?
+                        """, (existing_player_id, str(ext_id), data_source_id))
+
+                        # Repoint dependent tables from old_player_id → existing_player_id
+                        for table, col in [
+                            ("player_license", "player_id"),
+                            ("player_transition", "player_id"),
+                            ("tournament_class_player", "player_id"), 
+                            ("match_player", "player_id"),
+                            ("player_ranking_group", "player_id"),
+                            ("participant_player", "player_id"),
+                            ("player_unverified_appearance", "player_id")
+                        ]:
+                            cursor.execute(f"""
+                                UPDATE {table}
+                                SET {col} = ?
+                                WHERE {col} = ?
+                            """, (existing_player_id, old_player_id))
+
+                        # Delete unverified appearances tied to the old player
+                        cursor.execute("""
+                            DELETE FROM player_unverified_appearance
+                            WHERE player_id = ?
+                        """, (old_player_id,))
+
+                        logger.warning({
+                            "player_id": existing_player_id,
+                            "ext_id": ext_id,
+                            "canonical_ext": can_ext,
+                            "firstname": can_fn,
+                            "lastname": can_ln,
+                            "year_born": can_yb,
+                            "source": "repoint"
+                        }, f"Repointed ext_id {ext_id} from old player_id {old_player_id} → {existing_player_id}")
+                    else:
+                        logger.info({
+                            "player_id": existing_player_id,
+                            "ext_id": ext_id,
+                            "canonical_ext": can_ext,
+                            "firstname": can_fn,
+                            "lastname": can_ln,
+                            "year_born": can_yb,
+                            "source": "alias_check"
+                        }, "Ext_id already linked correctly")
+                else:
+                    # Normal insert
                     cursor.execute("""
                         INSERT INTO player_id_ext (player_id, player_id_ext, data_source_id)
                         VALUES (?, ?, ?)
                     """, (existing_player_id, str(ext_id), data_source_id))
                     logger.success(player_name, f"Added additional player_id_ext for existing player")
-                else:
-                    logger_keys = {
-                        "player_id":       existing_player_id,
-                        "ext_id":          ext_id,
-                        "canonical_ext":   can_ext,
-                        "firstname":       can_fn,
-                        "lastname":        can_ln,
-                        "year_born":       can_yb,
-                        "source":          "alias_check"
-                    }
-                    logger.warning(logger_keys, "Ext_id already linked to player (no new alias added)")
+
+            # --- Cleanup non-canonical players for this group ---
+            for ext_id in all_exts:
+                cursor.execute(
+                    "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
+                    (str(ext_id), data_source_id)
+                )
+                row = cursor.fetchone()
+                if row:
+                    pid = row[0]
+                    if pid != existing_player_id:
+                        cursor.execute("SELECT COUNT(*) FROM player_id_ext WHERE player_id = ?", (pid,))
+                        if cursor.fetchone()[0] == 0:
+                            cursor.execute("DELETE FROM player WHERE player_id = ?", (pid,))
+                            logger.info(
+                                {"old_player_id": pid, "canonical_player_id": existing_player_id},
+                                f"Deleted orphan player {pid} (merged into {existing_player_id})"
+                            )
+            
+                
+                # else:
+                #     # Normal insert if this ext_id wasn’t seen before
+                #     cursor.execute("""
+                #         INSERT INTO player_id_ext (player_id, player_id_ext, data_source_id)
+                #         VALUES (?, ?, ?)
+                #     """, (existing_player_id, str(ext_id), data_source_id))
+                #     logger.success(logger_keys, f"Added new alias ext_id {ext_id} for player {existing_player_id}")
+
 
         # ── Handle remaining non-duplicate externals ─────────────────────
         processed_exts = set()
@@ -205,9 +302,8 @@ def upd_players_verified(cursor, run_id = None):
             processed_exts.update(grp)
         remaining = [k for k in player_data if k not in processed_exts]
         logger.info("Processing %d non-duplicate externals", len(remaining))
-        logger.inc_processed(len(remaining))
 
-        
+        logger.inc_processed(len(remaining))
 
         for ext_id in sorted(remaining):
             fn, ln, yb = player_data[ext_id]

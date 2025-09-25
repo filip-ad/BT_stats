@@ -44,6 +44,8 @@ def main():
             cursor=cursor
         )
 
+        logger.info(f"Starting new run with ID: {pipeline_run_id if pipeline_run_id else 'N/A'}")
+
         ### DB stuff
         ################################################################################################        
         # compact_sqlite()
@@ -128,6 +130,7 @@ def main():
                 # 'club_name_prefix_match',             # FK club
                 # 'log_run',
                 # 'log_details'
+
             ]      
         )
 
@@ -152,20 +155,20 @@ def main():
         ################################################################################################
         
 
-        # Update player data
-        # upd_player_data(
-        #     run_id                          = pipeline_run_id,
-        #     do_scrape_player_licenses       = False, 
-        #     do_scrape_player_rankings       = False,
-        #     do_scrape_player_transitions    = False
-        # )
+        # # Update player data
+        upd_player_data(
+            run_id                          = pipeline_run_id,
+            do_scrape_player_licenses       = False, 
+            do_scrape_player_rankings       = False,
+            do_scrape_player_transitions    = False
+        )
 
-        # # Update tournament data
+        # Update tournament data
         upd_tournament_data(
             run_id                          = pipeline_run_id,
             do_scrape_tournaments           = False,
             do_scrape_tournament_classes    = False,
-            do_scrape_participants          = True
+            do_scrape_tournament_entries    = False
         )
 
         export_runs_to_excel()

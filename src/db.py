@@ -229,12 +229,12 @@ def create_raw_tables(cursor, logger):
                 row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
                 tournament_id_ext               TEXT NOT NULL,   
                 tournament_class_id_ext         TEXT NOT NULL,   
-                participant_player_id_ext       TEXT,            
+                tournament_player_id_ext        TEXT,            
                 fullname_raw                    TEXT NOT NULL,   
                 clubname_raw                    TEXT,   
                 seed_raw                        TEXT,        
                 final_position_raw              TEXT,            
-                raw_group_id                    TEXT,            
+                entry_group_id_int              INTEGER,            
                 data_source_id                  INTEGER NOT NULL, 
                 content_hash                    TEXT,
                 row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -242,7 +242,8 @@ def create_raw_tables(cursor, logger):
 
                 FOREIGN KEY (data_source_id)    REFERENCES data_source(data_source_id),
 
-                UNIQUE (tournament_id_ext, tournament_class_id_ext, fullname_raw, clubname_raw, participant_player_id_ext, data_source_id)
+                UNIQUE (tournament_id_ext, tournament_class_id_ext, fullname_raw, clubname_raw, tournament_player_id_ext, data_source_id),
+                UNIQUE (tournament_id_ext, tournament_class_id_ext, tournament_player_id_ext)
             );
         '''
     }
@@ -346,17 +347,19 @@ def create_tables(cursor):
         # Tournament entries (singles or doubles)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_entry (
-                tournament_class_entry_id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_class_entry_id                   INTEGER     PRIMARY KEY AUTOINCREMENT,
                 tournament_class_entry_id_ext               TEXT,
-                tournament_class_entry_type_id              INTEGER,
-                tournament_class_id                         INTEGER,
+                tournament_class_entry_group_id_int         INTEGER     NOT NULL,
+                tournament_class_id                         INTEGER     NOT NULL,
                 seed                                        INTEGER,
                 final_position                              INTEGER,
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-                FOREIGN KEY (tournament_class_id)           REFERENCES tournament_class(tournament_class_id),
-                FOREIGN KEY (tournament_class_entry_type_id) REFERENCES tournament_class_entry_type(tournament_class_entry_type_id)
+                FOREIGN KEY (tournament_class_id)           REFERENCES tournament_class(tournament_class_id)
+                       
+                UNIQUE (tournament_class_id, tournament_class_entry_id_ext),
+                UNIQUE (tournament_class_id, tournament_class_entry_group_id_int)
             );
         ''')
 
@@ -364,9 +367,9 @@ def create_tables(cursor):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_player (
                 tournament_class_entry_id                   INTEGER,
-                tournament_class_player_id_ext              TEXT,
-                player_id                                   INTEGER,
-                club_id                                     INTEGER,
+                tournament_player_id_ext                    TEXT,
+                player_id                                   INTEGER     NOT NULL,
+                club_id                                     INTEGER     NOT NULL,
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -420,7 +423,7 @@ def create_tables(cursor):
         # Match side (which participant played on which side)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS match_side (
-                match_id                                        INTEGER,
+                match_id                                    INTEGER,
                 side_no                                     INTEGER,
                 represented_entry_id                        INTEGER,
                 represented_league_team_id                  INTEGER,
@@ -1250,8 +1253,9 @@ def create_indexes(cursor):
         # "CREATE INDEX IF NOT EXISTS idx_participant_player_participant_id ON participant_player(participant_id)",  # Added for joins to participant
 
         # Tournament class entry
-        # "CREATE INDEX IF NOT EXISTS idx_prt_class ON participant_player_raw_tournament(tournament_class_id_ext)",
-            # Unique index for tournament class group
+        # 
+            
+        # Unique index for tournament class group
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_class_group ON tournament_class_group (tournament_class_id, tournament_class_group_id)",
 
         # Tournament class group (replaced tournament_group)
@@ -1386,7 +1390,59 @@ def create_views(cursor):
                 GROUP BY c.club_id
                 ORDER BY c.club_id;
             '''
-        )
+        ),
+        (
+        "v_tournament_class_entries",
+        '''
+        CREATE VIEW IF NOT EXISTS v_tournament_class_entries AS
+            SELECT
+                -- Tournament context
+                t.shortname          AS tournament_shortname,
+
+                -- Class context
+                tc.shortname         AS class_shortname,
+                tc.longname          AS class_longname,
+                tc.startdate         AS class_date,
+
+                -- Player context
+                p.firstname,
+                p.lastname,
+                p.fullname_raw       AS player_fullname_raw,
+                p.is_verified,
+
+                -- Club context
+                c.shortname          AS club_shortname,
+
+                -- Entry details
+                tce.seed,
+                tce.final_position,
+                tcp.tournament_player_id_ext,
+
+                -- IDs last
+                t.tournament_id,
+                t.tournament_id_ext,
+                tc.tournament_class_id,
+                tc.tournament_class_id_ext,
+                tce.tournament_class_entry_id,
+                tce.tournament_class_entry_group_id_int     AS entry_group_id,
+                p.player_id,
+                c.club_id
+
+            FROM tournament_class_entry tce
+            JOIN tournament_class_player tcp
+                ON tcp.tournament_class_entry_id = tce.tournament_class_entry_id
+            JOIN tournament_class tc
+                ON tc.tournament_class_id = tce.tournament_class_id
+            JOIN tournament t
+                ON t.tournament_id = tc.tournament_id
+            JOIN player p
+                ON p.player_id = tcp.player_id
+            JOIN club c
+                ON c.club_id = tcp.club_id
+            ORDER BY t.startdate, tc.startdate, tce.seed;
+        '''
+    )
+
     ]
 
     try:

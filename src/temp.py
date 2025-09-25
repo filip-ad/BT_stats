@@ -1,112 +1,62 @@
-#!/usr/bin/env python3
-# backfill_player_transition_hashes.py
-
-import hashlib
-import re
 import sqlite3
-import time
-from datetime import date
 from config import DB_NAME
+from utils import normalize_key
 
 # Configuration
 DB_PATH = DB_NAME
-BATCH_SIZE = 5000
 
-# ---- Helpers (same normalization rules) ----
-_ws_re = re.compile(r"\s+")
+def migrate_entry_group_id_int():
+    """Backfill entry_group_id_int for existing tournament_class_entry_raw rows using singles logic."""
+    # Connect to database
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Fetch all raw rows with class type (join to tournament_class)
+    cursor.row_factory = sqlite3.Row
+    cursor.execute("""
+        SELECT r.*, tc.tournament_class_type_id
+        FROM tournament_class_entry_raw r
+        JOIN tournament_class tc ON r.tournament_class_id_ext = tc.tournament_class_id_ext
+        ORDER BY r.tournament_class_id_ext
+    """)
+    raw_rows = cursor.fetchall()
+    cursor.row_factory = None
 
-def normalize_key(s: str) -> str:
-    s = s.strip()
-    s = _ws_re.sub(" ", s)
-    return s.lower()
+    length = len(raw_rows)
+    print(f"Fetched {length} raw entries for backfill.")
 
-def compute_row_hash(row: sqlite3.Row) -> str:
-    # Fields to hash, excluding: row_id, data_source_id, row_created, row_updated, last_seen_at, content_hash
-    fields_to_hash = [
-        "season_id_ext",
-        "season_label",
-        "firstname",
-        "lastname",
-        "date_born",
-        "year_born",
-        "club_from",
-        "club_to",
-        "transition_date",
-    ]
-    parts = []
-    for key in fields_to_hash:
-        v = row[key]
-        if v is None:
-            parts.append("")
-        elif isinstance(v, str):
-            parts.append(normalize_key(v))
-        elif isinstance(v, date):
-            parts.append(v.isoformat())
-        elif isinstance(v, (int, float)):
-            parts.append(str(v))
-        else:
-            parts.append(str(v))
-    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+    # Group by class_ext and assign IDs (singles logic)
+    groups = {}
+    for row in raw_rows:
+        class_ext = row['tournament_class_id_ext']
+        type_id = row['tournament_class_type_id']
+        if type_id not in [1, 9]:
+            print(f"Skipping non-singles class: {class_ext} (type {type_id})")
+            continue
+        groups.setdefault(class_ext, []).append(dict(row))
 
-def backfill(db_path: str, batch_size: int = 5000) -> None:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA synchronous=NORMAL;")
+    updated_count = 0
+    for class_ext, class_rows in groups.items():
+        # Sort: seed_raw ascending (1 is best), then fullname_raw ascending
+        def sort_key(r):
+            seed_val = int(r.get('seed_raw', float("inf"))) if r.get('seed_raw') and r.get('seed_raw').isdigit() else float("inf")
+            name_val = normalize_key(r.get('fullname_raw', ''))
+            return (seed_val, name_val)
 
-        total_missing = conn.execute(
-            "SELECT COUNT(*) FROM player_transition_raw WHERE content_hash IS NULL;"
-        ).fetchone()[0]
+        sorted_rows = sorted(class_rows, key=sort_key)
+        for i, row in enumerate(sorted_rows, 1):
+            row_id = row['row_id']
+            cursor.execute(
+                "UPDATE tournament_class_entry_raw SET entry_group_id_int = ? WHERE row_id = ?",
+                (i, row_id)
+            )
+            if (length % 1000 == 0):
+                print(f"Updated {updated_count + 1}/{length} rows...")
+            updated_count += 1
 
-        if total_missing == 0:
-            print("Nothing to do: all rows already have content_hash.")
-            return
-
-        print(f"Backfilling content_hash for {total_missing} rows...")
-        last_id = 0
-        processed = 0
-        t0 = time.time()
-
-        while True:
-            rows = conn.execute(
-                """
-                SELECT row_id, season_id_ext, season_label, firstname, lastname,
-                       date_born, year_born, club_from, club_to, transition_date,
-                       data_source_id, content_hash, last_seen_at, row_created, row_updated
-                FROM player_transition_raw
-                WHERE content_hash IS NULL AND row_id > ?
-                ORDER BY row_id
-                LIMIT ?;
-                """,
-                (last_id, batch_size),
-            ).fetchall()
-
-            if not rows:
-                break
-
-            with conn:  # One transaction per batch
-                for r in rows:
-                    h = compute_row_hash(r)
-                    conn.execute(
-                        """
-                        UPDATE player_transition_raw
-                        SET content_hash = ?
-                        WHERE row_id = ? AND content_hash IS NULL;
-                        """,
-                        (h, r["row_id"]),
-                    )
-                    last_id = r["row_id"]
-                    processed += 1
-
-            if processed % max(1000, batch_size) == 0 or processed == total_missing:
-                elapsed = time.time() - t0
-                print(f"  processed {processed}/{total_missing} ... ({elapsed:.1f}s)")
-
-        elapsed = time.time() - t0
-        print(f"Done. Filled {processed} rows in {elapsed:.1f}s.")
-    finally:
-        conn.close()
+    conn.commit()
+    print(f"Backfill complete. Updated {updated_count} rows.")
+    conn.close()
 
 if __name__ == "__main__":
-    backfill(DB_PATH, batch_size=BATCH_SIZE)
+    migrate_entry_group_id_int()

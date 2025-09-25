@@ -55,11 +55,11 @@ def upd_player_data (
 
         # Resolving
         try:
-            # upd_players_verified(cursor, run_id=run_id)
+            upd_players_verified(cursor, run_id=run_id)
             # resolve_player_rankings(cursor, run_id=run_id)
             # resolve_player_ranking_groups(cursor, run_id=run_id)
             # resolve_player_licenses(cursor, run_id=run_id)
-            resolve_player_transitions(cursor, run_id=run_id)
+            # resolve_player_transitions(cursor, run_id=run_id)
             pass
 
         except Exception as e:

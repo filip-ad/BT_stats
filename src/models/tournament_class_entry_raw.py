@@ -16,12 +16,12 @@ class TournamentClassEntryRaw(CacheMixin):
     row_id:                             Optional[int] = None
     tournament_id_ext:                  Optional[str] = None    
     tournament_class_id_ext:            Optional[str] = None    
-    participant_player_id_ext:          Optional[str] = None       
+    tournament_player_id_ext:           Optional[str] = None       
     fullname_raw:                       Optional[str] = None     
     clubname_raw:                       Optional[str] = None     
     seed_raw:                           Optional[str] = None      
     final_position_raw:                 Optional[str] = None      
-    raw_group_id:                       Optional[str] = None  
+    entry_group_id_int:                 Optional[int] = None  
     data_source_id:                     int = 1
     content_hash:                       Optional[str] = None
     row_created:                        Optional[str] = None
@@ -30,16 +30,16 @@ class TournamentClassEntryRaw(CacheMixin):
     @classmethod
     def from_dict(cls, data: dict) -> "TournamentClassEntryRaw":
         return cls(
-            tournament_id_ext=data.get("tournament_id_ext"),
-            tournament_class_id_ext=data.get("tournament_class_id_ext"),
-            participant_player_id_ext=data.get("participant_player_id_ext"),
-            fullname_raw=data.get("fullname_raw"),
-            clubname_raw=data.get("clubname_raw"),
-            seed_raw=data.get("seed_raw"),
-            final_position_raw=data.get("final_position_raw"),
-            raw_group_id=data.get("raw_group_id"),
-            data_source_id=data.get("data_source_id", 1),
-            content_hash=data.get("content_hash")
+            tournament_id_ext           = data.get("tournament_id_ext"),
+            tournament_class_id_ext     = data.get("tournament_class_id_ext"),
+            tournament_player_id_ext    = data.get("tournament_player_id_ext"),
+            fullname_raw                = data.get("fullname_raw"),
+            clubname_raw                = data.get("clubname_raw"),
+            seed_raw                    = data.get("seed_raw"),
+            final_position_raw          = data.get("final_position_raw"),
+            entry_group_id_int          = data.get("entry_group_id_int"),
+            data_source_id              = data.get("data_source_id", 1),
+            content_hash                = data.get("content_hash")
         )
 
 
@@ -49,12 +49,12 @@ class TournamentClassEntryRaw(CacheMixin):
             "row_id":                       self.row_id,
             "tournament_id_ext":            self.tournament_id_ext,
             "tournament_class_id_ext":      self.tournament_class_id_ext,
-            "participant_player_id_ext":    self.participant_player_id_ext,
+            "tournament_player_id_ext":     self.tournament_player_id_ext,
             "fullname_raw":                 self.fullname_raw,
             "clubname_raw":                 self.clubname_raw,
             "seed_raw":                     self.seed_raw,
             "final_position_raw":           self.final_position_raw,
-            "raw_group_id":                 self.raw_group_id,
+            "entry_group_id_int":           self.entry_group_id_int,
             "data_source_id":               self.data_source_id,
             "content_hash":                 self.content_hash,
             "row_created":                  self.row_created,
@@ -82,7 +82,7 @@ class TournamentClassEntryRaw(CacheMixin):
         """Compute and assign content hash for uniqueness check."""
         self.content_hash = _compute_content_hash(
             self,
-            exclude_fields={"row_id", "row_created", "row_updated", "content_hash"}
+            exclude_fields={"row_id", "row_created", "row_updated", "content_hash", "entry_group_id_int"}
         )
 
     def insert(self, cursor: sqlite3.Cursor) -> None:
@@ -94,19 +94,19 @@ class TournamentClassEntryRaw(CacheMixin):
             INSERT OR IGNORE INTO tournament_class_entry_raw (
                 tournament_id_ext, 
                 tournament_class_id_ext, 
-                participant_player_id_ext,
+                tournament_player_id_ext,
                 fullname_raw, 
                 clubname_raw, 
                 seed_raw, 
                 final_position_raw,
-                raw_group_id,
+                entry_group_id_int,
                 data_source_id,
                 content_hash
             )
             VALUES
-            (:tournament_id_ext, :tournament_class_id_ext, :participant_player_id_ext,
+            (:tournament_id_ext, :tournament_class_id_ext, :tournament_player_id_ext,
              :fullname_raw, :clubname_raw, :seed_raw, :final_position_raw,
-             :raw_group_id, :data_source_id, :content_hash)
+             :entry_group_id_int, :data_source_id, :content_hash)
         """, self.to_dict())
 
     @classmethod
@@ -120,33 +120,42 @@ class TournamentClassEntryRaw(CacheMixin):
             (tournament_class_id_ext, data_source_id)
         )
         return cursor.rowcount    
-
+    
     @classmethod
-    def update_final_position(
-        cls,
-        cursor: sqlite3.Cursor,
-        tournament_class_id_ext: str,
-        fullname_raw: str,
-        clubname_raw: str,
-        data_source_id: int,
-        final_position_raw: str
-    ) -> int:
+    def batch_update_final_positions(cls, cursor: sqlite3.Cursor, tournament_class_id_ext: str, data_source_id: int, positions: List[Dict[str, Any]]) -> Tuple[int, str]:
         """
-        Update final_position_raw for a given entry.
-        Returns number of rows updated.
+        Batch update final positions for a tournament class.
+        Returns (number of rows updated, error message if any).
         """
-        cursor.execute(
-            """
-            UPDATE tournament_class_entry_raw
-            SET final_position_raw = ?
-            WHERE tournament_class_id_ext = ?
-            AND fullname_raw = ?
-            AND clubname_raw = ?
-            AND data_source_id = ?
-            """,
-            (final_position_raw, tournament_class_id_ext, fullname_raw, clubname_raw, data_source_id)
-        )
-        return cursor.rowcount
+        if not positions:
+            return 0, ""
+
+        query = """
+        UPDATE tournament_class_entry_raw
+        SET final_position_raw = CASE
+        """
+        values = []
+        for pos in positions:
+            query += "WHEN tournament_class_id_ext = ? AND fullname_raw = ? AND clubname_raw = ? AND data_source_id = ? THEN ? "
+            values.extend([
+                tournament_class_id_ext,
+                pos["fullname_raw"],
+                pos["clubname_raw"],
+                data_source_id,
+                pos["final_position_raw"]
+            ])
+        query += """
+        END
+        WHERE tournament_class_id_ext = ? AND data_source_id = ? AND fullname_raw IN %s
+        """
+        values.extend([tournament_class_id_ext, data_source_id])
+        fullname_values = tuple(pos["fullname_raw"] for pos in positions)
+
+        try:
+            cursor.execute(query % str(fullname_values), values)
+            return cursor.rowcount, ""
+        except Exception as e:
+            return 0, f"Failed to batch update final positions: {str(e)}"
   
 
     @classmethod

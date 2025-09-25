@@ -9,7 +9,7 @@ from resolvers.resolve_player_licenses import resolve_player_licenses
 # from resolvers.resolve_player_rankings import resolve_player_rankings
 from resolvers.resolve_player_ranking_groups import resolve_player_ranking_groups
 from resolvers.resolve_player_transitions import resolve_player_transitions
-from resolvers.resolve_participants import resolve_participants
+from resolvers.resolve_tournament_class_entries import resolve_participants
 
 
 def resolve_data(rsv_tournaments=False, rsv_tournament_classes=False, rsv_player_licenses=False, rsv_player_ranking_groups=False, rsv_player_transitions=False, rsv_participants=False):

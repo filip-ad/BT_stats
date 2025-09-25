@@ -85,18 +85,18 @@ def resolve_tournaments(cursor, run_id=None) -> List[Tournament]:
 
         # Validate tournament data
         tournament = Tournament(
-            tournament_id_ext=raw.tournament_id_ext,
-            longname=raw.longname,
-            shortname=raw.shortname,
-            startdate=start_date,
-            enddate=end_date,
-            registration_end_date=None,
-            city=raw.city,
-            arena=raw.arena,
-            country_code=raw.country_code,
-            url=raw.url,  # Explicitly preserve URL
-            tournament_status_id=status,
-            data_source_id=raw.data_source_id
+            tournament_id_ext       = raw.tournament_id_ext,
+            longname                = raw.longname,
+            shortname               = raw.shortname,
+            startdate               = start_date,
+            enddate                 = end_date,
+            registration_end_date   = None,
+            city                    = raw.city,
+            arena                   = raw.arena,
+            country_code            = raw.country_code,
+            url                     = raw.url,
+            tournament_status_id    = status,
+            data_source_id          = raw.data_source_id
         )
 
         is_valid, error_message = tournament.validate()

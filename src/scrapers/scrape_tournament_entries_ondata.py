@@ -1,4 +1,4 @@
-# src/scrapers/scrape_participants_ondata.py
+# src/scrapers/scrape_tournament_entries_ondata.py
 import logging
 from models.tournament import Tournament
 from utils import _download_pdf_ondata_by_tournament_class_and_stage, normalize_key
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 import time
 
-def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=None) -> List[TournamentClass]:
+def scrape_tournament_entries_ondata(cursor, include_positions: bool = True, run_id=None) -> List[TournamentClass]:
     """Scrape and populate raw participant data from PDFs for filtered tournament classes.
     Returns the list of processed TournamentClass instances.
     """
@@ -28,7 +28,7 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
         print_output    = False,
         log_to_db       = True,
         cursor          = cursor,
-        object_type     = "participant",
+        object_type     = "tournament_entry",
         run_type        = "scrape",
         run_id          = run_id
     )
@@ -78,7 +78,7 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
             'tournament_url': 'N/A',
             'stage_1_url': 'N/A'
         }
-        
+
         # Lookup using dict
         tournament = tournaments_dict.get(tc.tournament_id)
         tid_ext = str(tournament.tournament_id_ext).zfill(6) if tournament and tournament.tournament_id_ext else None
@@ -107,14 +107,10 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
 
         if pdf_path:
             participants, effective_expected_count = _parse_initial_participants_pdf(
-                pdf_path, tc.tournament_class_id_ext, tid_ext, 1  # data_source_id=1
+                pdf_path, tc.tournament_class_id_ext, tid_ext, 1, tc.tournament_class_type_id
             )
             if not participants:
                 logger.failed(logger_keys.copy(), "No participants parsed from initial PDF")
-                print(f"❌ [{i}/{len(classes)}] Parsed class {tc.shortname or 'N/A'}, {tournament_shortname}, {tc.startdate or 'N/A'} "
-                      f"(tcid: {tc.tournament_class_id}, tcid_ext: {tc.tournament_class_id_ext}, tid: {tc.tournament_id}, tid_ext: {tid_ext}). "
-                      f"Expected {effective_expected_count if effective_expected_count is not None else '—'}, "
-                      f"found 0, seeded: 0, deleted: {deleted_count} old participants.")
                 total_failures += 1
                 continue
             else:
@@ -127,15 +123,16 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
                         raw_entry.compute_hash()
                         raw_entry.insert(cursor)
                     else:
-                        logger.warning(logger_keys.copy(), f"Validation failed: {error_message}")
+                        logger.failed(logger_keys.copy(), f"Validation failed: {error_message}")
                         continue
 
                 initial_success = True
-
                 found = len(participants)
                 seeded_count = sum(1 for p in participants if p.get("seed_raw") is not None)
+
                 # Determine icon based on effective expected vs found count
                 icon = "✅" if effective_expected_count is not None and found == effective_expected_count else "❌" if effective_expected_count is not None else "—"
+
                 if effective_expected_count is not None and found != effective_expected_count:
                     partial_classes += 1
                     partial_participants += abs(found - effective_expected_count)
@@ -157,20 +154,20 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
                     if not ("Cached" in message or "Downloaded" in message):
                         logger.warning(logger_keys.copy(), f"Failed to scrape final positions: {message}")
                         final_success = False
-
                 if final_pdf_path and final_success:
                     positions = _parse_final_positions_pdf(final_pdf_path, tc.tournament_class_id_ext, tid_ext, 1)
                     if positions:
                         final_positions_found = len(positions)
-                        for pos_data in positions:
-                            TournamentClassEntryRaw.update_final_position(
-                                cursor,
-                                tournament_class_id_ext=tc.tournament_class_id_ext,
-                                fullname_raw=pos_data["fullname_raw"],
-                                clubname_raw=pos_data["clubname_raw"],
-                                data_source_id=pos_data["data_source_id"],
-                                final_position_raw=pos_data["final_position_raw"],
-                            )
+
+                        # Batch update final positions
+                        updated_count, error_message = TournamentClassEntryRaw.batch_update_final_positions(
+                            cursor,
+                            tournament_class_id_ext=tc.tournament_class_id_ext,
+                            data_source_id=1,
+                            positions=positions
+                        )
+                        if error_message:
+                            logger.warning(logger_keys.copy(), error_message)
                     else:
                         logger.warning(logger_keys.copy(), "No positions parsed from final PDF")
                         final_success = False
@@ -183,11 +180,11 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
                     logger.success(logger_keys.copy(), f"All expected participants inserted, including seeds and final positions")
                 elif initial_success:
                     logger.success(logger_keys.copy(), f"All expected participants inserted (could not resolve seeds and/or final positions)")
-                print(f"{icon} [{i}/{len(classes)}] Parsed class {tc.shortname or 'N/A'}, {tournament_shortname}, {tc.startdate or 'N/A'} "
+                logger.info(logger_keys.copy(), f"[{i}/{len(classes)}] Parsed class {tc.shortname or 'N/A'}, {tournament_shortname}, {tc.startdate or 'N/A'} "
                       f"(tcid: {tc.tournament_class_id}, tcid_ext: {tc.tournament_class_id_ext}, tid: {tc.tournament_id}, tid_ext: {tid_ext}). "
                       f"Expected {effective_expected_count if effective_expected_count is not None else '—'}, "
                       f"found {found}, seeded: {seeded_count}, deleted: {deleted_count} old participants, "
-                      f"final positions found: {final_positions_found}")
+                      f"final positions found: {final_positions_found}", emoji=icon, to_console=True, show_key=False)
 
     logger.info(f"Participants update completed in {time.time() - start_time:.2f} seconds. Total participants processed: {total_participants} vs expected: {total_expected}. Total failures: {total_failures}.")
     if partial_classes > 0:
@@ -195,7 +192,13 @@ def scrape_participants_ondata(cursor, include_positions: bool = True, run_id=No
     logger.summarize()
     return classes
 
-def _parse_initial_participants_pdf(pdf_path: Path, tournament_class_id_ext: str, tournament_id_ext: str, data_source_id: int) -> Tuple[List[Dict[str, Any]], Optional[int]]:
+def _parse_initial_participants_pdf(
+        pdf_path: Path, 
+        tournament_class_id_ext: str, 
+        tournament_id_ext: str, 
+        data_source_id: int, 
+        tournament_class_type_id: int
+    ) -> Tuple[List[Dict[str, Any]], Optional[int]]:
     """Parse initial participant data (names, clubs, seeds) from a stage=1 PDF.
     Returns (participants, expected_count) where participants is a list of dicts with raw data.
     """
@@ -347,7 +350,7 @@ def _parse_initial_participants_pdf(pdf_path: Path, tournament_class_id_ext: str
                                 continue
 
                             tpid = m.groupdict().get('tpid')
-                            participant_player_id_ext = tpid.strip() if tpid else None
+                            tournament_player_id_ext = tpid.strip() if tpid else None
                             raw_name = m.group('name').strip()
                             club_name = m.group('club').strip()
 
@@ -364,7 +367,7 @@ def _parse_initial_participants_pdf(pdf_path: Path, tournament_class_id_ext: str
 
                             # Use participant_player_id_ext for deduplication if available, fallback to (name, club)
                             dedup_key = (
-                                participant_player_id_ext if participant_player_id_ext else normalize_key(raw_name),
+                                tournament_player_id_ext if tournament_player_id_ext else normalize_key(raw_name),
                                 normalize_key(club_name)
                             )
                             if dedup_key in unique_entries:
@@ -379,7 +382,7 @@ def _parse_initial_participants_pdf(pdf_path: Path, tournament_class_id_ext: str
                             participants.append({
                                 "tournament_id_ext": tournament_id_ext,
                                 "tournament_class_id_ext": tournament_class_id_ext,
-                                "participant_player_id_ext": participant_player_id_ext,
+                                "tournament_player_id_ext": tournament_player_id_ext,
                                 "data_source_id": data_source_id,
                                 "fullname_raw": raw_name,
                                 "clubname_raw": club_name,
@@ -391,6 +394,25 @@ def _parse_initial_participants_pdf(pdf_path: Path, tournament_class_id_ext: str
     except Exception as e:
         logging.error({"pdf_path": str(pdf_path), "error": str(e)}, "Exception during PDF parsing")
         return [], None
+    
+    # Assign entry_group_id_int based on tournament class type (singles-only for now)
+    # TODO: Extend for doubles (type_id=2,3) by grouping pairs; treat unknown (9) as singles
+    if tournament_class_type_id in [1, 9]:  # Singles or Unknown
+            # Sort: seed_raw ascending (1 is best), then fullname_raw ascending for ties
+            def sort_key(p):
+                seed_val = int(p.get("seed_raw", 0)) if p.get("seed_raw") and p.get("seed_raw").isdigit() else float("inf")
+                tpid_val = int(p.get("tournament_player_id_ext", 0)) if p.get("tournament_player_id_ext") else 0
+                name_val = normalize_key(p.get("fullname_raw", ""))
+                return (seed_val, tpid_val, name_val)
+
+            sorted_participants = sorted(participants, key=sort_key)
+            for i, participant_data in enumerate(sorted_participants, 1):
+                participant_data["entry_group_id_int"] = i
+    else:
+        # TODO: Handle doubles/mixed (type_id=2,3): Parse pairs from PDF, assign same ID to group members
+        # For now, raise or log error if non-singles (since filter excludes them)
+        # raise ValueError(f"Unsupported tournament_class_type_id: {tournament_class_type_id}")
+        pass
 
     effective_expected_count = expected_count - placeholder_skips if expected_count is not None else None
     return participants, effective_expected_count
@@ -437,7 +459,7 @@ def _parse_final_positions_pdf(pdf_path: Path, tournament_class_id_ext: str, tou
                     positions.append({
                         "tournament_id_ext": tournament_id_ext,
                         "tournament_class_id_ext": tournament_class_id_ext,
-                        "participant_player_id_ext": None,  # Can be enhanced with TPID if present
+                        "tournament_player_id_ext": None,  # Can be enhanced with TPID if present
                         "data_source_id": data_source_id,
                         "fullname_raw": raw_name,
                         "clubname_raw": club_name,
