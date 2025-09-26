@@ -1,615 +1,332 @@
 import logging
 from typing import Dict, Tuple, List, Set
 
-from db import get_conn
 from utils import sanitize_name, OperationLogger
 from models.player import Player
 
-# ── MANUAL DUPLICATE GROUPS ────────────────────────────────────────────────
-# Any ext-IDs in the same set are the same real person.
+# ────────────────────────────────────────────────────────────────────────────
+# Config
+# ────────────────────────────────────────────────────────────────────────────
+
 DUPLICATE_EXT_GROUPS: List[Set[int]] = [
-    {70599, 72096},     # Mark Simpson, born 1990
-    {12033, 39961},     # Nicklas Forsling, born 1987
-    {12546, 63530},     # Magnus Oskarsson, born 1970
-    {400241, 579767},   # Maxim Stevens, born 2003
-    {15987, 58542},     # Davis Bui (b. 1995) 
-    {40187, 588796},     # Terje Herting (b. 1978) 
-    {253796, 336669, 354740, 379720}   # Peter Svenningsen (b. 2001)
-
-    # add more as you discover them...
-
+    {70599, 72096},                     # Mark Simpson, 1990
+    {12033, 39961},                     # Nicklas Forsling, 1987
+    {12546, 63530},                     # Magnus Oskarsson, 1970
+    {400241, 579767},                   # Maxim Stevens, 2003
+    {15987, 58542},                     # Davis Bui, 1995
+    {40187, 588796},                    # Terje Herting, 1978
+    {253796, 336669, 354740, 379720}    # Peter Svenningsen, 2001
 ]
 
-# Build a flat map: any ext → its chosen “canonical” ext (smallest wins)
-CANONICAL_EXT: Dict[int, int] = {}
-for grp in DUPLICATE_EXT_GROUPS:
-    keep = min(grp)
-    for alias_ext in grp:
-        CANONICAL_EXT[alias_ext] = keep
+DEPENDENT_TABLES = [
+    ("player_license",              "player_id"),
+    ("player_transition",           "player_id"),
+    ("tournament_class_player",     "player_id"),
+    ("match_player",                "player_id"),
+    ("player_ranking_group",        "player_id"),
+    ("player_unverified_appearance","player_id"),
+]
+
+DATA_SOURCE_ID = 3
+
+# ────────────────────────────────────────────────────────────────────────────
+# Orchestrator
+# ────────────────────────────────────────────────────────────────────────────
 
 def upd_players_verified(cursor, run_id=None):
     """
-    Minimal-patched version:
-    - Picks a deterministic survivor when a manual group spans multiple player_ids (min(player_id)).
-    - Does NOT skip repointing the canonical ext if it's pointing at a different player.
-    - Tracks 'loser' player_ids explicitly and deletes them once after all repoints.
-    - Fixes misleading log line for manual groups.
+    Orchestrates the verified-player update:
+      1) Load raw player candidates.
+      2) Merge manual duplicate groups (ID-centric).
+      3) Insert remaining non-duplicates.
+      4) Purge unverified orphans.
+      5) Commit & summarize.
     """
+    
     logger = OperationLogger(
-        verbosity           = 2,
-        print_output        = False,
-        log_to_db           = True,
-        cursor              = cursor,
-        object_type         = "player",
-        run_type            = "update",
-        run_id              = run_id
+        verbosity       = 2 , 
+        print_output    = False, 
+        log_to_db       = True,
+        cursor          = cursor, 
+        object_type     = "player", 
+        run_type        = "update", 
+        run_id          = run_id
     )
 
-    logger.info("Updating player table...")
+    metrics = dict()  # one object to gather all step metrics
 
     try:
-        # ── Load raw license rows ────────────────────────────────────────
-        cursor.execute("""
-            SELECT 
-                player_id_ext, 
-                firstname, 
-                lastname, 
-                year_born
-            FROM player_license_raw
-            WHERE player_id_ext IS NOT NULL
-              AND TRIM(firstname) <> ''
-              AND TRIM(lastname)  <> ''
-              AND year_born IS NOT NULL
-        """)
-        license_rows = cursor.fetchall()
+        logger.info("Updating player table...")
 
-        # ── Load raw ranking rows ────────────────────────────────────────
-        cursor.execute("""
-            SELECT 
-                player_id_ext, 
-                firstname, 
-                lastname, 
-                year_born
-            FROM player_ranking_raw
-            WHERE player_id_ext IS NOT NULL
-              AND TRIM(firstname) <> ''
-              AND TRIM(lastname)  <> ''
-              AND year_born IS NOT NULL
-        """)
-        ranking_rows = cursor.fetchall()
-
-        # ── Merge into a single map, giving license priority ─────────────
-        player_data: Dict[int, Tuple[str, str, int]] = {}
-
-        # License first
-        for ext, fn, ln, yb in license_rows:
-            ext_int = int(ext)
-            if ext_int not in player_data:
-                player_data[ext_int] = (
-                    sanitize_name(fn),
-                    sanitize_name(ln),
-                    int(yb)
-                )
-
-        # Then ranking only if missing
-        for ext, fn, ln, yb in ranking_rows:
-            ext_int = int(ext)
-            if ext_int not in player_data:
-                player_data[ext_int] = (
-                    sanitize_name(fn),
-                    sanitize_name(ln),
-                    int(yb)
-                )
-
+        # 1) load raw
+        player_data = _load_raw_player_data(cursor)
         logger.info(f"Found {len(player_data):,} unique external players in license and ranking tables")
 
-        # ── Process manual duplicate groups first ────────────────────────
-        groups: Dict[int, Set[int]] = {}
-        for grp in DUPLICATE_EXT_GROUPS:
-            can = min(grp)
-            groups.setdefault(can, set()).update(grp)
+        # 2) merge manual groups
+        m_groups = _merge_manual_groups(cursor, logger, player_data)
 
-        print(f"ℹ️  Processing {len(groups)} manual duplicate group(s)…")
-        logger.info(f"Processing {len(groups)} manual duplicate group(s)")
+        # 3) insert remaining
+        nondup_count = _insert_non_duplicates(cursor, logger, player_data)
 
-        data_source_id = 3
+        # 4) purge unverified orphans
+        purged = _purge_unverified_orphans(cursor, logger)
 
-        for i, (can_ext, all_exts) in enumerate(sorted(groups.items()), start=1):
-            # Find data for canonical or first available
-            can_tuple = player_data.get(can_ext)
-            if not can_tuple:
-                for e in sorted(all_exts):
-                    if e in player_data:
-                        can_tuple = player_data[e]
-                        break
-
-            if not can_tuple:
-                msg = "No source data for group with canonical ext; skipping"
-                logger.failed(f"Group {can_ext}", msg)
-                continue
-
-            can_fn, can_ln, can_yb = can_tuple
-            player_name = f"{can_fn} {can_ln}"
-
-            # --- Determine survivor deterministically if multiple player_ids exist
-            linked_player_ids: Set[int] = set()
-            for ext_id in all_exts:
-                cursor.execute(
-                    "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
-                    (str(ext_id), data_source_id)
-                )
-                row = cursor.fetchone()
-                if row:
-                    linked_player_ids.add(row[0])
-
-            if linked_player_ids:
-                existing_player_id = min(linked_player_ids)  # deterministic survivor
-                if len(linked_player_ids) > 1:
-                    logger.warning(
-                        {"canonical_ext": can_ext, "linked_player_ids": sorted(linked_player_ids)},
-                        "Manual group spans multiple player_ids; will merge into smallest"
-                    )
-            else:
-                existing_player_id = None
-
-            if existing_player_id:
-                # Validate survivor exists as Player row
-                player = Player.get_by_id(cursor, existing_player_id)
-                if not player:
-                    error_msg = "Existing survivor player_id not found"
-                    logger.failed(player_name, error_msg)
-                    continue
-                logger_keys = {
-                    "canonical_ext":   can_ext,
-                    "all_exts":        list(all_exts),
-                    "player_id":       existing_player_id,
-                    "firstname":       can_fn,
-                    "lastname":        can_ln,
-                    "year_born":       can_yb,
-                    "source":          "manual_duplicate_group"
-                }
-                logger.warning(logger_keys, "Manual duplicate group → merging into existing survivor")
-            else:
-                # Insert new player with canonical ext
-                p = Player(firstname=can_fn, lastname=can_ln, year_born=can_yb, is_verified=True)
-                res = p.save_to_db(cursor, player_id_ext=str(can_ext), data_source_id=data_source_id)
-                if res["status"] == "success":
-                    logger.success(res["player"], res["reason"])
-                    existing_player_id = res["player_id"]
-                elif res["status"] == "failed":
-                    logger.failed(res["player"], res["reason"])
-                    continue
-                elif res["status"] == "skipped":
-                    logger.skipped(res["player"], res["reason"])
-                    existing_player_id = res.get("player_id")
-                    if not existing_player_id:
-                        continue
-
-            # --- Add or repoint all ext_ids (including canonical if mislinked) ---
-            loser_ids: Set[int] = set()
-
-            for ext_id in all_exts:
-                # If canonical ext currently points to a different player, we must repoint it too.
-                if ext_id == can_ext and existing_player_id:
-                    cursor.execute(
-                        "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
-                        (str(ext_id), data_source_id)
-                    )
-                    r_can = cursor.fetchone()
-                    if r_can and r_can[0] == existing_player_id:
-                        # already correct → skip to next ext_id
-                        continue
-                    # else: fall through and handle like any other ext_id
-
-                cursor.execute(
-                    "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
-                    (str(ext_id), data_source_id)
-                )
-                row = cursor.fetchone()
-                if row:
-                    old_player_id = row[0]
-                    if old_player_id != existing_player_id:
-                        # Remember loser to delete after all repoints
-                        loser_ids.add(old_player_id)
-
-                        # Repoint this ext_id to the survivor
-                        cursor.execute("""
-                            UPDATE player_id_ext
-                            SET player_id = ?
-                            WHERE player_id_ext = ? AND data_source_id = ?
-                        """, (existing_player_id, str(ext_id), data_source_id))
-
-                        # Repoint dependent tables from old_player_id → existing_player_id
-                        for table, col in [
-                            ("player_license", "player_id"),
-                            ("player_transition", "player_id"),
-                            ("tournament_class_player", "player_id"),
-                            ("match_player", "player_id"),
-                            ("player_ranking_group", "player_id"),
-                            ("player_unverified_appearance", "player_id"),
-                        ]:
-                            cursor.execute(f"""
-                                UPDATE {table}
-                                SET {col} = ?
-                                WHERE {col} = ?
-                            """, (existing_player_id, old_player_id))
-
-                        # Delete unverified appearances tied to the old player (now repointed, so safe)
-                        cursor.execute("""
-                            DELETE FROM player_unverified_appearance
-                            WHERE player_id = ?
-                        """, (old_player_id,))
-
-                        logger.warning({
-                            "player_id": existing_player_id,
-                            "ext_id": ext_id,
-                            "canonical_ext": can_ext,
-                            "firstname": can_fn,
-                            "lastname": can_ln,
-                            "year_born": can_yb,
-                            "source": "repoint"
-                        }, f"Repointed ext_id {ext_id} from old player_id {old_player_id} → {existing_player_id}")
-                    else:
-                        logger.info({
-                            "player_id": existing_player_id,
-                            "ext_id": ext_id,
-                            "canonical_ext": can_ext,
-                            "firstname": can_fn,
-                            "lastname": can_ln,
-                            "year_born": can_yb,
-                            "source": "alias_check"
-                        }, "Ext_id already linked correctly")
-                else:
-                    # Normal insert if this ext_id wasn’t seen before
-                    cursor.execute("""
-                        INSERT INTO player_id_ext (player_id, player_id_ext, data_source_id)
-                        VALUES (?, ?, ?)
-                    """, (existing_player_id, str(ext_id), data_source_id))
-                    logger.success(player_name, "Added additional player_id_ext for existing player")
-
-            # --- Delete losing player_ids (post-merge cleanup) ---
-            for loser_pid in sorted(loser_ids):
-                # Safety: ext rows should have been repointed away already
-                cursor.execute("SELECT COUNT(*) FROM player_id_ext WHERE player_id = ?", (loser_pid,))
-                ext_count = cursor.fetchone()[0]
-                if ext_count > 0:
-                    logger.warning({"old_player_id": loser_pid, "ext_count": ext_count}, "Loser still has ext rows; not deleting")
-                    continue
-
-                # Double-check no dependent data left
-                dep_left = 0
-                for table, col in [
-                    ("player_license", "player_id"),
-                    ("player_transition", "player_id"),
-                    ("tournament_class_player", "player_id"),
-                    ("match_player", "player_id"),
-                    ("player_ranking_group", "player_id"),
-                    ("player_unverified_appearance", "player_id"),
-                ]:
-                    cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE {col} = ?", (loser_pid,))
-                    dep_left += cursor.fetchone()[0]
-
-                if dep_left == 0:
-                    cursor.execute("DELETE FROM player WHERE player_id = ?", (loser_pid,))
-                    if cursor.rowcount:
-                        logger.info(
-                            {"old_player_id": loser_pid, "canonical_player_id": existing_player_id},
-                            f"Deleted merged player {loser_pid} → {existing_player_id}"
-                        )
-                else:
-                    logger.warning({"old_player_id": loser_pid, "deps_left": dep_left}, "Dependencies remain; not deleting")
-
-        # ── Handle remaining non-duplicate externals ─────────────────────
-        processed_exts = set()
-        for grp in DUPLICATE_EXT_GROUPS:
-            processed_exts.update(grp)
-        remaining = [k for k in player_data if k not in processed_exts]
-        logger.info("Processing %d non-duplicate externals", len(remaining))
-
-        logger.inc_processed(len(remaining))
-
-        for ext_id in sorted(remaining):
-            fn, ln, yb = player_data[ext_id]
-            p = Player(firstname=fn, lastname=ln, year_born=yb, is_verified=True)
-            res = p.save_to_db(cursor, player_id_ext=str(ext_id), data_source_id=data_source_id)
-
-            logger_keys = {
-                "player_id_ext":   ext_id,
-                "firstname":       fn,
-                "lastname":        ln,
-                "year_born":       yb,
-                "source":          "non_duplicate"
-            }
-
-            if res["status"] == "success":
-                logger.success(logger_keys, res["reason"])
-            elif res["status"] == "failed":
-                logger.failed(logger_keys, res["reason"])
-            elif res["status"] == "skipped":
-                logger.skipped(logger_keys, res["reason"])
-
-        # ── Commit & report ──────────────────────────────────────────────
+        # 5) commit
         cursor.connection.commit()
+
+        # summary
+        metrics.update(m_groups)
+        metrics["non_duplicate_processed"] = nondup_count
+        metrics["purged_unverified_orphans"] = purged
+
+        logger.info(metrics, "Player update summary")
         logger.summarize()
         logging.info("Done updating players")
 
     except Exception as e:
-        logging.error(f"Error in upd_players: {e}")
+        logging.error(f"Error in upd_players_verified: {e}")
         print(f"❌ Error updating players: {e}")
         cursor.connection.rollback()
 
 
-# def upd_players_verified(cursor, run_id = None):
+# ────────────────────────────────────────────────────────────────────────────
+# Low-level helpers (small, testable)
+# ────────────────────────────────────────────────────────────────────────────
 
-#     logger = OperationLogger(
-#         verbosity           = 2,
-#         print_output        = False,
-#         log_to_db           = True,
-#         cursor              = cursor,
-#         object_type         = "player",
-#         run_type            = "update",
-#         run_id              = run_id
-#     )
+def _pick_survivor(player_ids: Set[int]) -> int:
+    """Deterministic survivor policy."""
+    return min(player_ids)
 
-#     logger.info("Updating player table...")
+def _repoint_children(cursor, loser_id: int, survivor_id: int) -> int:
+    """Repoint all FK children from loser → survivor. Returns rows updated."""
+    total = 0
+    for table, col in DEPENDENT_TABLES:
+        cursor.execute(f"UPDATE {table} SET {col} = ? WHERE {col} = ?", (survivor_id, loser_id))
+        total += cursor.rowcount
+    return total
 
-#     try:
-#         # ── Load raw license rows ────────────────────────────────────────
-#         cursor.execute("""
-#             SELECT 
-#                 player_id_ext, 
-#                 firstname, 
-#                 lastname, 
-#                 year_born
-#             FROM player_license_raw
-#             WHERE player_id_ext IS NOT NULL
-#               AND TRIM(firstname) <> ''
-#               AND TRIM(lastname)  <> ''
-#               AND year_born IS NOT NULL
-#         """)
-#         license_rows = cursor.fetchall()
+def _delete_player_if_orphan(cursor, player_id: int) -> bool:
+    """
+    Delete a player if:
+      - no ext rows
+      - no deps in the "real" dependent tables
+    If only unverified appearances exist, delete them together with the player.
+    Returns True if the player was deleted.
+    """
+    # Any ext rows? Then keep the player
+    cursor.execute("SELECT COUNT(*) FROM player_id_ext WHERE player_id = ?", (player_id,))
+    if cursor.fetchone()[0] > 0:
+        return False
 
-#         # ── Load raw ranking rows ────────────────────────────────────────
-#         cursor.execute("""
-#             SELECT 
-#                 player_id_ext, 
-#                 firstname, 
-#                 lastname, 
-#                 year_born
-#             FROM player_ranking_raw
-#             WHERE player_id_ext IS NOT NULL
-#               AND TRIM(firstname) <> ''
-#               AND TRIM(lastname)  <> ''
-#               AND year_born IS NOT NULL
-#         """)
-#         ranking_rows = cursor.fetchall()
+    # Check other dependent tables EXCEPT unverified appearances
+    for table, col in [t for t in DEPENDENT_TABLES if t[0] != "player_unverified_appearance"]:
+        cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE {col} = ?", (player_id,))
+        if cursor.fetchone()[0] > 0:
+            return False
 
-#         # ── Merge into a single map, giving license priority ─────────────
-#         player_data: Dict[int, Tuple[str, str, int]] = {}
-
-#         # License first
-#         for ext, fn, ln, yb in license_rows:
-#             ext_int = int(ext)
-#             if ext_int not in player_data:
-#                 player_data[ext_int] = (
-#                     sanitize_name(fn),
-#                     sanitize_name(ln),
-#                     int(yb)
-#                 )
-
-#         # Then ranking only if missing
-#         for ext, fn, ln, yb in ranking_rows:
-#             ext_int = int(ext)
-#             if ext_int not in player_data:
-#                 player_data[ext_int] = (
-#                     sanitize_name(fn),
-#                     sanitize_name(ln),
-#                     int(yb)
-#                 )
-
-#         logger.info(f"Found {len(player_data):,} unique external players in license and ranking tables")
-
-#         # ── Process manual duplicate groups first ────────────────────────
-#         groups: Dict[int, Set[int]] = {}
-#         for grp in DUPLICATE_EXT_GROUPS:
-#             can = min(grp)
-#             groups.setdefault(can, set()).update(grp)
-
-#         print(f"ℹ️  Processing {len(groups)} manual duplicate group(s)…")
-#         logger.info(f"Processing {len(groups)} non-duplicate externals")
-
-#         data_source_id = 3
-
-#         for i, (can_ext, all_exts) in enumerate(sorted(groups.items()), start=1):
-#             # Find data for canonical or first available
-#             can_tuple = player_data.get(can_ext)
-#             if not can_tuple:
-#                 for e in sorted(all_exts):
-#                     if e in player_data:
-#                         can_tuple = player_data[e]
-#                         break
-
-#             if not can_tuple:
-#                 msg = f"No source data for group with canonical ext; skipping"
-#                 logger.failed(f"Group {can_ext}", msg)
-#                 continue
-
-#             can_fn, can_ln, can_yb = can_tuple
-#             player_name = f"{can_fn} {can_ln}"
-
-#             # Check if any ext in group already exists
-#             existing_player_id = None
-#             for ext_id in all_exts:
-#                 cursor.execute(
-#                     "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
-#                     (str(ext_id), data_source_id)
-#                 )
-#                 row = cursor.fetchone()
-#                 if row:
-#                     if existing_player_id is None:
-#                         existing_player_id = row[0]
-#                     elif existing_player_id != row[0]:
-#                         conflict_msg = f"Conflict: ext points to different player_id than"
-#                         logger.warning(player_name, conflict_msg)
-#                     # Continue to collect, but use first found
-
-#             if existing_player_id:
-#                 # Use existing player_id, add missing ext_ids
-#                 player = Player.get_by_id(cursor, existing_player_id)
-#                 if not player:
-#                     error_msg = f"Existing player_id not found"
-#                     logger.failed(player_name, error_msg)
-#                     continue
-#                 logger_keys = {
-#                     "canonical_ext":   can_ext,
-#                     "all_exts":        list(all_exts),
-#                     "player_id":       existing_player_id,
-#                     "firstname":       can_fn,
-#                     "lastname":        can_ln,
-#                     "year_born":       can_yb,
-#                     "source":          "manual_duplicate_group"
-#                 }
-#                 logger.warning(logger_keys, "Manual duplicate group → already merged to existing player")
-#             else:
-#                 # Insert new player with canonical ext
-#                 p = Player(firstname=can_fn, lastname=can_ln, year_born=can_yb, is_verified=True)
-#                 res = p.save_to_db(cursor, player_id_ext=str(can_ext), data_source_id=data_source_id)
-#                 if res["status"] == "success":
-#                     logger.success(res["player"], res["reason"])
-#                     existing_player_id = res["player_id"]
-#                 elif res["status"] == "failed":
-#                     logger.failed(res["player"], res["reason"])
-#                     continue
-#                 elif res["status"] == "skipped":
-#                     logger.skipped(res["player"], res["reason"])
-#                     existing_player_id = res.get("player_id")
-#                     if not existing_player_id:
-#                         continue
+    # At this point, only appearances may exist → delete them as well
+    cursor.execute("DELETE FROM player_unverified_appearance WHERE player_id = ?", (player_id,))
+    cursor.execute("DELETE FROM player WHERE player_id = ?", (player_id,))
+    return cursor.rowcount > 0
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Mid-level helpers (orchestrated steps)
+# ────────────────────────────────────────────────────────────────────────────
 
-#             # Add or repoint other ext_ids if not already present
-#             for ext_id in all_exts:
-#                 if ext_id == can_ext and existing_player_id:
-#                     continue  # canonical ext already handled
+def _load_raw_player_data(cursor) -> Dict[int, Tuple[str, str, int]]:
+    """Build map ext_id → (firstname, lastname, year_born); license > ranking."""
+    cursor.execute("""
+        SELECT player_id_ext, firstname, lastname, year_born
+        FROM player_license_raw
+        WHERE player_id_ext IS NOT NULL
+          AND TRIM(firstname) <> '' AND TRIM(lastname) <> '' AND year_born IS NOT NULL
+    """)
+    license_rows = cursor.fetchall()
 
-#                 cursor.execute(
-#                     "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
-#                     (str(ext_id), data_source_id)
-#                 )
-#                 row = cursor.fetchone()
-#                 if row:
-#                     old_player_id = row[0]
-#                     if old_player_id != existing_player_id:
-#                         # Repoint this ext_id to canonical player_id
-#                         cursor.execute("""
-#                             UPDATE player_id_ext
-#                             SET player_id = ?
-#                             WHERE player_id_ext = ? AND data_source_id = ?
-#                         """, (existing_player_id, str(ext_id), data_source_id))
+    cursor.execute("""
+        SELECT player_id_ext, firstname, lastname, year_born
+        FROM player_ranking_raw
+        WHERE player_id_ext IS NOT NULL
+          AND TRIM(firstname) <> '' AND TRIM(lastname) <> '' AND year_born IS NOT NULL
+    """)
+    ranking_rows = cursor.fetchall()
 
-#                         # Repoint dependent tables from old_player_id → existing_player_id
-#                         for table, col in [
-#                             ("player_license", "player_id"),
-#                             ("player_transition", "player_id"),
-#                             ("tournament_class_player", "player_id"), 
-#                             ("match_player", "player_id"),
-#                             ("player_ranking_group", "player_id"),
-#                             ("participant_player", "player_id"),
-#                             ("player_unverified_appearance", "player_id")
-#                         ]:
-#                             cursor.execute(f"""
-#                                 UPDATE {table}
-#                                 SET {col} = ?
-#                                 WHERE {col} = ?
-#                             """, (existing_player_id, old_player_id))
+    player_data: Dict[int, Tuple[str, str, int]] = {}
+    for ext, fn, ln, yb in license_rows:
+        ext = int(ext)
+        if ext not in player_data:
+            player_data[ext] = (sanitize_name(fn), sanitize_name(ln), int(yb))
+    for ext, fn, ln, yb in ranking_rows:
+        ext = int(ext)
+        if ext not in player_data:
+            player_data[ext] = (sanitize_name(fn), sanitize_name(ln), int(yb))
+    return player_data
 
-#                         # Delete unverified appearances tied to the old player
-#                         cursor.execute("""
-#                             DELETE FROM player_unverified_appearance
-#                             WHERE player_id = ?
-#                         """, (old_player_id,))
+def _groups_from_manual() -> Dict[int, Set[int]]:
+    """Return canonical_ext → full set of group ext_ids."""
+    groups: Dict[int, Set[int]] = {}
+    for grp in DUPLICATE_EXT_GROUPS:
+        can = min(grp)
+        groups.setdefault(can, set()).update(grp)
+    return groups
 
-#                         logger.warning({
-#                             "player_id": existing_player_id,
-#                             "ext_id": ext_id,
-#                             "canonical_ext": can_ext,
-#                             "firstname": can_fn,
-#                             "lastname": can_ln,
-#                             "year_born": can_yb,
-#                             "source": "repoint"
-#                         }, f"Repointed ext_id {ext_id} from old player_id {old_player_id} → {existing_player_id}")
-#                     else:
-#                         logger.info({
-#                             "player_id": existing_player_id,
-#                             "ext_id": ext_id,
-#                             "canonical_ext": can_ext,
-#                             "firstname": can_fn,
-#                             "lastname": can_ln,
-#                             "year_born": can_yb,
-#                             "source": "alias_check"
-#                         }, "Ext_id already linked correctly")
-#                 else:
-#                     # Normal insert
-#                     cursor.execute("""
-#                         INSERT INTO player_id_ext (player_id, player_id_ext, data_source_id)
-#                         VALUES (?, ?, ?)
-#                     """, (existing_player_id, str(ext_id), data_source_id))
-#                     logger.success(player_name, f"Added additional player_id_ext for existing player")
+def _merge_manual_groups(cursor, logger: OperationLogger, player_data: Dict[int, Tuple[str, str, int]]) -> Dict[str, int]:
+    """Process manual groups with per-group savepoints. Returns metrics."""
+    m = dict(
+        groups_total=0, groups_skipped_no_data=0, groups_with_existing=0, groups_created_survivor=0,
+        groups_merged=0, ext_aliases_added=0, ext_repointed=0, losers_total=0, losers_deleted=0, losers_kept_with_refs=0
+    )
 
-#             # --- Cleanup non-canonical players for this group ---
-#             for ext_id in all_exts:
-#                 cursor.execute(
-#                     "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
-#                     (str(ext_id), data_source_id)
-#                 )
-#                 row = cursor.fetchone()
-#                 if row:
-#                     pid = row[0]
-#                     if pid != existing_player_id:
-#                         cursor.execute("SELECT COUNT(*) FROM player_id_ext WHERE player_id = ?", (pid,))
-#                         if cursor.fetchone()[0] == 0:
-#                             cursor.execute("DELETE FROM player WHERE player_id = ?", (pid,))
-#                             logger.info(
-#                                 {"old_player_id": pid, "canonical_player_id": existing_player_id},
-#                                 f"Deleted orphan player {pid} (merged into {existing_player_id})"
-#                             )
+    groups = _groups_from_manual()
+    m["groups_total"] = len(groups)
+    logger.info(f"Processing {m['groups_total']} manual duplicate group(s)")
 
-#         # ── Handle remaining non-duplicate externals ─────────────────────
-#         processed_exts = set()
-#         for grp in DUPLICATE_EXT_GROUPS:
-#             processed_exts.update(grp)
-#         remaining = [k for k in player_data if k not in processed_exts]
-#         logger.info("Processing %d non-duplicate externals", len(remaining))
+    for can_ext, all_exts in sorted(groups.items()):
+        cursor.execute("SAVEPOINT merge_group")
 
-#         logger.inc_processed(len(remaining))
+        # Pick canonical tuple (prefer can_ext, else any ext in group)
+        can_tuple = player_data.get(can_ext)
+        if not can_tuple:
+            for e in sorted(all_exts):
+                if e in player_data:
+                    can_tuple = player_data[e]
+                    break
+        if not can_tuple:
+            m["groups_skipped_no_data"] += 1
+            logger.failed({"canonical_ext": can_ext, "exts": sorted(all_exts)}, "No source data for group; skipping")
+            cursor.execute("RELEASE merge_group")
+            continue
 
-#         for ext_id in sorted(remaining):
-#             fn, ln, yb = player_data[ext_id]
-#             p = Player(firstname=fn, lastname=ln, year_born=yb, is_verified=True)
-#             res = p.save_to_db(cursor, player_id_ext=str(ext_id), data_source_id=data_source_id)
-            
-#             logger_keys = {
-#                 "player_id_ext":   ext_id,
-#                 "firstname":       fn,
-#                 "lastname":        ln,
-#                 "year_born":       yb,
-#                 "source":          "non_duplicate"
-#             }
-                             
-#             if res["status"] == "success":
-#                 logger.success(logger_keys, res["reason"])
-#             elif res["status"] == "failed":
-#                 logger.failed(logger_keys, res["reason"])
-#             elif res["status"] == "skipped":
-#                 logger.skipped(logger_keys, res["reason"])
+        fn, ln, yb = can_tuple
 
-#         # ── Commit & report ──────────────────────────────────────────────
-#         cursor.connection.commit()
-#         logger.summarize()
-#         logging.info("Done updating players")
+        # Collect existing player_ids linked to this group
+        linked_ids: Set[int] = set()
+        for ext in all_exts:
+            cursor.execute(
+                "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
+                (str(ext), DATA_SOURCE_ID)
+            )
+            row = cursor.fetchone()
+            if row:
+                linked_ids.add(row[0])
 
-#     except Exception as e:
-#         logging.error(f"Error in upd_players: {e}")
-#         print(f"❌ Error updating players: {e}")
-#         cursor.connection.rollback()
+        # Decide/insert survivor
+        if linked_ids:
+            survivor_id = _pick_survivor(linked_ids)
+            m["groups_with_existing"] += 1
+            if len(linked_ids) > 1:
+                logger.warning(
+                    {"canonical_ext": can_ext, "linked_player_ids": sorted(linked_ids), "survivor": survivor_id},
+                    "Manual group spans multiple player_ids; merging into survivor"
+                )
+        else:
+            p = Player(firstname=fn, lastname=ln, year_born=yb, is_verified=True)
+            res = p.save_to_db(cursor, player_id_ext=str(can_ext), data_source_id=DATA_SOURCE_ID)
+            if res["status"] == "success":
+                survivor_id = res["player_id"]
+                logger.success(res["player"], res["reason"])
+                m["groups_created_survivor"] += 1
+            elif res["status"] == "skipped":
+                survivor_id = res.get("player_id")
+                if not survivor_id:
+                    m["groups_skipped_no_data"] += 1
+                    logger.failed({"player": f"{fn} {ln}"}, "Insert skipped without player_id; skipping group")
+                    cursor.execute("RELEASE merge_group")
+                    continue
+            else:
+                m["groups_skipped_no_data"] += 1
+                logger.failed(res["player"], res["reason"])
+                cursor.execute("ROLLBACK TO merge_group")
+                cursor.execute("RELEASE merge_group")
+                continue
+
+        # Repoint/add ext_ids
+        loser_ids: Set[int] = set()
+        for ext in all_exts:
+            cursor.execute(
+                "SELECT player_id FROM player_id_ext WHERE player_id_ext = ? AND data_source_id = ?",
+                (str(ext), DATA_SOURCE_ID)
+            )
+            row = cursor.fetchone()
+            if row:
+                old_id = row[0]
+                if old_id != survivor_id:
+                    loser_ids.add(old_id)
+                    cursor.execute("""
+                        UPDATE player_id_ext SET player_id = ?
+                        WHERE player_id_ext = ? AND data_source_id = ?
+                    """, (survivor_id, str(ext), DATA_SOURCE_ID))
+                    m["ext_repointed"] += 1
+            else:
+                cursor.execute("""
+                    INSERT INTO player_id_ext (player_id, player_id_ext, data_source_id)
+                    VALUES (?, ?, ?)
+                """, (survivor_id, str(ext), DATA_SOURCE_ID))
+                m["ext_aliases_added"] += 1
+                logger.success({"ext": ext, "survivor": survivor_id}, "Added player_id_ext alias")
+
+        # Repoint children and try deleting losers
+        if loser_ids:
+            m["losers_total"] += len(loser_ids)
+            for loser in sorted(loser_ids):
+                _repoint_children(cursor, loser, survivor_id)
+                if _delete_player_if_orphan(cursor, loser):
+                    m["losers_deleted"] += 1
+                    logger.info({"loser": loser, "survivor": survivor_id}, "Deleted merged loser")
+                else:
+                    m["losers_kept_with_refs"] += 1
+                    logger.warning({"loser": loser}, "Loser still has references; not deleting")
+
+        m["groups_merged"] += 1
+        cursor.execute("RELEASE merge_group")
+
+    return m
+
+def _insert_non_duplicates(cursor, logger: OperationLogger, player_data: Dict[int, Tuple[str, str, int]]) -> int:
+    """Insert players for ext_ids not in any manual group. Returns count attempted."""
+    processed_exts = set().union(*DUPLICATE_EXT_GROUPS) if DUPLICATE_EXT_GROUPS else set()
+    remaining = [ext for ext in player_data if ext not in processed_exts]
+    logger.info("Processing %d non-duplicate externals", len(remaining))
+
+    for ext in sorted(remaining):
+        fn, ln, yb = player_data[ext]
+        p = Player(firstname=fn, lastname=ln, year_born=yb, is_verified=True)
+        res = p.save_to_db(cursor, player_id_ext=str(ext), data_source_id=DATA_SOURCE_ID)
+        keys = {"player_id_ext": ext, "firstname": fn, "lastname": ln, "year_born": yb, "source": "non_duplicate"}
+        if res["status"] == "success":
+            logger.success(keys, res["reason"])
+        elif res["status"] == "failed":
+            logger.failed(keys, res["reason"])
+        else:
+            logger.skipped(keys, res["reason"])
+    return len(remaining)
+
+def _purge_unverified_orphans(cursor, logger: OperationLogger) -> int:
+    """
+    Delete all unverified players that have no ext rows and no real deps.
+    Also deletes any unverified_appearance rows tied to them.
+    Returns the number of players deleted.
+    """
+    cursor.execute("SELECT player_id FROM player WHERE is_verified = 0")
+    candidate_ids = [row[0] for row in cursor.fetchall()]
+
+    purged_players = 0
+    purged_appearances = 0
+
+    for pid in candidate_ids:
+        # Count appearances before attempting delete
+        cursor.execute("SELECT COUNT(*) FROM player_unverified_appearance WHERE player_id = ?", (pid,))
+        app_count = cursor.fetchone()[0]
+
+        if _delete_player_if_orphan(cursor, pid):
+            purged_players += 1
+            purged_appearances += app_count
+
+    if purged_players:
+        logger.info(
+            {"purged_players": purged_players, "purged_appearances": purged_appearances},
+            "Purged unverified orphan players and their appearances"
+        )
+    return purged_players
+
