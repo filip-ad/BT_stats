@@ -79,7 +79,7 @@ def upd_players_verified(cursor, run_id=None):
         metrics["non_duplicate_processed"] = nondup_count
         metrics["purged_unverified_orphans"] = purged
 
-        logger.info(metrics, "Player update summary")
+        _print_player_summary(metrics)
         logger.summarize()
         logging.info("Done updating players")
 
@@ -104,6 +104,23 @@ def _repoint_children(cursor, loser_id: int, survivor_id: int) -> int:
         cursor.execute(f"UPDATE {table} SET {col} = ? WHERE {col} = ?", (survivor_id, loser_id))
         total += cursor.rowcount
     return total
+
+def _print_player_summary(metrics: Dict[str, int]):
+    print("\n📊 Operation Summary:")
+    print(f"   👥 Manual groups total:          {metrics.get('groups_total', 0)}")
+    print(f"      • With existing players:      {metrics.get('groups_with_existing', 0)}")
+    print(f"      • Created new survivors:      {metrics.get('groups_created_survivor', 0)}")
+    print(f"      • Groups merged successfully: {metrics.get('groups_merged', 0)}")
+    print(f"      • Ext aliases added:          {metrics.get('ext_aliases_added', 0)}")
+    print(f"      • Ext repointed:              {metrics.get('ext_repointed', 0)}")
+    print(f"      • Losers total:               {metrics.get('losers_total', 0)}")
+    print(f"      • Losers deleted:             {metrics.get('losers_deleted', 0)}")
+    print(f"      • Losers kept (with refs):    {metrics.get('losers_kept_with_refs', 0)}")
+    print()
+    print(f"   🆕 Non-duplicate processed:      {metrics.get('non_duplicate_processed', 0)}")
+    print(f"   🗑️  Purged unverified players:   {metrics.get('purged_players ', 0)}")
+    print(f"      • Appearances deleted:        {metrics.get('purged_appearances', 0)}")
+    print()
 
 def _delete_player_if_orphan(cursor, player_id: int) -> bool:
     """
@@ -287,7 +304,8 @@ def _insert_non_duplicates(cursor, logger: OperationLogger, player_data: Dict[in
     """Insert players for ext_ids not in any manual group. Returns count attempted."""
     processed_exts = set().union(*DUPLICATE_EXT_GROUPS) if DUPLICATE_EXT_GROUPS else set()
     remaining = [ext for ext in player_data if ext not in processed_exts]
-    logger.info("Processing %d non-duplicate externals", len(remaining))
+    logger.info(f"Processing {len(remaining):,} non-duplicate externals")
+
 
     for ext in sorted(remaining):
         fn, ln, yb = player_data[ext]

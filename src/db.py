@@ -1229,63 +1229,81 @@ def create_and_populate_static_tables(cursor, logger):
         print(f"Error creating tables: {e}")
 
 def create_indexes(cursor):
+
     print("ℹ️  Creating indexes...")
 
     indexes = [
-        # Tournament table
+        # -------------------------------
+        # Tournament
+        # -------------------------------
+        # Lookups by external ID (joins, upserts)
         "CREATE INDEX IF NOT EXISTS idx_tournament_id_ext ON tournament(tournament_id_ext)",
+        # Fuzzy searches / filters by shortname
         "CREATE INDEX IF NOT EXISTS idx_tournament_shortname ON tournament(shortname)",
+        # Sorting / filtering by tournament date
         "CREATE INDEX IF NOT EXISTS idx_tournament_startdate ON tournament(startdate)",  
 
-        # Tournament class
+        # -------------------------------
+        # Tournament Class
+        # -------------------------------
+        # Joins tournament_class → tournament
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_tournament_id ON tournament_class(tournament_id)",
+        # Filtering by class type
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_type_id ON tournament_class(tournament_class_type_id)",
+        # Filtering by structure
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_structure_id ON tournament_class(tournament_class_structure_id)",
+        # Lookups by external ID
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_id_ext ON tournament_class(tournament_class_id_ext)",
+        # Sorting / filtering by class date
         "CREATE INDEX IF NOT EXISTS idx_tournament_class_startdate ON tournament_class(startdate)",
 
-        # Participant 
-        # "CREATE INDEX IF NOT EXISTS idx_participant_tournament_class_id ON participant(tournament_class_id)",
+        # -------------------------------
+        # Tournament Class Player / Entry
+        # -------------------------------
+        # Player history lookup (find all classes a player entered)
+        "CREATE INDEX IF NOT EXISTS idx_tcp_player ON tournament_class_player(player_id)",
+        # Joins entry → class
+        "CREATE INDEX IF NOT EXISTS idx_tce_class ON tournament_class_entry(tournament_class_id)",
 
-        # Participant player --- replace with tournament_class_player??
-        # "CREATE INDEX IF NOT EXISTS idx_participant_player_player_id ON participant_player(player_id)",
-        # "CREATE INDEX IF NOT EXISTS idx_participant_player_club_id ON participant_player(club_id)",
-        # "CREATE INDEX IF NOT EXISTS idx_participant_player_participant_id ON participant_player(participant_id)",  # Added for joins to participant
-
-        # Tournament class entry
-        # 
-            
-        # Unique index for tournament class group
+        # -------------------------------
+        # Tournament Class Group
+        # -------------------------------
+        # Enforce uniqueness per class/group
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_tcg_class_group ON tournament_class_group (tournament_class_id, tournament_class_group_id)",
 
-        # Tournament class group (replaced tournament_group)
-        # "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_class_id ON tournament_class_group(tournament_class_id)",
+        # -------------------------------
+        # Player ID Ext
+        # -------------------------------
+        # Joins player → player_id_ext
+        "CREATE INDEX IF NOT EXISTS idx_player_id_ext_player_id ON player_id_ext(player_id)",
 
-        # Tournament class group member (replaced tournament_group_member)
-        # "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_member_group_id ON tournament_class_group_member(tournament_class_group_id)",
-        # "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_member_participant_id ON tournament_class_group_member(participant_id)",  # Updated to participant_id
+        # -------------------------------
+        # Player License
+        # -------------------------------
+        # Lookup latest license by player & season
+        "CREATE INDEX IF NOT EXISTS idx_player_license_player_season ON player_license(player_id, season_id)",
+        # Joins license → club
+        "CREATE INDEX IF NOT EXISTS idx_player_license_club ON player_license(club_id)",
 
-        # Match
-      
+        # -------------------------------
+        # Player Transition
+        # -------------------------------
+        # Lookup transitions by player & season (latest club move)
+        "CREATE INDEX IF NOT EXISTS idx_player_transition_player_season ON player_transition(player_id, season_id)",
 
-        # Match id ext
-        # "CREATE INDEX IF NOT EXISTS idx_match_id_ext_match_id ON match_id_ext(match_id)",  # Added for source lookups
+        # -------------------------------
+        # Player Ranking Group
+        # -------------------------------
+        # Lookup ranking groups for player
+        "CREATE INDEX IF NOT EXISTS idx_prg_player ON player_ranking_group(player_id)",
 
-        # Match side
-        # "CREATE INDEX IF NOT EXISTS idx_match_side_match_id ON match_side(match_id)",
-        # "CREATE INDEX IF NOT EXISTS idx_match_side_participant_id ON match_side(participant_id)",  # Added for participant match history
-
-        # Match competition
-        # "CREATE INDEX IF NOT EXISTS idx_match_competition_match_id ON match_competition(match_id)",
-        # "CREATE INDEX IF NOT EXISTS idx_match_competition_tournament_class_id ON match_competition(tournament_class_id)",
-        # "CREATE INDEX IF NOT EXISTS idx_match_competition_competition_type_id ON match_competition(competition_type_id)",  # Added for type filtering
-
-        # Game
-        "CREATE INDEX IF NOT EXISTS idx_game_match_id ON game(match_id)",  # Added for match results aggregation
-
-        # Tournament class group standing
-        # "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_standing_group_id ON tournament_class_group_standing(tournament_class_group_id)",
-        # "CREATE INDEX IF NOT EXISTS idx_tournament_class_group_standing_participant_id ON tournament_class_group_standing(participant_id)"  # Added for standings queries
+        # -------------------------------
+        # Player Ranking (3.5M rows, critical)
+        # -------------------------------
+        # Fast lookup of most recent ranking row per player_id_ext
+        "CREATE INDEX IF NOT EXISTS idx_player_ranking_player_date ON player_ranking(player_id_ext, run_date DESC)",
+        # Efficient queries when pulling entire ranking snapshot by date
+        "CREATE INDEX IF NOT EXISTS idx_player_ranking_date ON player_ranking(run_date)",
     ]
 
     try:
@@ -1441,7 +1459,134 @@ def create_views(cursor):
                 ON c.club_id = tcp.club_id
             ORDER BY t.startdate, tc.startdate, tce.seed;
         '''
+    ),
+    (
+        "v_player_profile",
+        '''
+        CREATE VIEW IF NOT EXISTS v_player_profile AS
+        WITH recent_license AS (
+            SELECT pl.player_id,
+                c.club_id,
+                c.shortname || ' (' || s.label || ')' AS club_with_season,
+                pl.season_id,
+                ROW_NUMBER() OVER (PARTITION BY pl.player_id ORDER BY s.start_date DESC) AS rn
+            FROM player_license pl
+            JOIN season s ON pl.season_id = s.season_id
+            JOIN club c ON pl.club_id = c.club_id
+        ),
+        recent_tournament AS (
+            SELECT tcp.player_id,
+                t.tournament_id,
+                t.shortname AS tournament_name,
+                tc.shortname AS class_shortname,
+                tc.startdate AS class_startdate,
+                ROW_NUMBER() OVER (PARTITION BY tcp.player_id ORDER BY tc.startdate DESC) AS rn
+            FROM tournament_class_player tcp
+            JOIN tournament_class_entry tce
+                ON tcp.tournament_class_entry_id = tce.tournament_class_entry_id
+            JOIN tournament_class tc
+                ON tce.tournament_class_id = tc.tournament_class_id
+            JOIN tournament t
+                ON tc.tournament_id = t.tournament_id
+        ),
+        recent_transition AS (
+            SELECT pt.player_id,
+                cf.shortname || ' → ' || ct.shortname || ' (' || s.label || ')' AS transition_text,
+                ROW_NUMBER() OVER (PARTITION BY pt.player_id ORDER BY s.start_date DESC) AS rn
+            FROM player_transition pt
+            JOIN club cf ON pt.club_id_from = cf.club_id
+            JOIN club ct ON pt.club_id_to = ct.club_id
+            JOIN season s ON pt.season_id = s.season_id
+        ),
+        id_exts AS (
+            SELECT pie.player_id,
+                GROUP_CONCAT(pie.player_id_ext) AS id_ext_list,
+                COUNT(*) AS id_ext_count
+            FROM player_id_ext pie
+            GROUP BY pie.player_id
+        ),
+        ranking_groups AS (
+            SELECT prg.player_id,
+                GROUP_CONCAT(rg.class_short, ', ') AS ranking_groups
+            FROM player_ranking_group prg
+            JOIN ranking_group rg ON prg.ranking_group_id = rg.ranking_group_id
+            GROUP BY prg.player_id
+        ),
+        recent_ranking_points AS (
+            SELECT pie.player_id,
+                pr.points,
+                pr.run_date
+            FROM player_id_ext pie
+            JOIN (
+                SELECT player_id_ext, MAX(run_date) AS max_run_date
+                FROM player_ranking
+                GROUP BY player_id_ext
+            ) latest
+            ON pie.player_id_ext = latest.player_id_ext
+            JOIN player_ranking pr
+            ON pr.player_id_ext = latest.player_id_ext
+            AND pr.run_date = latest.max_run_date
+        ),
+        ranking_points_per_player AS (
+            SELECT rrp.player_id,
+                rrp.points,
+                rrp.run_date
+            FROM recent_ranking_points rrp
+            JOIN (
+                SELECT player_id, MAX(run_date) AS max_date
+                FROM recent_ranking_points
+                GROUP BY player_id
+            ) maxed
+            ON rrp.player_id = maxed.player_id
+            AND rrp.run_date = maxed.max_date
+        )
+        SELECT
+            -- Player context
+            p.player_id,
+            CASE 
+                WHEN p.is_verified = 1 THEN p.firstname || ' ' || p.lastname
+                ELSE p.fullname_raw
+            END AS player_name,
+            p.year_born,
+            p.is_verified,
+            COALESCE(id_exts.id_ext_list, '') AS id_exts,
+            COALESCE(id_exts.id_ext_count, 0) AS id_ext_count,
+
+            -- Club context
+            rl.club_with_season AS recent_club,
+
+            -- Tournament context
+            rt.tournament_name || ' - ' || rt.class_shortname || ' (' || rt.class_startdate || ')' AS recent_tournament_class,
+
+            -- Ranking groups (merged list)
+            COALESCE(rg.ranking_groups, '') AS ranking_groups,
+
+            -- Ranking points (latest across all player_id_ext)
+            CASE 
+                WHEN rpp.points IS NOT NULL 
+                THEN rpp.points || ' (' || rpp.run_date || ')'
+                ELSE ''
+            END AS ranking_points,
+
+            -- Transition
+            tr.transition_text AS recent_transition
+
+        FROM player p
+        LEFT JOIN id_exts
+            ON p.player_id = id_exts.player_id
+        LEFT JOIN recent_license rl
+            ON p.player_id = rl.player_id AND rl.rn = 1
+        LEFT JOIN recent_tournament rt
+            ON p.player_id = rt.player_id AND rt.rn = 1
+        LEFT JOIN ranking_groups rg
+            ON p.player_id = rg.player_id
+        LEFT JOIN recent_transition tr
+            ON p.player_id = tr.player_id AND tr.rn = 1
+        LEFT JOIN ranking_points_per_player rpp
+            ON p.player_id = rpp.player_id;
+        '''
     )
+
 
     ]
 
