@@ -33,9 +33,9 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
         return
     
     # For testing, limit to specific tournament_class_id_ext
-    tournament_class_id_ext = '515'
+    tournament_class_id_ext = ('507', '1613', '1618', '1650', '1651', '1645', '611', '501', '515') 
     if tournament_class_id_ext:
-        raw_rows = [r for r in raw_rows if r.tournament_class_id_ext == tournament_class_id_ext]
+        raw_rows = [r for r in raw_rows if r.tournament_class_id_ext in tournament_class_id_ext]
 
     # Groups needed to resolve doubles, where 1 entry maps to 2 players (with same group_id)
     groups: Dict[str, Dict[int, List[TournamentClassEntryRaw]]] = {}
@@ -186,46 +186,6 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
                     # Link unverified appearance if player is unverified
                     if match_type == "unverified":
                         Player.link_unverified_appearance(cursor, player_id, club_id, class_date)
-
-                    # player_id, match_type = match_player(
-                    #     cursor,
-                    #     fullname_raw,
-                    #     clubname_raw,
-                    #     class_date,
-                    #     license_name_club_map,
-                    #     player_name_map,
-                    #     player_unverified_name_map,
-                    #     unverified_appearance_map,
-                    #     logger,
-                    #     logger_keys.copy(),
-                    #     club_id=club_id
-                    # )
-                    # if player_id is None:
-                    #     logger.failed(logger_keys, "No match for player")
-                    #     continue
-                    # logger_keys['player_id'] = player_id
-                    # logger_keys['match_type'] = match_type
-
-                    # player_data = {
-                    #     "tournament_class_entry_id": entry.tournament_class_entry_id,
-                    #     "tournament_player_id_ext": tournament_player_id_ext,
-                    #     "player_id": player_id,
-                    #     "club_id": club_id
-                    # }
-                    # player = TournamentClassPlayer.from_dict(player_data)
-                    # is_valid, error_message = player.validate()
-                    # if not is_valid:
-                    #     logger.failed(logger_keys.copy(), f"Player validation failed: {error_message}")
-                    #     continue
-
-                    # action = player.upsert(cursor)
-                    # if not action:
-                    #     logger.failed(logger_keys.copy(), "Player upsert failed (invalid or no change)")
-                    #     continue
-
-                    # # Link unverified appearance if player is unverified
-                    # if match_type == "unverified":
-                    #     Player.link_unverified_appearance(cursor, player_id, club_id, class_date)
 
                 logger.success(logger_keys.copy(), "Class entry resolved successfully")
 
@@ -393,6 +353,7 @@ def match_by_unverified_with_club(cursor, fullname_raw: str, clubname_raw: str, 
     if clean in unverified_appearance_map:
         for entry in unverified_appearance_map[clean]:
             if entry["club_id"] == club_id or club_id is None:
+                logger.warning(item_keys.copy(), "Matched unverified player with prior apperance for same club")
                 return entry["player_id"], "unverified player with club"
     return None
 
@@ -414,14 +375,19 @@ def match_by_name_exact(cursor, fullname_raw: str, clubname_raw: str, class_date
 
 def fallback_unverified(cursor, fullname_raw: str, clubname_raw: str, player_unverified_name_map: Dict[str, int], logger: OperationLogger, item_keys: Dict):
     clean = normalize_key(fullname_raw)
+    
+    # 1. Check in-memory map first
     existing = player_unverified_name_map.get(clean)
     if existing is not None:
         return existing
 
+    # 2. Otherwise try insert/reuse
     res = Player.insert_unverified(cursor, fullname_raw)
     if res["status"] in ("created", "reused") and res["player_id"]:
         player_unverified_name_map[clean] = res["player_id"]
         if res["status"] == "created":
+            # 3. Keep in-memory map up-to-date (always, not only on "created")
+            player_unverified_name_map[clean] = res["player_id"]
             logger.warning(item_keys.copy(), "Created new unverified player")
         else:
             logger.warning(item_keys.copy(), "Reused existing unverified player")

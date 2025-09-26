@@ -155,13 +155,13 @@ def main():
         ################################################################################################
         
 
-        # # Update player data
-        upd_player_data(
-            run_id                          = pipeline_run_id,
-            do_scrape_player_licenses       = False, 
-            do_scrape_player_rankings       = False,
-            do_scrape_player_transitions    = False
-        )
+        # # # Update player data
+        # upd_player_data(
+        #     run_id                          = pipeline_run_id,
+        #     do_scrape_player_licenses       = False, 
+        #     do_scrape_player_rankings       = False,
+        #     do_scrape_player_transitions    = False
+        # )
 
         # Update tournament data
         upd_tournament_data(

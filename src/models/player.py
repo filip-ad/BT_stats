@@ -140,10 +140,10 @@ class Player(CacheMixin):
             player_id_ext: Optional[str] = None, 
             data_source_id: Optional[int] = None
         ) -> dict:
-        self.sanitize()
-
+        
         # For non-verified (raw) players, require fullname_raw; for verified, require firstname and lastname
         if self.is_verified:
+            self.sanitize()
             required_fields = [self.firstname, self.lastname]
             if not all(required_fields):
                 return {
