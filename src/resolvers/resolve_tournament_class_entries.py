@@ -1,5 +1,6 @@
 # src/resolvers/resolve_tournament_class_entries.py
 
+from asyncio.log import logger
 from models.tournament_class import TournamentClass
 from models.tournament_class_entry import TournamentClassEntry
 from models.tournament_class_player import TournamentClassPlayer
@@ -7,10 +8,11 @@ from models.tournament_class_entry_raw import TournamentClassEntryRaw
 from models.club import Club
 from models.player import Player
 from models.player_license import PlayerLicense
-from utils import OperationLogger, name_keys_for_lookup_all_splits, normalize_key
+from utils import OperationLogger, name_keys_for_lookup_all_splits, normalize_key, parse_date
 from typing import List, Dict, Optional, Tuple
 import sqlite3
 from datetime import date
+from config import RESOLVE_ENTRIES_CUTOFF_DATE
 
 def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> None:
     """Resolve raw entries into tournament_class_entry and tournament_class_player tables."""
@@ -25,13 +27,27 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
         run_id          = run_id
     )
 
-    logger.info("Resolving tournament class entries...", to_console=True)
-
     raw_rows = TournamentClassEntryRaw.get_all(cursor)
     if not raw_rows:
         logger.skipped({}, "No raw entry data to resolve")
         return
     
+    cutoff_date: date | None = parse_date(RESOLVE_ENTRIES_CUTOFF_DATE) if RESOLVE_ENTRIES_CUTOFF_DATE else None
+    if cutoff_date:
+        filtered_classes = TournamentClass.get_filtered_classes(
+            cursor,
+            cutoff_date=cutoff_date,
+            require_ended=False,        # set True if you only want ended tournaments
+            allowed_type_ids = [1],     # singles
+            order="newest"
+        )
+        allowed_class_exts = {tc.tournament_class_id_ext for tc in filtered_classes if tc.tournament_class_id_ext}
+        if allowed_class_exts:
+            raw_rows = [r for r in raw_rows if r.tournament_class_id_ext in allowed_class_exts]
+        logger.info(f"Resolving tournament class entries for classes since {cutoff_date} ({len(raw_rows)} raw entries to process)...")
+    else:
+        logger.info("Resolving tournament class entries...", to_console=True)
+
     # # For testing, limit to specific tournament_class_id_ext
     # tournament_class_id_ext = ('507', '1613', '1618', '1650', '1651', '1645', '611', '501', '515') 
     # if tournament_class_id_ext:
@@ -46,6 +62,8 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
         group_id = row.entry_group_id_int if row.entry_group_id_int is not None else int(f"100000{row.row_id}") 
         groups.setdefault(class_ext, {}).setdefault(group_id, []).append(row)
 
+    logger.info({}, f"Filtered classes after cutoff: {len(filtered_classes)}")
+    logger.info({}, f"Classes with raw entry rows: {len(groups)}")
 
     # Build lookup caches (unchanged from old code)
     player_name_map = Player.cache_name_map_verified(cursor)
@@ -72,6 +90,9 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
             tournament_class_id = tc.tournament_class_id
             class_date = tc.startdate if tc.startdate else date.today()
             logger_keys.update({'tournament_class_shortname': tc.shortname})
+
+
+            logger.info(f"Resolving entries for tournament_class_id_ext={class_ext} (tournament_class_id={tournament_class_id}) with {len(class_groups)} groups...", to_console=False)
 
             for group_id, group_rows in class_groups.items():   
                 if not group_rows:
@@ -113,6 +134,7 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
                     continue
 
                 for raw_row in group_rows:
+
                     logger_keys.update({
                         'fullname_raw': raw_row.fullname_raw,
                         'clubname_raw': raw_row.clubname_raw,

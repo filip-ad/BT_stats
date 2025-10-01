@@ -34,7 +34,7 @@ def resolve_tournament_classes(cursor, run_id=None) -> List[TournamentClass]:
     )
 
     raw_count = len(raw_objects)
-    logger.info(f"Resolving {raw_count} tournament_class_raw entries...")
+    logger.info(f"Resolving {raw_count} raw tournament classes...")
 
     if not raw_objects:
         logger.failed({}, "No tournament class data found in tournament_class_raw")

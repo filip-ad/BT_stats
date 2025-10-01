@@ -21,7 +21,7 @@ class TournamentClassEntryRaw(CacheMixin):
     clubname_raw:                       Optional[str] = None     
     seed_raw:                           Optional[str] = None      
     final_position_raw:                 Optional[str] = None      
-    entry_group_id_int:                 Optional[int] = None  
+    entry_group_id_int:                 Optional[int] = None
     data_source_id:                     int = 1
     content_hash:                       Optional[str] = None
     row_created:                        Optional[str] = None

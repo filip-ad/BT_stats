@@ -245,6 +245,31 @@ def create_raw_tables(cursor, logger):
                 UNIQUE (tournament_id_ext, tournament_class_id_ext, fullname_raw, clubname_raw, tournament_player_id_ext, data_source_id),
                 UNIQUE (tournament_id_ext, tournament_class_id_ext, tournament_player_id_ext)
             );
+        ''',
+
+        "tournament_class_group_match_raw":
+        '''
+            CREATE TABLE IF NOT EXISTS tournament_class_group_match_raw (
+                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                tournament_id_ext               TEXT NOT NULL,
+                tournament_class_id_ext         TEXT NOT NULL,
+                group_id_ext                    TEXT NOT NULL,
+                match_id_ext                    TEXT,
+                player_id_ext                   TEXT,
+                fullname_raw                    TEXT,
+                clubname_raw                    TEXT,  
+                game_point_tokens               TEXT,
+                match_result_tokens             TEXT,
+                best_of                         INTEGER,
+                data_source_id                  INTEGER NOT NULL,
+                content_hash                    TEXT,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (data_source_id)    REFERENCES data_source(data_source_id),
+
+                UNIQUE (tournament_id_ext, tournament_class_id_ext, group_id_ext, fullname_raw, clubname_raw, match_id_ext, player_id_ext, data_source_id)
+            );
         '''
     }
 
@@ -263,7 +288,7 @@ def create_raw_tables(cursor, logger):
                 created.append(name)
 
     except Exception as e:
-        logger.error(f"Error creating raw tables: {e}")
+        logger.failed(f"Error creating raw tables: {e}")
         print(f"❌ Error creating raw tables: {e}")
         raise
 

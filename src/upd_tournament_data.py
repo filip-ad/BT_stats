@@ -16,6 +16,7 @@ def upd_tournament_data(
         do_scrape_tournaments           = False,
         do_scrape_tournament_classes    = False,
         do_scrape_tournament_entries    = False,
+        do_scrape_tournament_groups     = False
     ):
 
     conn, cursor = get_conn()
@@ -55,9 +56,10 @@ def upd_tournament_data(
 
     # Resolving
     try:
-        resolve_tournaments(cursor, run_id=run_id)
-        resolve_tournament_classes(cursor, run_id=run_id)
-        resolve_tournament_class_entries(cursor, run_id=run_id)
+        # resolve_tournaments(cursor, run_id=run_id)
+        # resolve_tournament_classes(cursor, run_id=run_id)
+        # resolve_tournament_class_entries(cursor, run_id=run_id)
+
         pass
 
     except Exception as e:

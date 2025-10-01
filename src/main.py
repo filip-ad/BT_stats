@@ -168,7 +168,7 @@ def main():
             run_id                          = pipeline_run_id,
             do_scrape_tournaments           = False,
             do_scrape_tournament_classes    = False,
-            do_scrape_tournament_entries    = True
+            do_scrape_tournament_entries    = False
         )
 
         export_runs_to_excel()
