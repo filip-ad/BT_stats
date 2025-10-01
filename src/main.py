@@ -155,21 +155,12 @@ def main():
         ################################################################################################
         
 
-<<<<<<< HEAD
         # # # Update player data
         # upd_player_data(
         #     run_id                          = pipeline_run_id,
         #     do_scrape_player_licenses       = True, 
         #     do_scrape_player_rankings       = False,
         #     do_scrape_player_transitions    = True
-=======
-        # # Update player data
-        # upd_player_data(
-        #     run_id                          = pipeline_run_id,
-        #     do_scrape_player_licenses       = False, 
-        #     do_scrape_player_rankings       = False,
-        #     do_scrape_player_transitions    = False
->>>>>>> e5cde7853ba458f8fc11c8e54855dd3657d74607
         # )
 
         # Update tournament data
