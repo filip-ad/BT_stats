@@ -20,11 +20,11 @@ SCRAPE_TOURNAMENTS_ORDER                = "newest"      # Order of tournaments t
 SCRAPE_TOURNAMENT_SBTFOTT_URL           = "https://sbtfott.stupaevents.com/#/events"
 
 SCRAPE_CLASSES_MAX_TOURNAMENTS          = 20         # Maximum number of tournaments to scrape classes from
-SCRAPE_CLASSES_TOURNAMENT_ID_EXTS       = 0
+SCRAPE_CLASSES_TOURNAMENT_ID_EXTS       = None       # List (TEXT) ['123', '234'], None for all
 
 # Update defaults to use None for "no limit/all"
 SCRAPE_PARTICIPANTS_CUTOFF_DATE         = '2025-09-01'          # Date format: YYYY-MM-DD, None for all
-SCRAPE_PARTICIPANTS_MAX_CLASSES         = 10                  # Maximum number of classes to scrape participants from, None for all classes
+SCRAPE_PARTICIPANTS_MAX_CLASSES         = 1000                  # Maximum number of classes to scrape participants from, None for all classes
 SCRAPE_PARTICIPANTS_CLASS_ID_EXTS       = None                  # List (TEXT) ['123', '234'], None for all
 SCRAPE_PARTICIPANTS_TNMT_ID_EXTS        = None                  # List (TEXT) ['123', '234'], None for all
 SCRAPE_PARTICIPANTS_ORDER               = "oldest"              # Order of classes to scrape participants from, "oldest" or "newest"
