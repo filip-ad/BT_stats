@@ -248,6 +248,35 @@ class Tournament(CacheMixin):
             cache_key_extra=f"tournament_ids_ds_{data_source_id}",
         )
         return {row["tournament_id_ext"]: row["tournament_id"] for row in rows}
+    
+    @classmethod
+    def get_id_ext_map_by_id(
+        cls,
+        cursor: sqlite3.Cursor,
+        ids: List[int],
+    ) -> dict[int, str]:
+        """
+        Bulk fetch external tournament IDs by internal IDs.
+        Returns a mapping {tournament_id -> tournament_id_ext} exactly as stored
+        in the DB (no zero-padding or formatting).
+        """
+        if not ids:
+            return {}
+
+        placeholders = ", ".join("?" * len(ids))
+        query = f"""
+            SELECT tournament_id, tournament_id_ext
+            FROM tournament
+            WHERE tournament_id IN ({placeholders})
+        """
+        rows = cls.cached_query(
+            cursor,
+            query,
+            tuple(ids),
+            cache_key_extra=f"id_ext_by_id_{len(ids)}",
+        )
+        # Keys are ints (tournament_id), values are raw strings (tournament_id_ext)
+        return {row["tournament_id"]: row["tournament_id_ext"] for row in rows}
 
    # Used in scrape_participants_ondata to get ongoing and ended tournaments 
     @classmethod

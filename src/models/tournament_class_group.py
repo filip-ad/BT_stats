@@ -5,10 +5,10 @@ import sqlite3
 
 @dataclass
 class TournamentClassGroup:
-    tournament_class_group_id: Optional[int]
-    tournament_class_id: int
-    description: str               # e.g. "Pool 1"
-    sort_order: Optional[int] = None
+    tournament_class_group_id:          Optional[int]
+    tournament_class_id:                int
+    description:                        str               # e.g. "Pool 1"
+    sort_order:                         Optional[int] = None
 
     def upsert(self, cursor: sqlite3.Cursor) -> Dict[str, Any]:
         """
