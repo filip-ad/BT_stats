@@ -95,6 +95,9 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
             with open(pdf_path, "rb") as f:
                 pdf_bytes = f.read()
             rounds = _parse_knockout_pdf(pdf_bytes)
+            if not rounds:
+                logger.warning(logger_keys.copy(), "KO parser returned 0 rounds (no bracket entries detected).")
+
         except Exception as e:
             logger.failed(logger_keys.copy(), f"KO PDF parsing failed: {e}")
             continue
@@ -117,13 +120,15 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
         for r in rounds:
             stage_id = r.get("stage_id")
             for mm in r.get("matches", []):
+                if not mm.get("p2"):
+                    continue  # skip byes
                 total_seen += 1
 
                 p1 = mm.get("p1", {}) or {}
                 p2 = mm.get("p2", {}) or {}
 
-                p1_code = mm.get("p1_code") or None
-                p2_code = mm.get("p2_code") or None
+                p1_code = p1.get("code") or None
+                p2_code = p2.get("code") or None
 
                 tokens_raw = mm.get("tokens", [])
                 tokens_csv = _normalize_sign_tokens(tokens_raw)
@@ -244,16 +249,30 @@ def _infer_best_of_from_sign(tokens: list[str]) -> int | None:
 # (columns = bracket rounds), pair adjacent entries vertically as matches, and grab
 # result tokens to the right of that pair (within the horizontal gap until the next column).
 
-# Matches an entry with club: "046 Wang Tom, IFK Täby BTK"
+# ───────────────────────── Helpers: extract KO bracket entries ─────────────────────────
+# code + name + club  e.g. "046 Wang Tom, IFK Täby BTK"
 _RE_ENTRY_WITH_CLUB = re.compile(
     r"^\s*(?P<code>\d{1,3}(?:/\d{1,3})?)\s+(?P<name>.+?)\s*,\s*(?P<club>.+?)\s*$"
 )
-# Matches a shorter entry without club: "046 Wang T"
+# code + name  e.g. "150 Ott D"
 _RE_ENTRY_SIMPLE = re.compile(
     r"^\s*(?P<code>\d{1,3}(?:/\d{1,3})?)\s+(?P<name>.+?)\s*$"
 )
+# name + club (no code)  e.g. "Ohlsén Vigg, Laholms BTK Serve"
+_RE_ENTRY_NAME_CLUB = re.compile(
+    r"^\s*(?P<name>[^,]+?)\s*,\s*(?P<club>.+?)\s*$"
+)
+# short name only (no code, no comma)  e.g. "Wang L", "Zhu A", "Ott D"
+# (allow diacritics, hyphens, apostrophes; last token is 1–3 letters + optional dot)
+_RE_ENTRY_SHORT = re.compile(
+    r"^\s*(?P<name>[A-Za-zÅÄÖåäöÉéÍíÓóÚúÑñÜüÆæØøÇç'’\-.]+(?:\s+[A-Za-zÅÄÖåäöÉéÍíÓóÚúÑñÜüÆæØøÇç'’\-.]+)*)\s+[A-Za-zÅÄÖÉÍÓÚÑÜ]{1,3}\.?\s*$"
+)
 
-_SEG_GAP = 36.0  # px gap between words that indicates a new segment/column piece
+_RE_TOKEN = re.compile(r"^(?P<tokens>(?:[+-]?\d+(?:\s*,\s*[+-]?\d+)*|WO))$", re.IGNORECASE)
+
+_SEG_GAP            = 36.0  # px gap between words that indicates a new segment/column piece
+_PAIR_GAP_MAX       = 12.0  # Strict gap for pairing opponents
+_LOOSE_PAIR_GAP_MAX = 200.0  # Loose gap for later rounds, increased
 
 def _segment_to_entry(seg_words: list[dict]) -> dict | None:
     """
@@ -262,36 +281,79 @@ def _segment_to_entry(seg_words: list[dict]) -> dict | None:
     """
     if not seg_words:
         return None
-
+    # Raw segment text
     text = " ".join(w["text"] for w in seg_words).strip()
-
-    # Require that the segment starts with a player code (prevents picking up headers etc.)
-    if not re.match(r"^\s*\d{1,3}(?:/\d{1,3})?\b", text):
+    if not text or len(text) < 2:
         return None
-
-    # Sometimes result tokens trail at the end; strip them and try again.
-    # Example: "... , Club 11, -9, 3"
-    cleaned = re.sub(r"(?:WO|[+-]?\d+(?:\s*[,\s]\s*[+-]?\d+)*)\s*$", "", text, flags=re.IGNORECASE).strip()
-
-    m = _RE_ENTRY_WITH_CLUB.match(cleaned) or _RE_ENTRY_SIMPLE.match(cleaned)
+    lower = text.lower()
+    if any(bad in lower for bad in ("slutspel", "pool", "sets", "poäng", "poäng", "diff", "bröt", "brot")):
+        return None
+    # If the entire segment is just tokens, it's not an entry
+    if re.fullmatch(r"(?:WO|[+-]?\d+(?:\s*[,\s]\s*[+-]?\d+)*)", text, flags=re.IGNORECASE):
+        return None
+    # Extract trailing tokens
+    trailing_pattern = r"(WO|[+-]?\d+(?:\s*[,\s]\s*[+-]?\d+)*)\s*$"
+    m_trailing = re.search(trailing_pattern, text, flags=re.IGNORECASE)
+    if m_trailing:
+        raw_trailing = m_trailing.group(1)
+        cleaned = text[:m_trailing.start()].strip()
+    else:
+        raw_trailing = None
+        cleaned = text.strip()
+    if not cleaned:
+        return None
+    # Helper: must contain at least one letter
+    def _has_alpha(s: str) -> bool:
+        return re.search(r"[A-Za-zÅÄÖåäöÉéÍíÓóÚúÑñÜüÆæØøÇç]", s) is not None
+    m = (
+        _RE_ENTRY_WITH_CLUB.match(cleaned)
+        or _RE_ENTRY_SIMPLE.match(cleaned)
+        or _RE_ENTRY_NAME_CLUB.match(cleaned)
+        or _RE_ENTRY_SHORT.match(cleaned)
+    )
     if not m:
         return None
-
+    code = (m.groupdict().get("code") or None)
+    name = m.group("name").strip()
+    club = m.groupdict().get("club")
+    club = club.strip() if club else None
+    # Reject if the 'name' part has no letters (prevents "8, 5, 8, ..." etc)
+    if not _has_alpha(name):
+        return None
     x0 = min(w["x0"] for w in seg_words)
     x1 = max(w["x1"] for w in seg_words)
     top = min(w["top"] for w in seg_words)
     bottom = max(w["bottom"] for w in seg_words)
     page = seg_words[0]["_page"]
     page_w = page.width
-
     return {
+        "type": "entry",
         "text": cleaned,
-        "code": m.group("code").strip(),
-        "name": m.group("name").strip(),
-        "club": (m.group("club").strip() if "club" in m.groupdict() and m.group("club") else None),
+        "code": (code.strip() if code else None),
+        "name": name,
+        "club": club,
         "x0": x0, "x1": x1, "top": top, "bottom": bottom,
         "page": page, "page_w": page_w,
+        "tokens": _tokenize_right(raw_trailing) if raw_trailing else []
     }
+
+def _segment_to_token(seg_words: list[dict]) -> dict | None:
+    text = " ".join(w["text"] for w in seg_words).strip()
+    if re.fullmatch(r"(?:WO|[+-]?\d+(?:\s*[,\s]\s*[+-]?\d+)*)", text, flags=re.IGNORECASE):
+        x0 = min(w["x0"] for w in seg_words)
+        x1 = max(w["x1"] for w in seg_words)
+        top = min(w["top"] for w in seg_words)
+        bottom = max(w["bottom"] for w in seg_words)
+        page = seg_words[0]["_page"]
+        page_w = page.width
+        return {
+            "type": "token",
+            "tokens": _tokenize_right(text),
+            "x0": x0, "x1": x1, "top": top, "bottom": bottom,
+            "page": page, "page_w": page_w
+        }
+    return None
+
 
 def _extract_entry_rows(pdf_bytes: bytes) -> list[dict]:
     """
@@ -303,7 +365,6 @@ def _extract_entry_rows(pdf_bytes: bytes) -> list[dict]:
     entries: list[dict] = []
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
-            # attach page ref so we can later extract tokens
             words = page.extract_words(x_tolerance=2, y_tolerance=3, keep_blank_chars=False) or []
             for w in words:
                 w["_page"] = page
@@ -311,7 +372,7 @@ def _extract_entry_rows(pdf_bytes: bytes) -> list[dict]:
             # group into y-rows
             row_map: dict[int, list[dict]] = {}
             rid, last_top = 0, None
-            for w in sorted(words, key=lambda w: (round(w["top"], 1), w["x0"])):
+            for w in sorted(words, key=lambda w: (round(w["top"], 1), w["x0"])):  # keep it tight by y
                 top = round(w["top"], 1)
                 if last_top is None or abs(top - last_top) > 3.0:
                     rid += 1
@@ -319,7 +380,7 @@ def _extract_entry_rows(pdf_bytes: bytes) -> list[dict]:
                     row_map[rid] = []
                 row_map[rid].append(w)
 
-            # split each row into segments by large x-gap and parse each segment
+            # split row into segments and parse each segment
             for row_words in row_map.values():
                 row_words.sort(key=lambda w: w["x0"])
                 seg: list[dict] = []
@@ -331,6 +392,10 @@ def _extract_entry_rows(pdf_bytes: bytes) -> list[dict]:
                         ent = _segment_to_entry(seg)
                         if ent:
                             entries.append(ent)
+                        else:
+                            token_ent = _segment_to_token(seg)
+                            if token_ent:
+                                entries.append(token_ent)
                         seg = []
 
                 for w in row_words:
@@ -344,13 +409,12 @@ def _extract_entry_rows(pdf_bytes: bytes) -> list[dict]:
 
     return entries
 
-
-def _cluster_columns(entries: list[dict], tolerance: float = 25.0) -> list[dict]:
+def _cluster_columns(entries: list[dict], tolerance: float = 60.0) -> list[dict]:  # Increased tolerance to 60.0
     """
     Cluster entry rows by their x0 into columns. Returns a list of columns:
       [{"x0": float, "x1": float, "rows": [entry_row, ...]}] sorted left→right.
     """
-    cols: list[dict] = []
+    cols = []
     for e in sorted(entries, key=lambda r: r["x0"]):
         placed = False
         for c in cols:
@@ -368,20 +432,6 @@ def _cluster_columns(entries: list[dict], tolerance: float = 25.0) -> list[dict]
     cols.sort(key=lambda c: c["x0"])
     return cols
 
-def _tokens_in_strip(page, x_left: float, x_right: float, y_top: float, y_bottom: float) -> list[str]:
-    """
-    Collect tokens in a horizontal strip to the right of a pair of entries.
-    """
-    words = page.extract_words(x_tolerance=2, y_tolerance=3, keep_blank_chars=False) or []
-    s = []
-    for w in words:
-        if x_left <= w["x0"] <= x_right and y_top <= w["top"] <= y_bottom:
-            s.append(w["text"])
-    text = " ".join(s).strip()
-    # Tighten: only keep the last numeric/WO-looking sequence in the strip
-    m = re.search(r"(WO|[+-]?\d+(?:\s*[,\s]\s*[+-]?\d+)*)\s*$", text, flags=re.IGNORECASE)
-    return _tokenize_right(m.group(1)) if m else []
-
 # Map #pairs in a column → tournament_class_stage_id
 _STAGE_BY_PAIRCOUNT = {
     1: 8,    # Final
@@ -396,58 +446,138 @@ _STAGE_BY_PAIRCOUNT = {
 def _parse_knockout_pdf(pdf_bytes: bytes) -> list[dict]:
     """
     Returns a list of 'round' dicts:
-      [{"stage_id": int, "matches": [ {p1,p1_code,p2,p2_code,tokens}, ... ]}, ...]
+      [{"stage_id": int, "matches": [ {p1, p1_code, p2, p2_code, tokens}, ... ]}, ...]
     """
-    # Find bracket entries with geometry (each segment = one entry)
-    entry_rows = _extract_entry_rows(pdf_bytes)
-    if not entry_rows:
-        logging.debug("[KO parse] No entry rows found.")
+    items = _extract_entry_rows(pdf_bytes)
+    if not items:
+        logging.info("[KO parse] No items found.")
+        return []
+    logging.info(f"[KO parse] detected {len(items)} items (entries + tokens)")
+    cols = _cluster_columns(items, tolerance=60.0)  # Increased tolerance
+    logging.info(f"[KO parse] columns={len(cols)}; sizes={[len(c['rows']) for c in cols]}")
+
+    # Build matches per column, including byes as p2=None
+    pairs_per_col: list[list[dict]] = []
+    for col in cols:
+        entry_rows = [r for r in col["rows"] if r.get("type") == "entry"]
+        col_matches: list[dict] = []
+        i = 0
+        while i < len(entry_rows):
+            if i + 1 < len(entry_rows):
+                a, b = entry_rows[i], entry_rows[i + 1]
+                vgap = b["top"] - a["bottom"]
+                atop_gap = b["top"] - a["top"]
+                logging.info(f"[KO parse] Column x0={col['x0']:.1f}, Row {i}: top={a['top']:.1f}, bottom={a['bottom']:.1f}, text={a['text']}")
+                logging.info(f"[KO parse] Column x0={col['x0']:.1f}, Row {i+1}: top={b['top']:.1f}, bottom={b['bottom']:.1f}, text={b['text']}")
+                logging.info(f"[KO parse] Potential pair vgap={vgap:.1f}, atop_gap={atop_gap:.1f}")
+                if vgap <= _PAIR_GAP_MAX and atop_gap <= _PAIR_GAP_MAX * 2:
+                    col_matches.append({"p1": a, "p2": b, "tokens": []})
+                    logging.info("[KO parse] Strict pair added")
+                    i += 2
+                    continue
+            a = entry_rows[i]
+            col_matches.append({"p1": a, "p2": None, "tokens": []})
+            logging.info("[KO parse] Bye/single added")
+            i += 1
+        # Fix: if no pairs made (all singles), but even number of rows, fallback to loose pairing
+        num_pairs = len([m for m in col_matches if m["p2"] is not None])
+        if num_pairs == 0 and len(entry_rows) % 2 == 0 and len(entry_rows) >= 2:
+            logging.info(f"[KO parse] No strict pairs, falling back to loose pairing for column x0={col['x0']:.1f}")
+            col_matches = []
+            i = 0
+            while i < len(entry_rows):
+                if i + 1 < len(entry_rows):
+                    a, b = entry_rows[i], entry_rows[i + 1]
+                    vgap = b["top"] - a["bottom"]
+                    atop_gap = b["top"] - a["top"]
+                    if vgap <= _LOOSE_PAIR_GAP_MAX and atop_gap <= _LOOSE_PAIR_GAP_MAX * 2:
+                        col_matches.append({"p1": a, "p2": b, "tokens": []})
+                        logging.info("[KO parse] Loose pair added")
+                        i += 2
+                        continue
+                a = entry_rows[i]
+                col_matches.append({"p1": a, "p2": None, "tokens": []})
+                logging.info("[KO parse] Loose bye added")
+                i += 1
+        pairs_per_col.append(col_matches)
+
+    # Identify columns with at least one real match (p2 not None)
+    match_col_indices = [ci for ci, ps in enumerate(pairs_per_col) if ps and any(m["p2"] is not None for m in ps)]
+    if not match_col_indices:
+        logging.warning("[KO parse] No match columns detected after pairing.")
         return []
 
-    logging.info(f"[KO parse] detected {len(entry_rows)} entry segments")
-    cols = _cluster_columns(entry_rows, tolerance=25.0)
-    logging.info(f"[KO parse] columns={len(cols)}; sizes={[len(c['rows']) for c in cols]}")
+    # Stage mapping from RIGHT
+    stage_by_ci: dict[int, int] = {}
+    for rank_from_right, ci in enumerate(reversed(match_col_indices)):
+        stage_by_ci[ci] = max(2, 8 - rank_from_right)
+
+    # Build round objects
     rounds: list[dict] = []
-
-    for ci, col in enumerate(cols):
-        rows = col["rows"]
-        # Pair consecutive entries vertically
-        pairs: list[Tuple[dict, dict]] = []
-        i = 0
-        while i + 1 < len(rows):
-            a, b = rows[i], rows[i + 1]
-            # sanity: keep pairs that are reasonably close vertically
-            if abs(b["top"] - a["bottom"]) <= 25.0 or (b["top"] - a["top"]) <= 60.0:
-                pairs.append((a, b))
-                i += 2
-            else:
-                # If the spacing is weird, still step by 2 to avoid infinite loops,
-                # but you may refine this threshold later.
-                pairs.append((a, b))
-                i += 2
-
-        # Decide the stage for this column by pair count (fallback: None)
-        stage_id = _STAGE_BY_PAIRCOUNT.get(len(pairs), None)
-
-        # Determine horizontal strip where set tokens live (between this column and the next)
-        x_left = col["x1"] + 6
-        x_right = (cols[ci + 1]["x0"] - 6) if (ci + 1 < len(cols)) else (rows[0]["page_w"] - 6)
-
+    for ci in match_col_indices:
         matches: list[dict] = []
-        for a, b in pairs:
-            y_top = min(a["top"], b["top"]) - 4
-            y_bot = max(a["bottom"], b["bottom"]) + 4
-            tokens = _tokens_in_strip(a["page"], x_left, x_right, y_top, y_bot)  # any page works; both in same page
-
-            matches.append({
-                "p1": {"name": a["name"], "club": a["club"]},
-                "p2": {"name": b["name"], "club": b["club"]},
-                "p1_code": a["code"],
-                "p2_code": b["code"],
-                "tokens": tokens,
-                "match_id_ext": None,   # KO PDFs often omit explicit match IDs
-            })
-
+        for m in pairs_per_col[ci]:
+            if m["p2"] is None:
+                continue  # skip byes
+            match = {
+                "p1": m["p1"],
+                "p2": m["p2"],
+                "tokens": m["p1"]["tokens"] or m["p2"]["tokens"] or [],  # if any has tokens
+                "match_id_ext": None,
+            }
+            matches.append(match)
+        stage_id = stage_by_ci.get(ci)
         rounds.append({"stage_id": stage_id, "matches": matches})
+
+    # Assign tokens from next column's aligned entry or global tokens
+    token_rows = [item for item in items if item.get("type") == "token"]
+    for r_idx in range(len(rounds)):
+        current_round = rounds[r_idx]
+        ci = match_col_indices[r_idx]
+        next_ci = ci + 1
+        while next_ci < len(cols) and not cols[next_ci]["rows"]:
+            next_ci += 1
+        has_next_entry_tokens = False
+        if next_ci < len(cols):
+            next_col = cols[next_ci]
+            next_rows = [r for r in next_col["rows"] if r.get("type") == "entry"]
+            for match in current_round["matches"]:
+                if match["tokens"]:
+                    continue
+                p1 = match["p1"]
+                p2 = match["p2"]
+                min_top = min(p1["top"], p2["top"])
+                max_bottom = max(p1["bottom"], p2["bottom"])
+                center = (min_top + max_bottom) / 2
+                closest = min(next_rows, key=lambda r: abs(r["top"] - center), default=None) if next_rows else None
+                if closest and abs(closest["top"] - center) <= 30.0 and closest["tokens"]:
+                    match["tokens"] = closest["tokens"]
+                    logging.info(f"[KO parse] Assigned tokens {match['tokens']} from next entry {closest['text']} at center {center:.1f}, entry top {closest['top']:.1f}")
+                    has_next_entry_tokens = True
+        # If no assignment from next entry, use global tokens
+        if not has_next_entry_tokens:
+            for match in current_round["matches"]:
+                if match["tokens"]:
+                    continue
+                p1 = match["p1"]
+                p2 = match["p2"]
+                min_top = min(p1["top"], p2["top"])
+                max_bottom = max(p1["bottom"], p2["bottom"])
+                center = (min_top + max_bottom) / 2
+                col_x1 = max(p1["x1"], p2["x1"])
+                candidates = [t for t in token_rows if t["x0"] > col_x1 - 50]
+                if not candidates:
+                    continue
+                closest = min(candidates, key=lambda t: abs(t["top"] - center) + 0.01 * abs(t["x0"] - col_x1))
+                delta_y = abs(closest["top"] - center)
+                if delta_y <= 30.0:
+                    match["tokens"] = closest["tokens"]
+                    logging.info(f"[KO parse] Assigned tokens {match['tokens']} from global token at center {center:.1f}, token top {closest['top']:.1f}, delta_y={delta_y:.1f}")
+
+    # Debug counts
+    debug_counts = {}
+    for r in rounds:
+        debug_counts[r["stage_id"]] = debug_counts.get(r["stage_id"], 0) + len(r["matches"])
+    logging.info(f"[KO parse] stage_counts={debug_counts}")
 
     return rounds
