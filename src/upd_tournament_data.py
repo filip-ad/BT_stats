@@ -72,21 +72,23 @@ def upd_tournament_data(
                 print(f"Error importing scrape_tournament_knockout_matches_ondata: {e}")
                 pass
 
-        conn.commit()
-        conn.close()
+
     
     except Exception as e:
         print(f"Error in upd_tournament_data: {e}")
 
     # Resolving
     try:
-        # resolve_tournaments(cursor, run_id=run_id)
-        # resolve_tournament_classes(cursor, run_id=run_id)
-        # resolve_tournament_class_entries(cursor, run_id=run_id)
+        resolve_tournaments(cursor, run_id=run_id)
+        resolve_tournament_classes(cursor, run_id=run_id)
+        resolve_tournament_class_entries(cursor, run_id=run_id)
 
         pass
 
     except Exception as e:
         print(f"Error in resolve_tournaments: {e}")
+
+    conn.commit()
+    conn.close()
 
 

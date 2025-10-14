@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from upd_clubs              import upd_clubs
 from upd_player_data        import upd_player_data
 from upd_tournament_data    import upd_tournament_data
 
@@ -155,12 +156,15 @@ def main():
         ################################################################################################
         
 
-        # # # Update player data
+        # # # Update club data
+        # upd_clubs(dry_run=False)
+
+        # # Update player data
         # upd_player_data(
         #     run_id                            = pipeline_run_id,
-        #     do_scrape_player_licenses         = True, 
+        #     do_scrape_player_licenses         = False, 
         #     do_scrape_player_rankings         = False,
-        #     do_scrape_player_transitions      = True
+        #     do_scrape_player_transitions      = False
         # )
 
         # Update tournament data
@@ -169,8 +173,8 @@ def main():
             do_scrape_tournaments                                   = False,
             do_scrape_tournament_classes                            = False,
             do_scrape_tournament_entries                            = False,
-            do_scrape_tournament_class_group_matches_ondata         = False,
-            do_scrape_tournament_class_knockout_matches_ondata      = True
+            do_scrape_tournament_class_group_matches_ondata         = True,
+            do_scrape_tournament_class_knockout_matches_ondata      = False
         )
 
         export_runs_to_excel()

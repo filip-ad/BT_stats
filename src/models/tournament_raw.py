@@ -137,13 +137,14 @@ class TournamentRaw:
         rows = cursor.fetchall()
         column_names = [desc[0] for desc in cursor.description]
         return [cls.from_dict(dict(zip(column_names, row))) for row in rows]
-
-
+    
     def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
         """
         Atomic upsert with hash gating for raw tournament data.
-        Uses (tournament_id_ext, data_source_id) if provided, else (shortname, startdate, arena, data_source_id).
-        Always updates last_seen_at; content/row_updated only if hash changed.
+        First checks by (tournament_id_ext, data_source_id) if provided.
+        If not found, checks by (shortname, startdate, arena, data_source_id).
+        Updates last_seen_at always; content/row_updated only if hash changed.
+        Inserts if no match.
 
         Returns one of:
             "inserted"   – new row created
@@ -152,294 +153,246 @@ class TournamentRaw:
             None         – invalid or no operation
         """
 
-        # --- 1. Validation ---
         is_valid, err = self.validate()
         if not is_valid:
-            return None  # Skip invalid rows entirely
+            return None
 
         new_hash = self.compute_content_hash()
+        row_id = None
 
-        # --- 2. Common values tuple (all content fields + hash) ---
-        common_vals = (
-            self.shortname, self.longname,
-            self.startdate if self.startdate else None,
-            self.enddate if self.enddate else None,
-            self.registration_end_date if self.registration_end_date else None,
-            self.city, self.arena, self.country_code, self.url,
-            self.tournament_level, self.tournament_type,
-            self.organiser_name, self.organiser_email, self.organiser_phone,
-            self.is_listed, self.data_source_id, new_hash
-        )
+        # Case 1: Try by tournament_id_ext if provided
+        if self.tournament_id_ext:
+            cursor.execute("""
+                SELECT row_id, content_hash FROM tournament_raw
+                WHERE tournament_id_ext = ? AND data_source_id = ?
+            """, (self.tournament_id_ext, self.data_source_id))
+            row = cursor.fetchone()
+            if row:
+                row_id, old_hash = row
+                if old_hash == new_hash:
+                    # Unchanged, update last_seen_at only
+                    cursor.execute("""
+                        UPDATE tournament_raw SET last_seen_at = CURRENT_TIMESTAMP
+                        WHERE row_id = ?
+                    """, (row_id,))
+                    return "unchanged"
+                else:
+                    # Update content
+                    self._update_content(cursor, row_id, new_hash)
+                    return "updated"
 
-        # --- 3. SQL: choose conflict key branch ---
-        if self.tournament_id_ext is not None:
-            sql = """
+        # If not found by id_ext, or no id_ext, try by secondary key
+        if self.shortname and self.startdate and self.arena:
+            cursor.execute("""
+                SELECT row_id, content_hash FROM tournament_raw
+                WHERE shortname = ? AND startdate = ? AND arena = ? AND data_source_id = ?
+            """, (self.shortname, self.startdate, self.arena, self.data_source_id))
+            row = cursor.fetchone()
+            if row:
+                row_id, old_hash = row
+                if old_hash == new_hash:
+                    # Unchanged, update last_seen_at only
+                    cursor.execute("""
+                        UPDATE tournament_raw SET last_seen_at = CURRENT_TIMESTAMP
+                        WHERE row_id = ?
+                    """, (row_id,))
+                    return "unchanged"
+                else:
+                    # Update content, including setting tournament_id_ext if new
+                    self._update_content(cursor, row_id, new_hash)
+                    return "updated"
+
+        # If no existing, insert
+        self._insert(cursor, new_hash)
+        return "inserted"
+    
+    def _insert(self, cursor, new_hash):
+        sql = """
             INSERT INTO tournament_raw (
                 tournament_id_ext, shortname, longname, startdate, enddate, registration_end_date,
                 city, arena, country_code, url, tournament_level, tournament_type,
                 organiser_name, organiser_email, organiser_phone, is_listed, data_source_id, content_hash, last_seen_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT (tournament_id_ext, data_source_id) DO UPDATE SET
-                shortname = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                THEN excluded.shortname ELSE tournament_raw.shortname END,
-                longname = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                THEN excluded.longname ELSE tournament_raw.longname END,
-                startdate = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                THEN excluded.startdate ELSE tournament_raw.startdate END,
-                enddate = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                            THEN excluded.enddate ELSE tournament_raw.enddate END,
-                registration_end_date = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                            THEN excluded.registration_end_date ELSE tournament_raw.registration_end_date END,
-                city = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                            THEN excluded.city ELSE tournament_raw.city END,
-                arena = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                            THEN excluded.arena ELSE tournament_raw.arena END,
-                country_code = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                    THEN excluded.country_code ELSE tournament_raw.country_code END,
-                url = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                        THEN excluded.url ELSE tournament_raw.url END,
-                tournament_level = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                        THEN excluded.tournament_level ELSE tournament_raw.tournament_level END,
-                tournament_type = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                    THEN excluded.tournament_type ELSE tournament_raw.tournament_type END,
-                organiser_name = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                    THEN excluded.organiser_name ELSE tournament_raw.organiser_name END,
-                organiser_email = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                    THEN excluded.organiser_email ELSE tournament_raw.organiser_email END,
-                organiser_phone = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                    THEN excluded.organiser_phone ELSE tournament_raw.organiser_phone END,
-                is_listed = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                THEN excluded.is_listed ELSE tournament_raw.is_listed END,
-                content_hash = excluded.content_hash,
-                last_seen_at = CURRENT_TIMESTAMP,
-                row_updated = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                THEN CURRENT_TIMESTAMP ELSE tournament_raw.row_updated END
-            RETURNING row_id;
-            """
-            vals = (self.tournament_id_ext,) + common_vals
-        else:
-            sql = """
-            INSERT INTO tournament_raw (
-                tournament_id_ext, shortname, longname, startdate, enddate, registration_end_date,
-                city, arena, country_code, url, tournament_level, tournament_type,
-                organiser_name, organiser_email, organiser_phone, is_listed, data_source_id, content_hash, last_seen_at
-            ) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT (shortname, startdate, arena, data_source_id) DO UPDATE SET
-                tournament_id_ext = COALESCE(excluded.tournament_id_ext, tournament_raw.tournament_id_ext),
-                longname = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                THEN excluded.longname ELSE tournament_raw.longname END,
-                enddate = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                            THEN excluded.enddate ELSE tournament_raw.enddate END,
-                registration_end_date = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                            THEN excluded.registration_end_date ELSE tournament_raw.registration_end_date END,
-                city = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                            THEN excluded.city ELSE tournament_raw.city END,
-                country_code = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                    THEN excluded.country_code ELSE tournament_raw.country_code END,
-                url = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                        THEN excluded.url ELSE tournament_raw.url END,
-                tournament_level = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                        THEN excluded.tournament_level ELSE tournament_raw.tournament_level END,
-                tournament_type = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                    THEN excluded.tournament_type ELSE tournament_raw.tournament_type END,
-                organiser_name = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                    THEN excluded.organiser_name ELSE tournament_raw.organiser_name END,
-                organiser_email = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                    THEN excluded.organiser_email ELSE tournament_raw.organiser_email END,
-                organiser_phone = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                    THEN excluded.organiser_phone ELSE tournament_raw.organiser_phone END,
-                is_listed = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                THEN excluded.is_listed ELSE tournament_raw.is_listed END,
-                content_hash = excluded.content_hash,
-                last_seen_at = CURRENT_TIMESTAMP,
-                row_updated = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
-                                THEN CURRENT_TIMESTAMP ELSE tournament_raw.row_updated END
-            RETURNING row_id;
-            """
-            vals = common_vals
-
-        # --- 4. Execute SQL ---
+        """
+        vals = (
+            self.tournament_id_ext, self.shortname, self.longname, self.startdate, self.enddate, self.registration_end_date,
+            self.city, self.arena, self.country_code, self.url, self.tournament_level, self.tournament_type,
+            self.organiser_name, self.organiser_email, self.organiser_phone, self.is_listed, self.data_source_id, new_hash
+        )
         cursor.execute(sql, vals)
-        row = cursor.fetchone()
+        self.row_id = cursor.lastrowid
+    
+    def _update_content(self, cursor, row_id, new_hash):
+        sql = """
+            UPDATE tournament_raw SET
+                tournament_id_ext = ?,
+                shortname = ?,
+                longname = ?,
+                startdate = ?,
+                enddate = ?,
+                registration_end_date = ?,
+                city = ?,
+                arena = ?,
+                country_code = ?,
+                url = ?,
+                tournament_level = ?,
+                tournament_type = ?,
+                organiser_name = ?,
+                organiser_email = ?,
+                organiser_phone = ?,
+                is_listed = ?,
+                content_hash = ?,
+                last_seen_at = CURRENT_TIMESTAMP,
+                row_updated = CURRENT_TIMESTAMP
+            WHERE row_id = ?
+        """
+        vals = (
+            self.tournament_id_ext, self.shortname, self.longname, self.startdate, self.enddate, self.registration_end_date,
+            self.city, self.arena, self.country_code, self.url, self.tournament_level, self.tournament_type,
+            self.organiser_name, self.organiser_email, self.organiser_phone, self.is_listed, new_hash, row_id
+        )
+        cursor.execute(sql, vals)
+        self.row_id = row_id
 
-        if not row:
-            # No row returned means conflict happened but no changes (unchanged)
-            return "unchanged"
 
-        self.row_id = row[0]
-
-        # If lastrowid matches the row_id, this was an INSERT
-        if cursor.lastrowid == self.row_id:
-            return "inserted"
-
-        # Otherwise it was an UPDATE path: check if content actually changed
-        cursor.execute("SELECT content_hash FROM tournament_raw WHERE row_id = ?;", (self.row_id,))
-        old_hash = cursor.fetchone()
-        if old_hash and old_hash[0] == new_hash:
-            return "unchanged"
-        return "updated"
-
-
-
-           # def upsert(self, cursor: sqlite3.Cursor) -> str:
+    # def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
     #     """
-    #     Upsert raw tournament data based on (tournament_id_ext, data_source_id) if tournament_id_ext is provided,
-    #     otherwise based on (shortname, startdate, arena, data_source_id).
-    #     Returns "inserted" or "updated" to indicate the action performed.
+    #     Atomic upsert with hash gating for raw tournament data.
+    #     Uses (tournament_id_ext, data_source_id) if provided, else (shortname, startdate, arena, data_source_id).
+    #     Always updates last_seen_at; content/row_updated only if hash changed.
+
+    #     Returns one of:
+    #         "inserted"   – new row created
+    #         "updated"    – existing row updated (content changed)
+    #         "unchanged"  – row existed but no content change
+    #         None         – invalid or no operation
     #     """
 
-    #     action = None
-    #     row_id = None
+    #     # --- 1. Validation ---
+    #     is_valid, err = self.validate()
+    #     if not is_valid:
+    #         return None  # Skip invalid rows entirely
 
+    #     new_hash = self.compute_content_hash()
+
+    #     # --- 2. Common values tuple (all content fields + hash) ---
+    #     common_vals = (
+    #         self.shortname, self.longname,
+    #         self.startdate if self.startdate else None,
+    #         self.enddate if self.enddate else None,
+    #         self.registration_end_date if self.registration_end_date else None,
+    #         self.city, self.arena, self.country_code, self.url,
+    #         self.tournament_level, self.tournament_type,
+    #         self.organiser_name, self.organiser_email, self.organiser_phone,
+    #         self.is_listed, self.data_source_id, new_hash
+    #     )
+
+    #     # --- 3. SQL: choose conflict key branch ---
     #     if self.tournament_id_ext is not None:
-    #         cursor.execute(
-    #             "SELECT row_id FROM tournament_raw WHERE tournament_id_ext = ? AND data_source_id = ?;",
-    #             (self.tournament_id_ext, self.data_source_id),
-    #         )
-    #         row = cursor.fetchone()
-    #         if row:
-    #             row_id = row[0]
-    #             # UPDATE (do not change tournament_id_ext, as it's the lookup key and assumed consistent)
-    #             cursor.execute(
-    #                 """
-    #                 UPDATE tournament_raw
-    #                 SET shortname               = ?,
-    #                     longname                = ?,
-    #                     startdate               = ?,
-    #                     enddate                 = ?,
-    #                     registration_end_date   = ?,
-    #                     city                    = ?,
-    #                     arena                   = ?,
-    #                     country_code            = ?,
-    #                     url                     = ?,
-    #                     tournament_level        = ?,
-    #                     tournament_type         = ?,
-    #                     organiser_name          = ?,
-    #                     organiser_email         = ?,
-    #                     organiser_phone         = ?,
-    #                     is_listed               = ?,
-    #                     row_updated             = CURRENT_TIMESTAMP
-    #                 WHERE row_id = ?
-    #                 RETURNING row_id;
-    #                 """,
-    #                 (self.shortname, 
-    #                  self.longname, 
-    #                  self.startdate, 
-    #                  self.enddate, 
-    #                  self.registration_end_date,
-    #                  self.city, 
-    #                  self.arena, 
-    #                  self.country_code, 
-    #                  self.url, 
-    #                  self.tournament_level, 
-    #                  self.tournament_type,
-    #                  self.organiser_name, 
-    #                  self.organiser_email, 
-    #                  self.organiser_phone, 
-    #                  self.is_listed, 
-    #                  row_id),
-    #             )
-    #             self.row_id = cursor.fetchone()[0]
-    #             action = "updated"
+    #         sql = """
+    #         INSERT INTO tournament_raw (
+    #             tournament_id_ext, shortname, longname, startdate, enddate, registration_end_date,
+    #             city, arena, country_code, url, tournament_level, tournament_type,
+    #             organiser_name, organiser_email, organiser_phone, is_listed, data_source_id, content_hash, last_seen_at
+    #         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    #         ON CONFLICT (tournament_id_ext, data_source_id) DO UPDATE SET
+    #             shortname = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                             THEN excluded.shortname ELSE tournament_raw.shortname END,
+    #             longname = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                             THEN excluded.longname ELSE tournament_raw.longname END,
+    #             startdate = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                             THEN excluded.startdate ELSE tournament_raw.startdate END,
+    #             enddate = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                         THEN excluded.enddate ELSE tournament_raw.enddate END,
+    #             registration_end_date = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                         THEN excluded.registration_end_date ELSE tournament_raw.registration_end_date END,
+    #             city = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                         THEN excluded.city ELSE tournament_raw.city END,
+    #             arena = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                         THEN excluded.arena ELSE tournament_raw.arena END,
+    #             country_code = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                 THEN excluded.country_code ELSE tournament_raw.country_code END,
+    #             url = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                     THEN excluded.url ELSE tournament_raw.url END,
+    #             tournament_level = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                     THEN excluded.tournament_level ELSE tournament_raw.tournament_level END,
+    #             tournament_type = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                 THEN excluded.tournament_type ELSE tournament_raw.tournament_type END,
+    #             organiser_name = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                 THEN excluded.organiser_name ELSE tournament_raw.organiser_name END,
+    #             organiser_email = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                 THEN excluded.organiser_email ELSE tournament_raw.organiser_email END,
+    #             organiser_phone = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                 THEN excluded.organiser_phone ELSE tournament_raw.organiser_phone END,
+    #             is_listed = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                             THEN excluded.is_listed ELSE tournament_raw.is_listed END,
+    #             content_hash = excluded.content_hash,
+    #             last_seen_at = CURRENT_TIMESTAMP,
+    #             row_updated = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                             THEN CURRENT_TIMESTAMP ELSE tournament_raw.row_updated END
+    #         RETURNING row_id;
+    #         """
+    #         vals = (self.tournament_id_ext,) + common_vals
+    #     else:
+    #         sql = """
+    #         INSERT INTO tournament_raw (
+    #             tournament_id_ext, shortname, longname, startdate, enddate, registration_end_date,
+    #             city, arena, country_code, url, tournament_level, tournament_type,
+    #             organiser_name, organiser_email, organiser_phone, is_listed, data_source_id, content_hash, last_seen_at
+    #         ) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    #         ON CONFLICT (shortname, startdate, arena, data_source_id) DO UPDATE SET
+    #             tournament_id_ext = COALESCE(excluded.tournament_id_ext, tournament_raw.tournament_id_ext),
+    #             longname = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                             THEN excluded.longname ELSE tournament_raw.longname END,
+    #             enddate = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                         THEN excluded.enddate ELSE tournament_raw.enddate END,
+    #             registration_end_date = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                         THEN excluded.registration_end_date ELSE tournament_raw.registration_end_date END,
+    #             city = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                         THEN excluded.city ELSE tournament_raw.city END,
+    #             country_code = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                 THEN excluded.country_code ELSE tournament_raw.country_code END,
+    #             url = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                     THEN excluded.url ELSE tournament_raw.url END,
+    #             tournament_level = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                     THEN excluded.tournament_level ELSE tournament_raw.tournament_level END,
+    #             tournament_type = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                 THEN excluded.tournament_type ELSE tournament_raw.tournament_type END,
+    #             organiser_name = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                 THEN excluded.organiser_name ELSE tournament_raw.organiser_name END,
+    #             organiser_email = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                 THEN excluded.organiser_email ELSE tournament_raw.organiser_email END,
+    #             organiser_phone = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                                 THEN excluded.organiser_phone ELSE tournament_raw.organiser_phone END,
+    #             is_listed = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                             THEN excluded.is_listed ELSE tournament_raw.is_listed END,
+    #             content_hash = excluded.content_hash,
+    #             last_seen_at = CURRENT_TIMESTAMP,
+    #             row_updated = CASE WHEN tournament_raw.content_hash IS NULL OR tournament_raw.content_hash <> excluded.content_hash
+    #                             THEN CURRENT_TIMESTAMP ELSE tournament_raw.row_updated END
+    #         RETURNING row_id;
+    #         """
+    #         vals = common_vals
 
-    #     if action is None:
-    #         # Not found by tournament_id_ext (or it was None), check by shortname/startdate/arena/data source
-    #         cursor.execute(
-    #             "SELECT row_id FROM tournament_raw WHERE shortname = ? AND startdate = ? AND arena = ? AND data_source_id = ?;",
-    #             (self.shortname, self.startdate, self.arena, self.data_source_id),
-    #         )
-    #         row = cursor.fetchone()
-    #         if row:
-    #             row_id = row[0]
-    #             # UPDATE (include setting tournament_id_ext, e.g., filling it in if previously None)
-    #             cursor.execute(
-    #                 """
-    #                 UPDATE tournament_raw
-    #                 SET tournament_id_ext       = ?,
-    #                     shortname               = ?,
-    #                     longname                = ?,
-    #                     startdate               = ?,
-    #                     enddate                 = ?,
-    #                     registration_end_date   = ?,
-    #                     city                    = ?,
-    #                     arena                   = ?,
-    #                     country_code            = ?,
-    #                     url                     = ?,
-    #                     tournament_level        = ?,
-    #                     tournament_type         = ?,
-    #                     organiser_name          = ?,
-    #                     organiser_email         = ?,
-    #                     organiser_phone         = ?,
-    #                     is_listed               = ?,
-    #                     row_updated         = CURRENT_TIMESTAMP
-    #                 WHERE row_id = ?
-    #                 RETURNING row_id;
-    #                 """,
-    #                 (self.tournament_id_ext, 
-    #                  self.shortname, 
-    #                  self.longname, 
-    #                  self.startdate, 
-    #                  self.enddate, 
-    #                  self.registration_end_date,
-    #                  self.city, 
-    #                  self.arena, 
-    #                  self.country_code, 
-    #                  self.url, 
-    #                  self.tournament_level, 
-    #                  self.tournament_type,
-    #                  self.organiser_name, 
-    #                  self.organiser_email, 
-    #                  self.organiser_phone, 
-    #                  self.is_listed, 
-    #                  row_id),
-    #             )
-    #             self.row_id = cursor.fetchone()[0]
-    #             action = "updated"
-    #         else:
-    #             # INSERT
-    #             cursor.execute(
-    #                 """
-    #                 INSERT INTO tournament_raw (
-    #                     tournament_id_ext, 
-    #                     shortname, 
-    #                     longname, 
-    #                     startdate, 
-    #                     enddate, 
-    #                     registration_end_date,
-    #                     city, 
-    #                     arena,
-    #                     country_code,
-    #                     url,
-    #                     tournament_level,
-    #                     tournament_type,
-    #                     organiser_name,
-    #                     organiser_email,
-    #                     organiser_phone,
-    #                     data_source_id,
-    #                     is_listed
-    #                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    #                 RETURNING row_id;
-    #                 """,
-    #                 (self.tournament_id_ext, 
-    #                  self.shortname, 
-    #                  self.longname, 
-    #                  self.startdate, 
-    #                  self.enddate, 
-    #                  self.registration_end_date,
-    #                  self.city, 
-    #                  self.arena, 
-    #                  self.country_code, 
-    #                  self.url, 
-    #                  self.tournament_level, 
-    #                  self.tournament_type,
-    #                  self.organiser_name, 
-    #                  self.organiser_email, 
-    #                  self.organiser_phone, 
-    #                  self.data_source_id,
-    #                  self.is_listed, 
-    #                 )
-    #             )
-    #             self.row_id = cursor.fetchone()[0]
-    #             action = "inserted"
+    #     # --- 4. Execute SQL ---
+    #     cursor.execute(sql, vals)
+    #     row = cursor.fetchone()
 
-    #     return action
+    #     if not row:
+    #         # No row returned means conflict happened but no changes (unchanged)
+    #         return "unchanged"
+
+    #     self.row_id = row[0]
+
+    #     # If lastrowid matches the row_id, this was an INSERT
+    #     if cursor.lastrowid == self.row_id:
+    #         return "inserted"
+
+    #     # Otherwise it was an UPDATE path: check if content actually changed
+    #     cursor.execute("SELECT content_hash FROM tournament_raw WHERE row_id = ?;", (self.row_id,))
+    #     old_hash = cursor.fetchone()
+    #     if old_hash and old_hash[0] == new_hash:
+    #         return "unchanged"
+    #     return "updated"
+
+

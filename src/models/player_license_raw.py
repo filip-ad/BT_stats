@@ -1,6 +1,7 @@
 # src/models/player_license_raw.py
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 import sqlite3
 from utils import compute_content_hash as _compute_content_hash
@@ -157,18 +158,15 @@ class PlayerLicenseRaw:
         return {(r[0], r[1], r[2], r[3]): r[4] for r in cursor.fetchall()}
 
     # Used by resolve_player_ranking_groups
-    @staticmethod
-    def fetch_rows_with_ranking_groups(cursor):
-        """
-        Return (player_id_ext, ranking_group_raw) for all rows that have a non-empty ranking_group_raw.
-        Season is intentionally ignored (current-only model).
-        """
-        cursor.execute("""
-            SELECT player_id_ext, ranking_group_raw
+    @classmethod
+    def fetch_rows_with_ranking_groups(cls, cursor) -> List[Tuple[str, str, datetime]]:
+        query = """
+            SELECT player_id_ext, ranking_group_raw, last_seen_at
             FROM player_license_raw
-            WHERE player_id_ext IS NOT NULL
-              AND TRIM(COALESCE(ranking_group_raw, '')) <> ''
-        """)
+            WHERE ranking_group_raw IS NOT NULL AND ranking_group_raw != ''
+            ORDER BY player_id_ext, last_seen_at DESC  -- Helps with grouping
+        """
+        cursor.execute(query)
         return cursor.fetchall()
 
     def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:

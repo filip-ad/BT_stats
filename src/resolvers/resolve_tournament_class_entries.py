@@ -36,10 +36,10 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
     if cutoff_date:
         filtered_classes = TournamentClass.get_filtered_classes(
             cursor,
-            cutoff_date=cutoff_date,
-            require_ended=False,        # set True if you only want ended tournaments
-            allowed_type_ids = [1],     # singles
-            order="newest"
+            cutoff_date       = cutoff_date,
+            require_ended     = False,          # set True if you only want ended tournaments
+            allowed_type_ids  = [1],            # singles
+            order             = "newest"
         )
         allowed_class_exts = {tc.tournament_class_id_ext for tc in filtered_classes if tc.tournament_class_id_ext}
         if allowed_class_exts:

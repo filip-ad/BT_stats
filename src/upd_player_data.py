@@ -59,12 +59,12 @@ def upd_player_data (
             # resolve_player_rankings(cursor, run_id=run_id)
             resolve_player_ranking_groups(cursor, run_id=run_id)
             resolve_player_licenses(cursor, run_id=run_id)
-            resolve_player_transitions(cursor, run_id=run_id)
+            # resolve_player_transitions(cursor, run_id=run_id)
             pass
 
         except Exception as e:
-            logging.error(f"Error in resolving player data: {e}", stack_info=True, stacklevel=3, exc_info=True)
-            print(f"Error in resolving player data: {e}")
+            logging.error(f"Error resolving player data: {e}", stack_info=True, stacklevel=3, exc_info=True)
+            print(f"Error resolving player data: {e}")
 
 
     except Exception as e:

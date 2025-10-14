@@ -1,8 +1,8 @@
 # src/resolvers/resolve_player_ranking_groups.py
 
-import logging
 import time
-from typing import Dict, Set, Tuple
+from typing import Dict, Set, Tuple, List
+from datetime import datetime
 from models.player import Player
 from models.player_ranking_group import PlayerRankingGroup
 from models.player_license_raw import PlayerLicenseRaw
@@ -11,12 +11,12 @@ from utils import OperationLogger
 
 def resolve_player_ranking_groups(cursor, run_id=None) -> dict:
     """
-    Build and APPLY the current (player_id, ranking_group_id) relations from ALL rows in player_license_raw
-    that have non-empty ranking_group_raw. Season is irrelevant (current-only model).
+    Build and APPLY the current (player_id, ranking_group_id) relations from the LATEST row per player
+    in player_license_raw that has non-empty ranking_group_raw. Uses last_seen_at to determine latest.
 
     Side effects:
       - Deletes existing player_ranking_group rows for players we’re about to refresh
-      - Inserts the new relations (deduped)
+      - Inserts the new relations (deduped, from latest only)
       - Logs via OperationLogger
 
     Returns:
@@ -52,14 +52,22 @@ def resolve_player_ranking_groups(cursor, run_id=None) -> dict:
     # ranking group lookup: class_short -> id  (via model)
     rg_map: Dict[str, int] = RankingGroup.cache_map(cursor)
 
-    # Fetch ALL rows with non-empty ranking_group_raw (no season filter)  (via model)
-    rows = PlayerLicenseRaw.fetch_rows_with_ranking_groups(cursor)
+    # Fetch ALL rows with non-empty ranking_group_raw, including last_seen_at
+    rows: List[Tuple[str, str, datetime]] = PlayerLicenseRaw.fetch_rows_with_ranking_groups(cursor)
     rows_scanned = len(rows)
 
-    # Determine which players to refresh
+    # Group by player_id_ext and select only the latest row (max last_seen_at)
+    latest_per_player: Dict[str, str] = {}  # player_id_ext -> latest ranking_group_raw
+    max_timestamps: Dict[str, datetime] = {}  # Track for logging if needed
+    for player_id_ext, raw_groups, last_seen in rows:
+        if player_id_ext not in latest_per_player or last_seen > max_timestamps[player_id_ext]:
+            latest_per_player[player_id_ext] = raw_groups
+            max_timestamps[player_id_ext] = last_seen
+
+    # Determine which players to refresh (only those with a latest row)
     player_ids_to_refresh: Set[int] = set()
     unmapped_players = 0
-    for player_id_ext, _ in rows:
+    for player_id_ext in latest_per_player:
         pid = ext_to_player.get(str(player_id_ext))
         if pid:
             player_ids_to_refresh.add(pid)
@@ -74,12 +82,12 @@ def resolve_player_ranking_groups(cursor, run_id=None) -> dict:
     else:
         logger.info("No players to refresh; delete skipped", to_console=True)
 
-    # Build and insert new relations (deduped)
+    # Build and insert new relations (deduped, from latest only)
     seen: Set[Tuple[int, int]] = set()
     inserted = skipped = failed = 0
     unknown_tokens: Dict[str, int] = {}
 
-    for player_id_ext, raw_groups in rows:
+    for player_id_ext, raw_groups in latest_per_player.items():
         pid = ext_to_player.get(str(player_id_ext))
         if not pid:
             continue  # counted above

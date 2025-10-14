@@ -1699,7 +1699,10 @@ CLUB_ID_EXT = [
 (677, 3340),
 (515, 3322),
 (840, 3353),
-(952, 32377)
+(952, 32377),
+(1435, 32442),
+(1436, 32396),
+(1437, 32375)
 ]
 
 CLUBS_COUNTRY_TEAMS = [
@@ -3732,6 +3735,9 @@ CLUBS = [
 (1431, 'Vinnö IF', 'Vinnö Idrottsförening', 1, None, 'SWE', None, None, None, None),
 (1432, 'Højby S & G', 'Højby Fodboldklub', 1, None, 'DEN', None, None, None, None),
 (1433, 'HEP Ringe', 'Bordtennisklubben HEP Ringe', 1, None, 'DEN', None, None, None, None),
-(1434, 'BTK Triton', 'Bordtennisklubben Triton', 1, None, 'DEN', None, None, None, None)
+(1434, 'BTK Triton', 'Bordtennisklubben Triton', 1, None, 'DEN', None, None, None, None),
+(1435, 'Vellinge Näsets BTK', 'Vellinge Näsets Bordtennisklubb', 1, None, 'SWE', None, None, None, None),
+(1436, 'IFK Haninge', 'IFK Haninge', 1, None, 'SWE', None, None, None, None),
+(1437, 'Ervalla SK', 'Ervalla Sportklubb', 1, None, 'SWE', None, None, None, None)
 ]
 
