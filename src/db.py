@@ -1127,15 +1127,16 @@ def create_and_populate_static_tables(cursor, logger):
         ''') 
 
         stages = [
-            (1, 'GROUP',    'Group',        0,  None),
-            (2, 'R128',     'Round of 128', 1,  128),
-            (3, 'R64',      'Round of 64',  1,  64),
-            (4, 'R32',      'Round of 32',  1,  32),
-            (5, 'R16',      'Round of 16',  1,  16),
-            (6, 'QF',       'Quarterfinal', 1,  8),
-            (7, 'SF',       'Semifinal',    1,  4),
-            (8, 'F',        'Final',        1,  2),
-            (9,  'SWISS', 'Swiss System',   0,  None)       # A Swiss-system stage pairs players with similar scores across several rounds; nobody is eliminated each round. It’s neither simple group round-robin nor KO.
+            (1, 'GROUP',    'Group',                    0,  None),
+            (2, 'R128',     'Round of 128',             1,  128),
+            (3, 'R64',      'Round of 64',              1,  64),
+            (4, 'R32',      'Round of 32',              1,  32),
+            (5, 'R16',      'Round of 16',              1,  16),
+            (6, 'QF',       'Quarterfinal',             1,  8),
+            (7, 'SF',       'Semifinal',                1,  4),
+            (8, 'F',        'Final',                    1,  2),
+            (9,  'SWISS', 'Swiss System',               0,  None),      # A Swiss-system stage pairs players with similar scores across several rounds; nobody is eliminated each round. It’s neither simple group round-robin nor KO.
+            (10, 'KO_QAL', 'Knockout Qualification',    1,  None)       # Qualification matches to enter a knockout stage (e.g. R32) after a group stage
         ]
 
         cursor.executemany('''
