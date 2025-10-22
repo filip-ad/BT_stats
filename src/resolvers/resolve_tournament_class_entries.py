@@ -71,7 +71,9 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
     unverified_appearance_map = Player.cache_unverified_appearances(cursor)
     license_name_club_map = PlayerLicense.cache_name_club_map(cursor)
 
-    for class_ext, class_groups in groups.items():
+    # for class_ext, class_groups in groups.items():
+    for idx, (class_ext, class_groups) in enumerate(groups.items(), start=1):
+
         logger_keys = {
             'tournament_class_id_ext':      class_ext,
             'tournament_class_shortname':   None,
@@ -91,8 +93,9 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
             class_date = tc.startdate if tc.startdate else date.today()
             logger_keys.update({'tournament_class_shortname': tc.shortname})
 
+            # logger.info(f"Resolving entries for tournament_class_id_ext={class_ext} (tournament_class_id={tournament_class_id}) with {len(class_groups)} groups...", to_console=True)
+            logger.info(f"[{idx}/{len(groups)}] Resolving entries for tournament_class_id_ext={class_ext} (tournament_class_id={tournament_class_id}) with {len(class_groups)} groups...", to_console=True)
 
-            logger.info(f"Resolving entries for tournament_class_id_ext={class_ext} (tournament_class_id={tournament_class_id}) with {len(class_groups)} groups...", to_console=False)
 
             for group_id, group_rows in class_groups.items():   
                 if not group_rows:

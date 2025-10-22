@@ -75,7 +75,7 @@ def drop_tables(cursor, logger, tables):
             else:
                 logger.warning({}, f"Table not found, skipping drop: {table_name}", to_console=True)
         except sqlite3.Error as e:
-            logger.error(f"Error dropping table {table_name}: {e}", to_console=True)
+            logger.failed(f"Error dropping table {table_name}: {e}", to_console=True)
     if not dropped:
         logger.info("No tables dropped.", to_console=True)
     else:
@@ -132,6 +132,7 @@ def create_raw_tables(cursor, logger):
                 url                             TEXT,
                 raw_stages                      TEXT,
                 raw_stage_hrefs                 TEXT,
+                ko_tree_size                    INTEGER,
                 data_source_id                  INTEGER DEFAULT 1,
                 content_hash                    TEXT,
                 last_seen_at                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -355,6 +356,7 @@ def create_tables(cursor):
                 tournament_id                               INTEGER NOT NULL,
                 tournament_class_type_id                    INTEGER,
                 tournament_class_structure_id               INTEGER,
+                ko_tree_size                                INTEGER,
                 startdate                                   DATE,
                 longname                                    TEXT,
                 shortname                                   TEXT,
@@ -1117,11 +1119,11 @@ def create_and_populate_static_tables(cursor, logger):
         # Tournament class stages (e.g. group, R32, R16, QF, SF, F)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS tournament_class_stage (
-                tournament_class_stage_id       INTEGER    PRIMARY KEY,
-                shortname                       TEXT       NOT NULL,    -- e.g. 'GROUP','R32','R16','QF','SF','F','SWISS'
-                description                     TEXT       NOT NULL,
-                is_knockout                     INTEGER    NOT NULL CHECK(is_knockout IN (0,1)),
-                round_order                     INTEGER,                -- e.g. 32,16,8,... (NULL for GROUP/SWISS)
+                tournament_class_stage_id       INTEGER         PRIMARY KEY,
+                shortname                       TEXT            NOT NULL,    -- e.g. 'GROUP','R32','R16','QF','SF','F','SWISS'
+                description                     TEXT            NOT NULL,
+                is_knockout                     INTEGER         NOT NULL CHECK(is_knockout IN (0,1)),
+                round_order                     INTEGER,        -- e.g. 32,16,8,... (NULL for GROUP/SWISS)
                 UNIQUE (shortname)
             ) WITHOUT ROWID;
         ''') 
@@ -1135,8 +1137,8 @@ def create_and_populate_static_tables(cursor, logger):
             (6, 'QF',       'Quarterfinal',             1,  8),
             (7, 'SF',       'Semifinal',                1,  4),
             (8, 'F',        'Final',                    1,  2),
-            (9,  'SWISS', 'Swiss System',               0,  None),      # A Swiss-system stage pairs players with similar scores across several rounds; nobody is eliminated each round. It’s neither simple group round-robin nor KO.
-            (10, 'KO_QAL', 'Knockout Qualification',    1,  None)       # Qualification matches to enter a knockout stage (e.g. R32) after a group stage
+            (9,  'SWISS',   'Swiss System',             0,  None),      # A Swiss-system stage pairs players with similar scores across several rounds; nobody is eliminated each round. It’s neither simple group round-robin nor KO.
+            (10, 'KO_QAL',  'Knockout Qualification',   1,  None)       # Qualification matches to enter a knockout stage (e.g. R32) after a group stage
         ]
 
         cursor.executemany('''
@@ -1374,19 +1376,20 @@ def create_views(cursor):
             """
             CREATE VIEW IF NOT EXISTS v_tnmt_class AS
             SELECT
-                t.shortname  AS tournament_shortname,
-                tc.longname  AS class_longname,
-                tc.shortname AS class_shortname,
-                tct.description AS tournament_class_type,
-                tcs.description AS tournament_class_structure,
-                ts.description  AS tournament_status,
-                tc.startdate       AS class_date,
-                t.country_code,
-                t.url         AS tournament_url,
                 tc.tournament_class_id,
                 tc.tournament_class_id_ext,
                 t.tournament_id,
                 t.tournament_id_ext,
+                t.shortname                 AS tournament_shortname,
+                tc.longname                 AS class_longname,
+                tc.shortname                AS class_shortname,
+                tct.description             AS tournament_class_type,
+                tcs.description             AS tournament_class_structure,
+                ts.description              AS tournament_status,
+                tc.ko_tree_size,
+                tc.startdate                AS class_date,
+                t.country_code,
+                t.url                       AS tournament_url,
                 tc.is_valid,
                 tc.row_created,
                 tc.row_updated

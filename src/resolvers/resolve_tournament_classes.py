@@ -104,18 +104,19 @@ def resolve_tournament_classes(cursor, run_id=None) -> List[TournamentClass]:
 
         # Validate and prepare tournament class data
         tournament_class = TournamentClass(
-            tournament_class_id_ext=raw.tournament_class_id_ext,
-            tournament_id=tournament_id,
-            tournament_class_type_id=_detect_type_id(raw.shortname or "", raw.longname or ""),
-            tournament_class_structure_id=_infer_structure_id(raw.raw_stages),
-            startdate=raw.startdate,
-            longname=raw.longname,
-            shortname=raw.shortname,
-            gender=raw.gender,
-            max_rank=raw.max_rank,
-            max_age=raw.max_age,
-            url=raw.url,
-            data_source_id=raw.data_source_id,
+            tournament_class_id_ext         = raw.tournament_class_id_ext,
+            tournament_id                   = tournament_id,
+            tournament_class_type_id        = _detect_type_id(raw.shortname or "", raw.longname or ""),
+            tournament_class_structure_id   = _infer_structure_id(raw.raw_stages),
+            ko_tree_size                    = raw.ko_tree_size,
+            startdate                       = raw.startdate,
+            longname                        = raw.longname,
+            shortname                       = raw.shortname,
+            gender                          = raw.gender,
+            max_rank                        = raw.max_rank,
+            max_age                         = raw.max_age,
+            url                             = raw.url,
+            data_source_id                  = raw.data_source_id,
         )
 
         is_valid, error_message = tournament_class.validate()

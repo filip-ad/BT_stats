@@ -92,26 +92,20 @@ def main():
                 # 'match_side',                         # match, participant
                 # 'game',                               # match
                 # 'match_id_ext',                       # match
-                # 'tournament_class_match',
-                # 'tournament_class_group_standing',
-                # 'tournament_class_group_member',
-                # 'tournament_class_group'
             
                 # 'match_side_player'                  # references club
                 # 'match'
-                
-                # # Tournament participants
-                # 'participant'                     # FK tournament_class
-                # 'participant_player',                 # FK participant, player (verified, unverified), club
-                # 'participant_player_raw_tournament'  # FK tournament_class, data_source
 
                 # # Group and standing
                 # 'tournament_class_group',             # FK tournament_class
                 # 'tournament_class_group_member',      # FK tournament_class_group, participant
-                # 'tournament_class_group_standing'    # FK tournament_class_group, participant
+                # 'tournament_class_player',
+                # 'tournament_class_match',
+                # 'tournament_class_entry',
+
 
                 # # Tournament core
-                # 'tournament_class'                   # FK tournament, tournament_class_type, tournament_class_structure, data_source
+                # 'tournament_class'                      # FK tournament, tournament_class_type, tournament_class_structure, data_source
                 # 'tournament_raw',                      # FK data_source, tournament_status
                 # 'tournament'
                 # 'tournament_class_raw'
@@ -159,12 +153,12 @@ def main():
         # # # Update club data
         # upd_clubs(dry_run=False)
 
-        # # Update player data
+        # Update player data
         # upd_player_data(
         #     run_id                            = pipeline_run_id,
-        #     do_scrape_player_licenses         = False, 
+        #     do_scrape_player_licenses         = True, 
         #     do_scrape_player_rankings         = False,
-        #     do_scrape_player_transitions      = False
+        #     do_scrape_player_transitions      = True
         # )
 
         # Update tournament data
@@ -172,9 +166,9 @@ def main():
             run_id                                                  = pipeline_run_id,
             do_scrape_tournaments                                   = False,
             do_scrape_tournament_classes                            = False,
-            do_scrape_tournament_entries                            = False,
-            do_scrape_tournament_class_group_matches_ondata         = True,
-            do_scrape_tournament_class_knockout_matches_ondata      = True
+            do_scrape_tournament_class_entries                      = False,
+            do_scrape_tournament_class_group_matches_ondata         = False,
+            do_scrape_tournament_class_knockout_matches_ondata      = False
         )
 
         export_runs_to_excel()

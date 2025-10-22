@@ -35,12 +35,12 @@ def scrape_tournament_classes_ondata(cursor, run_id=None) -> None:
         run_id          = run_id
     )
 
-    cutoff_date = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
+    cutoff_date         = parse_date(SCRAPE_TOURNAMENTS_CUTOFF_DATE)
 
-    start_time = time.time()
-    classes_processed = 0
-    bytes_downloaded = 0
-    PDFs_downloaded = 0
+    start_time          = time.time()
+    classes_processed   = 0
+    bytes_downloaded    = 0
+    PDFs_downloaded     = 0
 
     # Fetch tournaments by status and filter by cutoff date or ext_ids
     if SCRAPE_CLASSES_TOURNAMENT_ID_EXTS:  # treat empty list or None as False
@@ -336,9 +336,10 @@ def _parse_raw_row(
             logger.failed(logger_keys, f"Error parsing href in row: {e}")
             continue
 
-    if not stages:
-        logger.failed(logger_keys, f"No stages found in row HTML")
-        return
+    # Determine knockout tree size if stage 5 exists
+    ko_tree_size = None
+    if 5 in stage_to_href:
+        ko_tree_size = _extract_ko_tree_size(stage_to_href[5])
 
     raw_stages_str = ",".join(str(s) for s in sorted(stages)) if stages else None
     raw_stage_hrefs_str = json.dumps(stage_to_href) if stage_to_href else None
@@ -361,5 +362,26 @@ def _parse_raw_row(
         "url":                      None,
         "raw_stages":               raw_stages_str,
         "raw_stage_hrefs":          raw_stage_hrefs_str,
+        "ko_tree_size":             ko_tree_size, 
         "data_source_id":           1
     }
+
+def _extract_ko_tree_size(stage_5_url: str) -> Optional[int]:
+    """
+    Fetch the HTML for stage=5 and extract the knockout tree size from 'Schema-<N>'.
+    Returns integer N if found, else None.
+    """
+    try:
+        # Ensure full URL
+        if stage_5_url.startswith("/"):
+            stage_5_url = urljoin("https://resultat.ondata.se/", stage_5_url)
+
+        resp = requests.get(stage_5_url, timeout=10)
+        resp.raise_for_status()
+
+        m = re.search(r"Schema-(\d+)", resp.text, re.IGNORECASE)
+        if m:
+            return int(m.group(1))
+    except Exception as e:
+        logging.debug(f"Could not extract ko_tree_size from {stage_5_url}: {e}")
+    return None

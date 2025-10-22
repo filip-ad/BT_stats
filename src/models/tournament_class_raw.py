@@ -23,6 +23,7 @@ class TournamentClassRaw:
     url:                            Optional[str]  = None           # URL for the class
     raw_stages:                     Optional[str]  = None           # Comma-separated stages from HTML links, for structure inference
     raw_stage_hrefs:                Optional[str]  = None           # JSON string of {stage: href} for PDF downloading
+    ko_tree_size:                   Optional[int]  = None           # Knockout tree size (2, 4, 8, 16, 32, 64, 128)
     data_source_id:                 int = 1                         # Data source ID (default 1 for 'ondata')
     content_hash:                   Optional[str] = None            # Hash of the content for change detection
     last_seen_at:                   Optional[datetime.datetime] = None  # Last time the entry was seen
@@ -51,6 +52,7 @@ class TournamentClassRaw:
             url                             = d.get("url"),
             raw_stages                      = d.get("raw_stages"),
             raw_stage_hrefs                 = rhs,
+            ko_tree_size                    = d.get("ko_tree_size"),
             data_source_id                  = d.get("data_source_id", 1),
             content_hash                    = d.get("content_hash"),
             last_seen_at                    = d.get("last_seen_at"),
@@ -110,7 +112,6 @@ class TournamentClassRaw:
         column_names = [desc[0] for desc in cursor.description]
         return [cls.from_dict(dict(zip(column_names, row))) for row in cursor.fetchall()]
     
-    
     def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
         """
         Atomic upsert with hash gating for raw tournament class data.
@@ -143,6 +144,7 @@ class TournamentClassRaw:
             self.url,
             self.raw_stages,
             self.raw_stage_hrefs,
+            self.ko_tree_size,
             self.data_source_id,
             new_hash
         )
@@ -151,9 +153,9 @@ class TournamentClassRaw:
         sql = """
         INSERT INTO tournament_class_raw (
             tournament_id_ext, tournament_class_id_ext, startdate, shortname, longname,
-            gender, max_rank, max_age, url, raw_stages, raw_stage_hrefs, data_source_id,
-            content_hash, last_seen_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            gender, max_rank, max_age, url, raw_stages, raw_stage_hrefs, ko_tree_size,
+            data_source_id, content_hash, last_seen_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT (tournament_id_ext, tournament_class_id_ext, data_source_id) DO UPDATE SET
             startdate = CASE WHEN tournament_class_raw.content_hash IS NULL OR tournament_class_raw.content_hash <> excluded.content_hash
                             THEN excluded.startdate ELSE tournament_class_raw.startdate END,
@@ -173,6 +175,8 @@ class TournamentClassRaw:
                               THEN excluded.raw_stages ELSE tournament_class_raw.raw_stages END,
             raw_stage_hrefs = CASE WHEN tournament_class_raw.content_hash IS NULL OR tournament_class_raw.content_hash <> excluded.content_hash
                                    THEN excluded.raw_stage_hrefs ELSE tournament_class_raw.raw_stage_hrefs END,
+            ko_tree_size = CASE WHEN tournament_class_raw.content_hash IS NULL OR tournament_class_raw.content_hash <> excluded.content_hash
+                                THEN excluded.ko_tree_size ELSE tournament_class_raw.ko_tree_size END,
             content_hash = excluded.content_hash,
             last_seen_at = CURRENT_TIMESTAMP,
             row_updated = CASE WHEN tournament_class_raw.content_hash IS NULL OR tournament_class_raw.content_hash <> excluded.content_hash

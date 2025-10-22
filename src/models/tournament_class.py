@@ -17,6 +17,7 @@ class TournamentClass(CacheMixin):
     tournament_id:                  int = None
     tournament_class_type_id:       Optional[int] = None
     tournament_class_structure_id:  Optional[int] = None
+    ko_tree_size:                   Optional[int] = None
     startdate:                      Optional[date] = None
     longname:                       str = None
     shortname:                      str = None
@@ -36,6 +37,7 @@ class TournamentClass(CacheMixin):
             tournament_id                   = d["tournament_id"],
             tournament_class_type_id        = d.get("tournament_class_type_id"),
             tournament_class_structure_id   = d.get("tournament_class_structure_id"),
+            ko_tree_size                    = d.get("ko_tree_size"),
             startdate                       = parse_date(d.get("startdate"), context="TournamentClass.from_dict"),
             longname                        = d.get("longname", ""),
             shortname                       = d.get("shortname", ""),
@@ -73,7 +75,7 @@ class TournamentClass(CacheMixin):
 
         self.is_valid = True
         return True, ""
-
+    
     def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
         """
         Upsert tournament class data based on (tournament_class_id_ext, data_source_id)
@@ -96,6 +98,7 @@ class TournamentClass(CacheMixin):
                     self.tournament_id,
                     self.tournament_class_type_id,
                     self.tournament_class_structure_id,
+                    self.ko_tree_size,                     # <-- added
                     self.startdate,
                     self.longname or None,
                     self.shortname or None,
@@ -112,6 +115,7 @@ class TournamentClass(CacheMixin):
                     SET tournament_id                 = ?,
                         tournament_class_type_id      = ?,
                         tournament_class_structure_id = ?,
+                        ko_tree_size                  = ?,      -- added
                         startdate                     = ?,
                         longname                      = ?,
                         shortname                     = ?,
@@ -148,6 +152,7 @@ class TournamentClass(CacheMixin):
                     self.tournament_id,
                     self.tournament_class_type_id,
                     self.tournament_class_structure_id,
+                    self.ko_tree_size,                 # <-- added
                     self.startdate,
                     self.longname or None,
                     self.shortname or None,
@@ -166,6 +171,7 @@ class TournamentClass(CacheMixin):
                         tournament_id                 = ?,
                         tournament_class_type_id      = ?,
                         tournament_class_structure_id = ?,
+                        ko_tree_size                  = ?,      -- added
                         startdate                     = ?,
                         longname                      = ?,
                         shortname                     = ?,
@@ -191,6 +197,7 @@ class TournamentClass(CacheMixin):
                 self.tournament_id,
                 self.tournament_class_type_id,
                 self.tournament_class_structure_id,
+                self.ko_tree_size,                     # <-- added
                 self.startdate,
                 self.longname or None,
                 self.shortname or None,
@@ -208,6 +215,7 @@ class TournamentClass(CacheMixin):
                     tournament_id,
                     tournament_class_type_id,
                     tournament_class_structure_id,
+                    ko_tree_size,                    -- added
                     startdate,
                     longname,
                     shortname,
@@ -217,7 +225,7 @@ class TournamentClass(CacheMixin):
                     url,
                     data_source_id,
                     is_valid
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING tournament_class_id;
                 """,
                 vals,
@@ -226,6 +234,160 @@ class TournamentClass(CacheMixin):
             action = "inserted"
 
         return action
+
+
+    # def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
+    #     """
+    #     Upsert tournament class data based on (tournament_class_id_ext, data_source_id)
+    #     or (tournament_id, shortname, startdate).
+    #     Returns "inserted" or "updated" on success, None on no change.
+    #     """
+    #     action = None
+    #     tournament_class_id = None
+
+    #     if self.tournament_class_id_ext is not None:
+    #         cursor.execute(
+    #             "SELECT tournament_class_id FROM tournament_class WHERE tournament_class_id_ext = ? AND data_source_id = ?;",
+    #             (self.tournament_class_id_ext, self.data_source_id),
+    #         )
+    #         row = cursor.fetchone()
+    #         if row:
+    #             tournament_class_id = row[0]
+    #             # Prepare values for UPDATE
+    #             vals = (
+    #                 self.tournament_id,
+    #                 self.tournament_class_type_id,
+    #                 self.tournament_class_structure_id,
+    #                 self.startdate,
+    #                 self.longname or None,
+    #                 self.shortname or None,
+    #                 self.gender or None,
+    #                 self.max_rank,
+    #                 self.max_age,
+    #                 self.url or None,
+    #                 self.is_valid,
+    #                 tournament_class_id,
+    #             )
+    #             cursor.execute(
+    #                 """
+    #                 UPDATE tournament_class
+    #                 SET tournament_id                 = ?,
+    #                     tournament_class_type_id      = ?,
+    #                     tournament_class_structure_id = ?,
+    #                     startdate                     = ?,
+    #                     longname                      = ?,
+    #                     shortname                     = ?,
+    #                     gender                        = ?,
+    #                     max_rank                      = ?,
+    #                     max_age                       = ?,
+    #                     url                           = ?,
+    #                     is_valid                      = ?,
+    #                     row_updated                   = CURRENT_TIMESTAMP
+    #                 WHERE tournament_class_id = ?
+    #                 RETURNING tournament_class_id;
+    #                 """,
+    #                 vals,
+    #             )
+    #             self.tournament_class_id = cursor.fetchone()[0]
+    #             action = "updated"
+
+    #     if (
+    #         action is None
+    #         and self.tournament_id
+    #         and self.shortname
+    #         and self.startdate
+    #     ):
+    #         cursor.execute(
+    #             "SELECT tournament_class_id FROM tournament_class WHERE tournament_id = ? AND shortname = ? AND startdate = ?;",
+    #             (self.tournament_id, self.shortname, self.startdate),
+    #         )
+    #         row = cursor.fetchone()
+    #         if row:
+    #             tournament_class_id = row[0]
+    #             # Prepare values for UPDATE with fallback key
+    #             vals = (
+    #                 self.tournament_class_id_ext or None,
+    #                 self.tournament_id,
+    #                 self.tournament_class_type_id,
+    #                 self.tournament_class_structure_id,
+    #                 self.startdate,
+    #                 self.longname or None,
+    #                 self.shortname or None,
+    #                 self.gender or None,
+    #                 self.max_rank,
+    #                 self.max_age,
+    #                 self.url or None,
+    #                 self.data_source_id,
+    #                 self.is_valid,
+    #                 tournament_class_id,
+    #             )
+    #             cursor.execute(
+    #                 """
+    #                 UPDATE tournament_class
+    #                 SET tournament_class_id_ext       = ?,
+    #                     tournament_id                 = ?,
+    #                     tournament_class_type_id      = ?,
+    #                     tournament_class_structure_id = ?,
+    #                     startdate                     = ?,
+    #                     longname                      = ?,
+    #                     shortname                     = ?,
+    #                     gender                        = ?,
+    #                     max_rank                      = ?,
+    #                     max_age                       = ?,
+    #                     url                           = ?,
+    #                     data_source_id                = ?,
+    #                     is_valid                      = ?,
+    #                     row_updated                   = CURRENT_TIMESTAMP
+    #                 WHERE tournament_class_id = ?
+    #                 RETURNING tournament_class_id;
+    #                 """,
+    #                 vals,
+    #             )
+    #             self.tournament_class_id = cursor.fetchone()[0]
+    #             action = "updated"
+
+    #     if action is None:
+    #         # INSERT (only if we have enough data)
+    #         vals = (
+    #             self.tournament_class_id_ext or None,
+    #             self.tournament_id,
+    #             self.tournament_class_type_id,
+    #             self.tournament_class_structure_id,
+    #             self.startdate,
+    #             self.longname or None,
+    #             self.shortname or None,
+    #             self.gender or None,
+    #             self.max_rank,
+    #             self.max_age,
+    #             self.url or None,
+    #             self.data_source_id,
+    #             self.is_valid,
+    #         )
+    #         cursor.execute(
+    #             """
+    #             INSERT INTO tournament_class (
+    #                 tournament_class_id_ext,
+    #                 tournament_id,
+    #                 tournament_class_type_id,
+    #                 tournament_class_structure_id,
+    #                 startdate,
+    #                 longname,
+    #                 shortname,
+    #                 gender,
+    #                 max_rank,
+    #                 max_age,
+    #                 url,
+    #                 data_source_id,
+    #                 is_valid
+    #             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    #             RETURNING tournament_class_id;
+    #             """,
+    #             vals,
+    #         )
+    #         self.tournament_class_id = cursor.fetchone()[0]
+    #         action = "inserted"
+
+    #     return action
 
     def get_final_stage(self) -> Optional[int]:
             """

@@ -56,8 +56,6 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
 
     logger.info(f"Scraping tournament class KO matches for {len(classes)} classes from Ondata")
 
-    print(classes)
-
     total_seen = total_inserted = total_skipped = 0
 
     for idx, tc in enumerate(classes, 1):

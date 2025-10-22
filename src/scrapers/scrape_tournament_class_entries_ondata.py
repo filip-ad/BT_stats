@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 import time
 
-def scrape_tournament_entries_ondata(cursor, include_positions: bool = True, run_id=None) -> List[TournamentClass]:
+def scrape_tournament_class_entries_ondata(cursor, include_positions: bool = True, run_id=None) -> List[TournamentClass]:
     """Scrape and populate raw participant data from PDFs for filtered tournament classes.
     Returns the list of processed TournamentClass instances.
     """
