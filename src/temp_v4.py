@@ -1,4 +1,4 @@
-# temp.py
+# temp2.py
 from __future__ import annotations
 
 import io
@@ -27,7 +27,7 @@ from db import get_conn
 SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30021']  # RO16 test
 SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625'] # RO32 test
 SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006'] # RO64 test
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['6955'] # RO128 test
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['6955'] # RO128 test
 
 # -------------------------------------------------------------------
 # Your original parser code (unchanged logic)
@@ -60,7 +60,6 @@ class ScoreEntry:
     scores: Tuple[int, ...]
     center: float
     x: float
-    inline_winner: Optional['WinnerEntry'] = None
 
 @dataclass
 class WinnerEntry:
@@ -109,6 +108,16 @@ def extract_players(words: Sequence[dict]) -> List[Player]:
                 player_id_ext = player_id_ext.strip()
             full_name = raw_name.strip()
             club = raw_club.strip()
+            # players.append(
+            #     Player(
+            #         full_name=full_name,
+            #         club=club,
+            #         short=make_short(full_name),
+            #         center=to_center(word),
+            #         player_id_ext=player_id_ext,
+            #         player_suffix_id=player_suffix_id.strip() if player_suffix_id else None,
+            #     )
+            # )
             players.append(
                 Player(
                     full_name=full_name,
@@ -116,6 +125,7 @@ def extract_players(words: Sequence[dict]) -> List[Player]:
                     short=make_short(full_name),
                     center=to_center(word),
                     player_id_ext=player_id_ext,
+                    # Drop any parenthetical suffix entirely
                     player_suffix_id=None,
                 )
             )
@@ -133,85 +143,23 @@ def extract_score_entries(words: Sequence[dict], x_range: Tuple[float, float]) -
         raw = word["text"].strip().replace("−", "-")
         if not raw:
             continue
-        match = re.match(r"(-?\d+(?:\s*,\s*-?\d+)*)(?:\s+(.+))?", raw)
-        if not match:
+        if re.search(r"[A-Za-zÅÄÖåäö]", raw):
             continue
 
-        score_text, trailing = match.groups()
-        scores = tuple(int(token) for token in re.findall(r"-?\d+", score_text))
-        if len(scores) < 2:
+        m = re.fullmatch(r"-?\d+(?:\s*,\s*-?\d+)+", raw)
+        if not m:
             continue
-        inline_winner: Optional[WinnerEntry] = None
-        if trailing:
-            trailing = trailing.strip()
-            inline_match = re.match(
-                r"(?:(\d{1,3})\s+)?([\wÅÄÖåäö\-]+(?:\s+[\wÅÄÖåäö\-]+)*)$",
-                trailing,
-            )
-            if inline_match:
-                player_id_ext, label = inline_match.groups()
-                if " " in label and not any(char.isdigit() for char in label):
-                    inline_winner = WinnerEntry(
-                        short=label.strip(),
-                        center=to_center(word),
-                        x=x0,
-                        player_id_ext=player_id_ext,
-                    )
-        entries.append(
-            ScoreEntry(scores=scores, center=to_center(word), x=x0, inline_winner=inline_winner)
-        )
 
-        # if re.search(r"[A-Za-zÅÄÖåäö]", raw):
-        #     continue
+        nums = [int(tok) for tok in re.findall(r"-?\d+", m.group(0))]
+        nums = [n for n in nums if n != 0]  # keep existing 0-filter
+        if not nums:
+            continue
 
-        # m = re.fullmatch(r"-?\d+(?:\s*,\s*-?\d+)+", raw)
-        # if not m:
-        #     continue
-
-        # nums = [int(tok) for tok in re.findall(r"-?\d+", m.group(0))]
-        # nums = [n for n in nums if n != 0]  # keep existing 0-filter
-        # if not nums:
-        #     continue
-
-        # entries.append(ScoreEntry(scores=tuple(nums), center=to_center(word), x=x0))
+        entries.append(ScoreEntry(scores=tuple(nums), center=to_center(word), x=x0))
 
     entries.sort(key=lambda e: e.center)
     return entries
 
-
-# def extract_winner_entries(words: Sequence[dict], x_range: Tuple[float, float]) -> List[WinnerEntry]:
-#     start, stop = x_range
-#     winners: List[WinnerEntry] = []
-#     for word in words:
-#         x0 = float(word["x0"])
-#         if not (start <= x0 <= stop):
-#             continue
-
-#         text = word["text"].replace("\xa0", " ").strip()
-#         text = _strip_draw_prefix(text)
-#         if not text:
-#             continue
-#         if any(token in text for token in ("Slutspel", "Höstpool", "program", "Kvalifikation", "Kvalificering")):
-#             continue
-
-#         m = WINNER_LABEL_PATTERN.match(text)
-#         if not m:
-#             continue
-#         player_id_ext, label = m.groups()
-
-#         # skip obvious non-names
-#         if any(ch.isdigit() for ch in label):
-#             continue
-#         if " " not in label:              # <-- NEW: drops 'Damsingel', 'Final', etc.
-#             continue
-
-#         winners.append(WinnerEntry(short=label.strip(),
-#                                    center=to_center(word),
-#                                    x=x0,
-#                                    player_id_ext=player_id_ext))
-        
-#     winners.sort(key=lambda w: w.center)
-#     return winners
 
 def extract_winner_entries(words: Sequence[dict], x_range: Tuple[float, float]) -> List[WinnerEntry]:
     start, stop = x_range
@@ -220,27 +168,29 @@ def extract_winner_entries(words: Sequence[dict], x_range: Tuple[float, float]) 
         x0 = float(word["x0"])
         if not (start <= x0 <= stop):
             continue
+
         text = word["text"].replace("\xa0", " ").strip()
+        text = _strip_draw_prefix(text)
         if not text:
             continue
-        if any(token in text for token in ("Slutspel", "Höstpool", "program")):
+        if any(token in text for token in ("Slutspel", "Höstpool", "program", "Kvalifikation", "Kvalificering")):
             continue
-        match = WINNER_LABEL_PATTERN.match(text)
-        if not match:
+
+        m = WINNER_LABEL_PATTERN.match(text)
+        if not m:
             continue
-        player_id_ext, label = match.groups()
-        if len(label.split()) < 2:
+        player_id_ext, label = m.groups()
+
+        # skip obvious non-names
+        if any(ch.isdigit() for ch in label):
             continue
-        if any(char.isdigit() for char in label):
+        if " " not in label:              # <-- NEW: drops 'Damsingel', 'Final', etc.
             continue
-        winners.append(
-            WinnerEntry(
-                short=label.strip(),
-                center=to_center(word),
-                x=x0,
-                player_id_ext=player_id_ext,
-            )
-        )
+
+        winners.append(WinnerEntry(short=label.strip(),
+                                   center=to_center(word),
+                                   x=x0,
+                                   player_id_ext=player_id_ext))
     winners.sort(key=lambda w: w.center)
     return winners
 
@@ -277,8 +227,7 @@ def assign_nearest_score(
     center: float,
     pool: List[ScoreEntry],
     tolerance: float = 15.0,
-# ) -> Optional[Tuple[int, ...]]:
-) -> Optional[ScoreEntry]:
+) -> Optional[Tuple[int, ...]]:
     if not pool:
         return None
     best_index = None
@@ -291,8 +240,7 @@ def assign_nearest_score(
     if best_delta is None or best_delta > tolerance:
         return None
     entry = pool.pop(best_index)
-    # return entry.scores
-    return pool.pop(best_index)
+    return entry.scores
 
 def format_player(player: Player) -> str:
     prefix = f"[{player.player_id_ext}] " if player.player_id_ext else ""
@@ -352,23 +300,67 @@ def build_round_from_previous(
 ) -> List[Match]:
     remaining_scores = scores.copy()
     remaining_winners = list(winners)
+    # Try to resolve winner labels to concrete Player objects up front so we can
+    # match by identity instead of only relying on y-distance heuristics.
+    resolved_winner_candidates: List[Tuple[WinnerEntry, Player]] = []
+    for entry in winners:
+        try:
+            resolved_player = match_short_to_full(
+                entry.short,
+                entry.center,
+                players,
+                entry.player_id_ext,
+            )
+        except ValueError:
+            continue
+        else:
+            resolved_winner_candidates.append((entry, resolved_player))
+
     matches: List[Match] = []
     idx = 0
     while idx < len(previous_round):
         first = previous_round[idx]
         second = previous_round[idx + 1] if idx + 1 < len(previous_round) else None
         participants: List[Player] = []
-        if first.winner is not None:
-            participants.append(first.winner)
-        if second and second.winner is not None:
-            participants.append(second.winner)
+
+        def _advancing_player(match: Optional[Match]) -> Optional[Player]:
+            if not match:
+                return None
+            if match.winner is not None:
+                return match.winner
+            if match.players:
+                return match.players[0]
+            return None
+
+        first_advancer = _advancing_player(first)
+        if first_advancer is not None:
+            participants.append(first_advancer)
+        second_advancer = _advancing_player(second)
+        if second_advancer is not None:
+            participants.append(second_advancer)
+
+        candidate_players_for_winner: List[Player] = []
+        for match in (first, second):
+            if not match:
+                continue
+            for player in match.players:
+                if player not in candidate_players_for_winner:
+                    candidate_players_for_winner.append(player)
+            if match.winner and match.winner not in candidate_players_for_winner:
+                candidate_players_for_winner.append(match.winner)
         center_source = [first.center]
         if second is not None:
             center_source.append(second.center)
         center = sum(center_source) / len(center_source)
-
-        winner_entry = assign_nearest_winner(center, remaining_winners, tolerance=winner_tolerance)
         winner: Optional[Player] = None
+        if winner_entry is not None:
+            winner = match_short_to_full(
+                winner_entry.short,
+                winner_entry.center,
+                players,
+                winner_entry.player_id_ext,
+            )
+        elif len(participants) == 1:
         if winner_entry is not None:
             winner = match_short_to_full(
                 winner_entry.short,

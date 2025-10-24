@@ -1,0 +1,838 @@
+# temp.py
+from __future__ import annotations
+
+import io
+import re
+from dataclasses import dataclass
+from typing import List, Optional, Sequence, Tuple
+
+import pdfplumber
+import requests
+
+# -------------------------------------------------------------------
+# Project imports
+# -------------------------------------------------------------------
+from config import (
+    SCRAPE_PARTICIPANTS_MAX_CLASSES,
+    SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+    SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
+    SCRAPE_PARTICIPANTS_ORDER,
+    SCRAPE_PARTICIPANTS_CUTOFF_DATE,
+)
+from utils import parse_date
+from models.tournament_class import TournamentClass
+from db import get_conn
+
+
+SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30021']  # RO16 test
+SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625'] # RO32 test
+SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006'] # RO64 test
+
+# -------------------------------------------------------------------
+# Your original parser code (unchanged logic)
+# -------------------------------------------------------------------
+
+WINNER_LABEL_PATTERN = re.compile(
+    r"^(?:(\d{1,3})\s+)?([\wÅÄÖåäö\-]+(?:\s+[\wÅÄÖåäö\-]+)*)$",
+    re.UNICODE,
+)
+
+# Heuristic x-bands for the earliest (RO64) column
+# R64_WINNERS_X = (170, 210)   # winner labels for RO64 (far-left)
+# R64_SCORES_X  = (210, 260)   # score blobs near RO64 winners
+
+R64_WINNERS_X = (195, 250)   # was (170, 210)
+R64_SCORES_X  = (250, 305)   # was (210, 260)
+
+
+@dataclass
+class Player:
+    full_name: str
+    club: str
+    short: str
+    center: float
+    player_id_ext: Optional[str]
+    player_suffix_id: Optional[str]
+
+@dataclass
+class ScoreEntry:
+    scores: Tuple[int, ...]
+    center: float
+    x: float
+
+@dataclass
+class WinnerEntry:
+    short: str
+    center: float
+    x: float
+    player_id_ext: Optional[str]
+
+@dataclass
+class Match:
+    players: List[Player]
+    winner: Optional[Player]
+    scores: Optional[Tuple[int, ...]]
+    center: float
+
+def fetch_words(url: str) -> List[dict]:
+    response = requests.get(url, timeout=30)
+    response.raise_for_status()
+    with pdfplumber.open(io.BytesIO(response.content)) as pdf:
+        page = pdf.pages[0]
+        return page.extract_words(keep_blank_chars=True)
+
+def to_center(word: dict) -> float:
+    return (float(word["top"]) + float(word["bottom"])) / 2
+
+def make_short(name: str) -> str:
+    parts = name.split()
+    if len(parts) < 2:
+        return name
+    return f"{parts[0]} {parts[1][0]}"
+
+def extract_players(words: Sequence[dict]) -> List[Player]:
+    players: List[Player] = []
+    for word in words:
+        if float(word["x0"]) < 200 and "," in word["text"]:
+            raw_text = _strip_draw_prefix(word["text"])
+            match = re.match(
+                r"\s*(?:(\d{1,3})\s+)?([^,(]+?(?:\s+[^,(]+?)*)(?:\s*\(([^)]+)\))?,\s*(.+)",
+                # word["text"],
+                raw_text,
+            )
+            if not match:
+                continue
+            player_id_ext, raw_name, player_suffix_id, raw_club = match.groups()
+            if player_id_ext:
+                player_id_ext = player_id_ext.strip()
+            full_name = raw_name.strip()
+            club = raw_club.strip()
+            # players.append(
+            #     Player(
+            #         full_name=full_name,
+            #         club=club,
+            #         short=make_short(full_name),
+            #         center=to_center(word),
+            #         player_id_ext=player_id_ext,
+            #         player_suffix_id=player_suffix_id.strip() if player_suffix_id else None,
+            #     )
+            # )
+            players.append(
+                Player(
+                    full_name=full_name,
+                    club=club,
+                    short=make_short(full_name),
+                    center=to_center(word),
+                    player_id_ext=player_id_ext,
+                    # Drop any parenthetical suffix entirely
+                    player_suffix_id=None,
+                )
+            )
+    players.sort(key=lambda p: p.center)
+    return players
+
+def extract_score_entries(words: Sequence[dict], x_range: Tuple[float, float]) -> List[ScoreEntry]:
+    start, stop = x_range
+    entries: List[ScoreEntry] = []
+    for word in words:
+        x0 = float(word["x0"])
+        if not (start <= x0 <= stop):
+            continue
+
+        raw = word["text"].strip().replace("−", "-")
+        if not raw:
+            continue
+        if re.search(r"[A-Za-zÅÄÖåäö]", raw):
+            continue
+
+        m = re.fullmatch(r"-?\d+(?:\s*,\s*-?\d+)+", raw)
+        if not m:
+            continue
+
+        nums = [int(tok) for tok in re.findall(r"-?\d+", m.group(0))]
+        nums = [n for n in nums if n != 0]  # keep existing 0-filter
+        if not nums:
+            continue
+
+        entries.append(ScoreEntry(scores=tuple(nums), center=to_center(word), x=x0))
+
+    entries.sort(key=lambda e: e.center)
+    return entries
+
+
+def extract_winner_entries(words: Sequence[dict], x_range: Tuple[float, float]) -> List[WinnerEntry]:
+    start, stop = x_range
+    winners: List[WinnerEntry] = []
+    for word in words:
+        x0 = float(word["x0"])
+        if not (start <= x0 <= stop):
+            continue
+
+        text = word["text"].replace("\xa0", " ").strip()
+        text = _strip_draw_prefix(text)
+        if not text:
+            continue
+        if any(token in text for token in ("Slutspel", "Höstpool", "program", "Kvalifikation", "Kvalificering")):
+            continue
+
+        m = WINNER_LABEL_PATTERN.match(text)
+        if not m:
+            continue
+        player_id_ext, label = m.groups()
+
+        # skip obvious non-names
+        if any(ch.isdigit() for ch in label):
+            continue
+        if " " not in label:              # <-- NEW: drops 'Damsingel', 'Final', etc.
+            continue
+
+        winners.append(WinnerEntry(short=label.strip(),
+                                   center=to_center(word),
+                                   x=x0,
+                                   player_id_ext=player_id_ext))
+    winners.sort(key=lambda w: w.center)
+    return winners
+
+
+def match_short_to_full(
+    short: str,
+    center: float,
+    players: Sequence[Player],
+    player_id_ext: Optional[str] = None,
+) -> Player:
+    normalized = short.strip()
+    if player_id_ext:
+        id_candidates = [p for p in players if p.player_id_ext == player_id_ext]
+        if id_candidates:
+            return min(id_candidates, key=lambda p: abs(p.center - center))
+
+    candidates = [p for p in players if p.short == normalized]
+    if candidates:
+        return min(candidates, key=lambda p: abs(p.center - center))
+
+    alt_short = make_short(normalized)
+    if alt_short != normalized:
+        candidates = [p for p in players if p.short == alt_short]
+        if candidates:
+            return min(candidates, key=lambda p: abs(p.center - center))
+
+    prefix_matches = [p for p in players if p.full_name.startswith(normalized)]
+    if prefix_matches:
+        return min(prefix_matches, key=lambda p: abs(p.center - center))
+
+    raise ValueError(f"No player matches label {short!r}")
+
+def assign_nearest_score(
+    center: float,
+    pool: List[ScoreEntry],
+    tolerance: float = 15.0,
+) -> Optional[Tuple[int, ...]]:
+    if not pool:
+        return None
+    best_index = None
+    best_delta = None
+    for idx, entry in enumerate(pool):
+        delta = abs(entry.center - center)
+        if best_delta is None or delta < best_delta:
+            best_delta = delta
+            best_index = idx
+    if best_delta is None or best_delta > tolerance:
+        return None
+    entry = pool.pop(best_index)
+    return entry.scores
+
+def format_player(player: Player) -> str:
+    prefix = f"[{player.player_id_ext}] " if player.player_id_ext else ""
+    suffix = f"[{player.player_suffix_id}]" if player.player_suffix_id else ""
+    return f"{prefix}{player.full_name}{suffix}, {player.club}"
+
+def assign_nearest_winner(
+    center: float,
+    pool: List[WinnerEntry],
+    tolerance: float = 15.0,
+    fallback_tolerance: Optional[float] = None,
+) -> Optional[WinnerEntry]:
+    if not pool:
+        return None
+    best_index = None
+    best_delta = None
+    for idx, entry in enumerate(pool):
+        delta = abs(entry.center - center)
+        if best_delta is None or delta < best_delta:
+            best_delta = delta
+            best_index = idx
+    if best_delta is None or best_index is None:
+        return None
+    if best_delta > tolerance:
+        if fallback_tolerance is None or best_delta > fallback_tolerance:
+            return None
+    return pool.pop(best_index)
+
+def build_round_of_16(players, winners, scores) -> List[Match]:
+    remaining_scores = scores.copy()
+    matches: List[Match] = []
+    for winner_entry in winners:
+        participants = [p for p in players if abs(p.center - winner_entry.center) <= 12]
+
+        if not participants:              # <-- NEW: header rows like 'Damsingel' have 0 participants
+            continue
+
+        # Try to resolve the winner; fall back to Unknown
+        winner: Optional[Player] = None
+        try:
+            winner = match_short_to_full(
+                winner_entry.short,
+                winner_entry.center,
+                players,
+                winner_entry.player_id_ext,
+            )
+        except ValueError:
+            pass
+
+        match_scores = assign_nearest_score(winner_entry.center, remaining_scores)
+        matches.append(Match(players=participants, winner=winner, scores=match_scores, center=winner_entry.center))
+    return matches
+
+
+
+def build_round_from_previous(
+    previous_round: Sequence[Match],
+    winners: Sequence[WinnerEntry],
+    scores: List[ScoreEntry],
+    players: Sequence[Player],
+    winner_tolerance: float = 18.0,
+    fallback_winner_tolerance: Optional[float] = None,
+    score_tolerance: float = 20.0,
+) -> List[Match]:
+    remaining_scores = scores.copy()
+    remaining_winners = list(winners)
+    matches: List[Match] = []
+    idx = 0
+    while idx < len(previous_round):
+        first = previous_round[idx]
+        second = previous_round[idx + 1] if idx + 1 < len(previous_round) else None
+        participants: List[Player] = []
+        if first.winner is not None:
+            participants.append(first.winner)
+        if second and second.winner is not None:
+            participants.append(second.winner)
+        center_source = [first.center]
+        if second is not None:
+            center_source.append(second.center)
+        center = sum(center_source) / len(center_source)
+
+        winner_entry = assign_nearest_winner(
+            center,
+            remaining_winners,
+            tolerance=winner_tolerance,
+            fallback_tolerance=fallback_winner_tolerance,
+        )
+        winner: Optional[Player] = None
+        if winner_entry is not None:
+            winner = match_short_to_full(
+                winner_entry.short,
+                winner_entry.center,
+                players,
+                winner_entry.player_id_ext,
+            )
+        elif len(participants) == 1:
+            winner = participants[0]
+
+        match_scores = assign_nearest_score(center, remaining_scores, tolerance=score_tolerance)
+        matches.append(
+            Match(players=participants, winner=winner, scores=match_scores, center=center)
+        )
+        idx += 2
+    return matches
+
+def build_quarterfinals(
+    r16_matches: Sequence[Match],
+    scores: List[ScoreEntry],
+    players: Sequence[Player],
+    next_round_winners: Optional[Sequence[WinnerEntry]] = None,
+) -> List[Match]:
+    remaining_scores = scores.copy()
+
+    matches: List[Match] = []
+    semifinal_players: List[Player] = []
+    if next_round_winners:
+        semifinal_players = [
+            match_short_to_full(w.short, w.center, players, w.player_id_ext)
+            for w in next_round_winners
+        ]
+    pair_count = (len(r16_matches) + 1) // 2
+    for idx in range(pair_count):
+        first_match = r16_matches[2 * idx]
+        second_match = r16_matches[2 * idx + 1] if 2 * idx + 1 < len(r16_matches) else None
+        first = first_match.winner or (first_match.players[0] if first_match.players else None)
+        second = None
+        if second_match:
+            second = second_match.winner or (
+                second_match.players[0] if second_match.players else None
+            )
+        if first is None or second is None:
+            continue
+        participants = [first, second]
+        centers = [first_match.center]
+        if second_match:
+            centers.append(second_match.center)
+        center = sum(centers) / len(centers)
+        match_scores = assign_nearest_score(center, remaining_scores)
+        winner: Optional[Player] = None
+        for candidate in semifinal_players:
+            if candidate in participants:
+                winner = candidate
+                break
+        if winner is None:
+            for candidate in participants:
+                if candidate == first_match.winner or (
+                    second_match and candidate == second_match.winner
+                ):
+                    winner = candidate
+                    break
+        if winner is None:
+            winner = participants[0]
+        matches.append(Match(players=participants, winner=winner, scores=match_scores, center=center))
+    return matches
+
+def build_semifinals(
+    quarterfinals: Sequence[Match],
+    scores: List[ScoreEntry],
+    winners: Sequence[WinnerEntry],
+    players: Sequence[Player],
+    winner_tolerance: float = 30.0,
+    score_tolerance: float = 30.0,
+) -> Tuple[List[Match], List[WinnerEntry]]:
+    remaining_scores = scores.copy()
+    remaining_winners = list(winners)
+    matches: List[Match] = []
+    for idx in range(2):
+        first_match = quarterfinals[2 * idx]
+        second_match = quarterfinals[2 * idx + 1]
+        first = first_match.winner or (first_match.players[0] if first_match.players else None)
+        second = second_match.winner or (second_match.players[0] if second_match.players else None)
+        if first is None or second is None:
+            continue
+        participants = [first, second]
+        center = (quarterfinals[2 * idx].center + quarterfinals[2 * idx + 1].center) / 2
+        winner: Optional[Player] = None
+        winner_entry = assign_nearest_winner(
+            center,
+            remaining_winners,
+            tolerance=winner_tolerance,
+            fallback_tolerance=winner_tolerance + 10.0,
+        )
+        if winner_entry is not None:
+            try:
+                winner = match_short_to_full(
+                    winner_entry.short,
+                    winner_entry.center,
+                    players,
+                    winner_entry.player_id_ext,
+                )
+            except ValueError:
+                winner = None
+
+        if winner is None:
+            for candidate in participants:
+                if candidate == first_match.winner or candidate == second_match.winner:
+                    winner = candidate
+                    break
+        if winner is None:
+            winner = participants[0]
+        match_scores = assign_nearest_score(center, remaining_scores, tolerance=score_tolerance)    
+        matches.append(Match(players=participants, winner=winner, scores=match_scores, center=center))
+    return matches, remaining_winners
+
+def fill_missing_winners(previous_round: Sequence[Match], next_round: Sequence[Match]) -> None:
+    advancing_players: List[Player] = [player for match in next_round for player in match.players]
+    for match in previous_round:
+        if match.winner is None:
+            for player in match.players:
+                if player in advancing_players:
+                    match.winner = player
+                    break
+
+def build_final(
+    semifinals: Sequence[Match],
+    scores: List[ScoreEntry],
+    winner_entry: WinnerEntry,
+    players: Sequence[Player],
+) -> Match:
+    participants = [match.winner for match in semifinals]
+    participants = [p for p in participants if p is not None]
+    center = sum(match.center for match in semifinals) / len(semifinals)
+    match_scores = assign_nearest_score(center, scores.copy(), tolerance=40.0)
+    winner = match_short_to_full(
+        winner_entry.short,
+        winner_entry.center,
+        players,
+        winner_entry.player_id_ext,
+    )
+    return Match(players=participants, winner=winner, scores=match_scores, center=center)
+
+def label_round(round_name: str, matches: Sequence[Match]) -> None:
+    print(f"{round_name}:")
+    for match in matches:
+        if len(match.players) < 2 and match.players:
+            solo = match.players[0]
+            print(f"{format_player(solo)} \t\t-> BYE")
+            continue
+        if len(match.players) < 2:
+            print("Unknown participants -> Winner: Unknown")
+            continue
+        left, right = match.players
+        winner_label = (
+            f"Winner: {format_player(match.winner)}"
+            if match.winner
+            else "Winner: Unknown"
+        )
+        score_label = (
+            f" -> Game tokens: {match.scores}"
+            if match.scores is not None
+            else ""
+        )
+        print(
+            f"{format_player(left)} vs {format_player(right)} \t-> "
+            f"{winner_label}{score_label}"
+        )
+
+DRAW_PREFIX_RE = re.compile(r"^\s*\d+\s*[>\.\)\-]\s*")  # e.g. "1>", "2)", "3.", "4-"
+
+def _strip_draw_prefix(text: str) -> str:
+    """Remove a leading draw index like '1>' before parsing the player line."""
+    return DRAW_PREFIX_RE.sub("", text.strip())
+
+def _cluster_columns(xs: List[float], max_gap: float = 35.0) -> List[Tuple[float, float]]:
+    """
+    Group sorted x-positions into vertical bands; a new band starts when the gap exceeds max_gap.
+    Returns a list of (x_start, x_end) bands from left to right.
+    """
+    if not xs:
+        return []
+    xs = sorted(xs)
+    bands: List[Tuple[float, float]] = []
+    start = prev = xs[0]
+    for x in xs[1:]:
+        if x - prev > max_gap:
+            bands.append((start, prev))
+            start = x
+        prev = x
+    bands.append((start, prev))
+    return bands
+
+
+
+# --- Qualification detection ---
+
+# Nordic-ish header variants (case-insensitive)
+QUAL_HEADER_RE = re.compile(
+    r"\b(kval(?:ifikation|ificering|ifisering)?|karsinta)\b", re.IGNORECASE
+)
+
+def _find_qualification_header(words: Sequence[dict]) -> Optional[dict]:
+    """Return the word dict that looks like a 'Qualification' header."""
+    # Prefer bold-ish / larger fonts if present; otherwise first match.
+    candidates = []
+    for w in words:
+        txt = w.get("text", "").replace("\xa0", " ").strip()
+        if not txt:
+            continue
+        if QUAL_HEADER_RE.search(txt):
+            # pdfplumber sometimes exposes fontname/size; not always.
+            size = float(w.get("size", 0)) if "size" in w else 0.0
+            candidates.append((size, w))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda t: (-t[0], float(t[1].get("top", 0))))
+    return candidates[0][1]
+
+def _extract_player_like_in_band(words: Sequence[dict], y_min: float, y_max: float) -> List[Player]:
+    out: List[Player] = []
+    for word in words:
+        y = (float(word["top"]) + float(word["bottom"])) / 2
+        if not (y_min <= y <= y_max):
+            continue
+        txt = word.get("text", "")
+        if "," not in txt:
+            continue
+        # must have letters before the comma (avoid "7, 7, 4, 9")
+        left = txt.split(",", 1)[0]
+        if not re.search(r"[A-Za-zÅÄÖåäö]", left):
+            continue
+
+        # NEW: strip draw prefix if present
+        cleaned = _strip_draw_prefix(txt)
+
+        m = re.match(
+            r"\s*(?:(\d{1,3})\s+)?([^,(]+?(?:\s+[^,(]+?)*)(?:\s*\(([^)]+)\))?,\s*(.+)",
+            cleaned,  # <-- use the cleaned string as the SUBJECT
+        )
+        if not m:
+            continue
+        player_id_ext, raw_name, player_suffix_id, raw_club = m.groups()
+        full_name = raw_name.strip()
+        out.append(
+            Player(
+                full_name=full_name,
+                club=raw_club.strip(),
+                short=make_short(full_name),
+                center=y,
+                player_id_ext=player_id_ext.strip() if player_id_ext else None,
+                # Drop any parenthetical suffix entirely
+                player_suffix_id=None,
+            )
+        )
+    out.sort(key=lambda p: p.center)
+    return out
+
+def assign_qualification_winners_by_presence(qualification: List[Match], ko_rounds: Sequence[Match]) -> None:
+    """If exactly one of the two players appears in the KO tree participants, mark them as winner."""
+    # Build identity sets from KO rounds
+    ko_by_id = {p.player_id_ext for m in ko_rounds for p in m.players if p and p.player_id_ext}
+    ko_by_name = {p.full_name for m in ko_rounds for p in m.players if p}
+
+    for m in qualification:
+        if len(m.players) != 2:
+            continue
+        a, b = m.players
+        a_in = (a.player_id_ext and a.player_id_ext in ko_by_id) or (a.full_name in ko_by_name) or (a.short in {p.short for mm in ko_rounds for p in mm.players})
+        b_in = (b.player_id_ext and b.player_id_ext in ko_by_id) or (b.full_name in ko_by_name) or (b.short in {p.short for mm in ko_rounds for p in mm.players})
+
+        if a_in and not b_in:
+            m.winner = a
+        elif b_in and not a_in:
+            m.winner = b
+        # if both or neither match, leave as Unknown
+
+
+def extract_qualification_matches(words: Sequence[dict]) -> List[Match]:
+    """Find a 'Qualification' section; pair adjacent player lines as matches.
+    Winner is unknown (underline not in text layer). Scores assigned by proximity."""
+    header = _find_qualification_header(words)
+    if not header:
+        return []
+
+    # Set a vertical window below the header; generous height to catch variants.
+    header_center = (float(header["top"]) + float(header["bottom"])) / 2
+    y_min = header_center + 5
+    y_max = header_center + 250  # big enough for a handful of qual matches
+
+    # Pull any player-like lines inside this band (independent of x)
+    qual_players = _extract_player_like_in_band(words, y_min, y_max)
+    if len(qual_players) < 2:
+        return []
+
+    # Get all score entries from the whole page (more robust than x-bands)
+    all_scores = extract_score_entries(words, (0, 10000))  # any x; we’ll use proximity
+
+    matches: List[Match] = []
+    idx = 0
+    while idx + 1 < len(qual_players):
+        a = qual_players[idx]
+        b = qual_players[idx + 1]
+        center = (a.center + b.center) / 2.0
+        sc = assign_nearest_score(center, all_scores, tolerance=50.0)
+        matches.append(Match(players=[a, b], winner=None, scores=sc, center=center))
+        idx += 2
+
+    return matches
+
+# -------------------------------------------------------------------
+# Batch runner:
+# - uses TournamentClass.get_filtered_classes(...)
+# - builds PDF URL per class
+# - prints SELF-CHECK only (parsed vs stored)
+# -------------------------------------------------------------------
+
+def main() -> None:
+    # 1) DB cursor for get_filtered_classes
+    conn, cursor = get_conn()
+    try:
+        cursor = conn.cursor()
+
+        cutoff_date = parse_date(SCRAPE_PARTICIPANTS_CUTOFF_DATE) if SCRAPE_PARTICIPANTS_CUTOFF_DATE else None
+        classes = TournamentClass.get_filtered_classes(
+            cursor                  = cursor,
+            class_id_exts           = SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+            tournament_id_exts      = SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
+            data_source_id          = 1 if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else None,
+            cutoff_date             = cutoff_date,
+            require_ended           = False,
+            allowed_structure_ids   = [1, 3],   # Groups+KO or KO-only
+            allowed_type_ids        = [1],       # singles
+            max_classes             = SCRAPE_PARTICIPANTS_MAX_CLASSES,
+            order                   = SCRAPE_PARTICIPANTS_ORDER,
+        )
+
+        print(f"Found {len(classes)} classes\n")
+
+        for tclass in classes:
+            ext = tclass.tournament_class_id_ext
+            if not ext:
+                print(f"⏭️  Skipping class_id={tclass.tournament_class_id}: no tournament_class_id_ext")
+                continue
+
+            url = f"https://resultat.ondata.se/ViewClassPDF.php?classID={ext}&stage=5"
+            print(f"===== {tclass.shortname or tclass.longname} [ext={ext}] =====")
+            print(f"URL: {url}\n")
+
+            try:
+                # --- fetch and parse words/players as you already do ---
+                words   = fetch_words(url)
+                players = extract_players(words)
+
+                # --- Build KO rounds, now with optional RO64 probe ---
+                r64_matches: Optional[List[Match]] = None
+                r32_matches: Optional[List[Match]] = None
+
+                # Probe RO64 (far-left column)
+                r64_winners = extract_winner_entries(words, R64_WINNERS_X)
+                if len(r64_winners) >= 32:
+                    r64_scores  = extract_score_entries(words, R64_SCORES_X)
+                    r64_matches = build_round_of_16(players, r64_winners, r64_scores)
+
+                    # Build RO32 from RO64
+                    r32_winners = extract_winner_entries(words, (220, 240))
+                    r32_scores  = extract_score_entries(words, (270, 320))
+                    r32_matches = build_round_from_previous(
+                        r64_matches, r32_winners, r32_scores, players,
+                        winner_tolerance=18.0,
+                        fallback_winner_tolerance=32.0,
+                        score_tolerance=20.0,   
+                    )
+
+                    # Build R16 from RO32
+                    r16_winners = extract_winner_entries(words, (300, 350))
+                    r16_scores  = extract_score_entries(words, (320, 380))
+                    r16_matches = build_round_from_previous(
+                        r32_matches, r16_winners, r16_scores, players,
+                        winner_tolerance=18.0,
+                        fallback_winner_tolerance=30.0,
+                        score_tolerance=20.0,
+                    )
+                else:
+                    # No RO64: your original RO16-first logic with optional RO32
+                    r16_winners = extract_winner_entries(words, (220, 240))
+                    r16_scores  = extract_score_entries(words, (270, 320))
+                    r16_matches = build_round_of_16(players, r16_winners, r16_scores)
+
+                    if len(r16_matches) > 8:
+                        # In this branch, r16_matches initially *are* the RO32 pairs
+                        r32_matches = r16_matches
+                        r16_adv_winners = extract_winner_entries(words, (300, 350))
+                        r16_adv_scores  = extract_score_entries(words, (320, 380))
+                        r16_matches = build_round_from_previous(
+                            r32_matches,
+                            r16_adv_winners,
+                            r16_adv_scores,
+                            players,
+                            fallback_winner_tolerance=30.0,
+                        )
+
+                # Fill upstream winners for consistency
+                if r32_matches:
+                    fill_missing_winners(r32_matches, r16_matches)
+                if r64_matches:
+                    fill_missing_winners(r64_matches, r32_matches)
+
+                # Qualification now that we know R16 participants
+                qualification = extract_qualification_matches(words)
+                if qualification:
+                    assign_qualification_winners_by_presence(qualification, r16_matches)
+                    label_round("Qualification", qualification)
+                    print()
+
+                # QF / SF / Final
+                # Keep the slightly widened ranges, but use tight first + safe fallbacks.
+
+                # ---------- QF ----------
+                qf_scores  = extract_score_entries(words, (330, 410))
+                sf_winners = extract_winner_entries(words, (380, 420)) or extract_winner_entries(words, (400, 470))
+                qf_matches = build_quarterfinals(r16_matches, qf_scores, players, sf_winners)
+                fill_missing_winners(r16_matches, qf_matches)
+
+                # ---------- SF ----------
+                sf_scores  = extract_score_entries(words, (420, 500)) or extract_score_entries(words, (430, 520))
+                semifinals = build_semifinals(qf_matches, sf_scores, sf_winners, players)
+                fill_missing_winners(qf_matches, semifinals)
+
+                # ---------- Final (layout-based, robust) ----------
+                final_center_y = sum(m.center for m in semifinals) / len(semifinals)
+
+                # Scan whole page (we recorded each entry's x already)
+                all_winners = extract_winner_entries(words, (0, 10000))
+                all_scores  = extract_score_entries(words, (0, 10000))
+
+                winner_bands = _cluster_columns([w.x for w in all_winners])
+                score_bands  = _cluster_columns([s.x for s in all_scores])
+
+                # Rightmost bands hold the final column
+                final_winner_band = winner_bands[-1] if winner_bands else (0.0, 0.0)
+                final_score_band  = score_bands[-1]  if score_bands  else (0.0, 0.0)
+
+                final_winner_candidates = [w for w in all_winners if final_winner_band[0] <= w.x <= final_winner_band[1]]
+                final_score_candidates  = [s for s in all_scores  if final_score_band[0]  <= s.x <= final_score_band[1]]
+
+                if final_winner_candidates:
+                    final_winner_entry = min(final_winner_candidates, key=lambda w: abs(w.center - final_center_y))
+                else:
+                    # Fallback: synthesize from SF winners so we never crash
+                    fallback = semifinals[0].winner or semifinals[1].winner or (semifinals[0].players[0] if semifinals[0].players else None)
+                    final_winner_entry = WinnerEntry(
+                        short=fallback.short if fallback else "Unknown",
+                        center=final_center_y,
+                        x=final_winner_band[1] if winner_bands else 0.0,
+                        player_id_ext=fallback.player_id_ext if fallback else None,
+                    )
+
+                if final_score_candidates:
+                    best_score = min(final_score_candidates, key=lambda s: abs(s.center - final_center_y))
+                    final_scores_for_builder = [best_score]
+                else:
+                    final_scores_for_builder = []
+
+                final_match = build_final(semifinals, final_scores_for_builder, final_winner_entry, players)
+
+
+
+
+
+                # --- Print rounds (deduped) ---
+                if r64_matches:
+                    label_round("RO64", r64_matches)
+                    print()
+                if r32_matches:
+                    label_round("RO32", r32_matches)
+                    print()
+
+                label_round("RO16", r16_matches)
+                print()
+                label_round("RO8/QF", qf_matches)
+                print()
+                label_round("RO4/SF", semifinals)
+                print()
+                label_round("RO2/Final", [final_match])
+
+
+                # --- Self-check vs stored ko_tree_size ---
+                earliest = r64_matches or r32_matches or r16_matches
+                parsed_size = max(2, len(earliest) * 2)
+                stored = tclass.ko_tree_size
+                if stored is None:
+                    print(f"\nℹ️  SELF-CHECK: DB ko_tree_size=NULL | parsed={parsed_size}\n")
+                elif int(stored) == int(parsed_size):
+                    print(f"\n✅ SELF-CHECK: parsed={parsed_size} == stored={stored}\n")
+                else:
+                    print(f"\n⚠️  SELF-CHECK: parsed={parsed_size} != stored={stored}\n")
+
+            except Exception as e:
+                print(f"❌ Parse error for {tclass.shortname or tclass.longname} [ext={ext}]: {e}\n")
+                continue
+
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    main()
