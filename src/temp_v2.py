@@ -1,4 +1,4 @@
-# temp.py
+# temp2.py
 from __future__ import annotations
 
 import io
@@ -25,8 +25,9 @@ from db import get_conn
 
 
 SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30021']  # RO16 test
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625'] # RO32 test
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006'] # RO64 test
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625'] # RO32 test
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006'] # RO64 test
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['6955'] # RO128 test
 
 # -------------------------------------------------------------------
 # Your original parser code (unchanged logic)
@@ -35,6 +36,12 @@ SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006'] # RO64 test
 WINNER_LABEL_PATTERN = re.compile(
     r"^(?:(\d{1,3})\s+)?([\wÅÄÖåäö\-]+(?:\s+[\wÅÄÖåäö\-]+)*)$",
     re.UNICODE,
+)
+
+# Matches a sequence of score tokens followed by a winner label inside the
+# same text blob, e.g. ``"5, 8, 6, 11 169 Augustsson A"``.
+COMBINED_SCORE_LABEL_RE = re.compile(
+    r"^((?:-?\d+\s*,\s*)+-?\d+)\s+(.+)$"
 )
 
 # Heuristic x-bands for the earliest (RO64) column
@@ -131,6 +138,22 @@ def extract_players(words: Sequence[dict]) -> List[Player]:
     players.sort(key=lambda p: p.center)
     return players
 
+
+def _split_score_and_label(text: str) -> Tuple[Optional[str], str]:
+    """Split a combined "scores + winner label" blob into its parts.
+
+    Returns a tuple of (score_text or None, label_text). Both parts are
+    stripped and have any draw prefixes removed.
+    """
+
+    cleaned = text.replace("\xa0", " ")
+    cleaned = _strip_draw_prefix(cleaned)
+    match = COMBINED_SCORE_LABEL_RE.match(cleaned)
+    if match:
+        score_text, label_text = match.groups()
+        return score_text.strip(), label_text.strip()
+    return None, cleaned.strip()
+
 def extract_score_entries(words: Sequence[dict], x_range: Tuple[float, float]) -> List[ScoreEntry]:
     start, stop = x_range
     entries: List[ScoreEntry] = []
@@ -142,10 +165,13 @@ def extract_score_entries(words: Sequence[dict], x_range: Tuple[float, float]) -
         raw = word["text"].strip().replace("−", "-")
         if not raw:
             continue
-        if re.search(r"[A-Za-zÅÄÖåäö]", raw):
+        score_text, _ = _split_score_and_label(raw)
+        target = score_text or _strip_draw_prefix(raw)
+        if not target:
             continue
-
-        m = re.fullmatch(r"-?\d+(?:\s*,\s*-?\d+)+", raw)
+        if not score_text and re.search(r"[A-Za-zÅÄÖåäö]", target):
+            continue
+        m = re.fullmatch(r"-?\d+(?:\s*,\s*-?\d+)+", target)
         if not m:
             continue
 
@@ -169,7 +195,7 @@ def extract_winner_entries(words: Sequence[dict], x_range: Tuple[float, float]) 
             continue
 
         text = word["text"].replace("\xa0", " ").strip()
-        text = _strip_draw_prefix(text)
+        _score_text, text = _split_score_and_label(text)
         if not text:
             continue
         if any(token in text for token in ("Slutspel", "Höstpool", "program", "Kvalifikation", "Kvalificering")):
@@ -247,10 +273,7 @@ def format_player(player: Player) -> str:
     return f"{prefix}{player.full_name}{suffix}, {player.club}"
 
 def assign_nearest_winner(
-    center: float,
-    pool: List[WinnerEntry],
-    tolerance: float = 15.0,
-    fallback_tolerance: Optional[float] = None,
+    center: float, pool: List[WinnerEntry], tolerance: float = 15.0
 ) -> Optional[WinnerEntry]:
     if not pool:
         return None
@@ -261,11 +284,8 @@ def assign_nearest_winner(
         if best_delta is None or delta < best_delta:
             best_delta = delta
             best_index = idx
-    if best_delta is None or best_index is None:
+    if best_delta is None or best_delta > tolerance or best_index is None:
         return None
-    if best_delta > tolerance:
-        if fallback_tolerance is None or best_delta > fallback_tolerance:
-            return None
     return pool.pop(best_index)
 
 def build_round_of_16(players, winners, scores) -> List[Match]:
@@ -301,7 +321,6 @@ def build_round_from_previous(
     scores: List[ScoreEntry],
     players: Sequence[Player],
     winner_tolerance: float = 18.0,
-    fallback_winner_tolerance: Optional[float] = None,
     score_tolerance: float = 20.0,
 ) -> List[Match]:
     remaining_scores = scores.copy()
@@ -321,12 +340,7 @@ def build_round_from_previous(
             center_source.append(second.center)
         center = sum(center_source) / len(center_source)
 
-        winner_entry = assign_nearest_winner(
-            center,
-            remaining_winners,
-            tolerance=winner_tolerance,
-            fallback_tolerance=fallback_winner_tolerance,
-        )
+        winner_entry = assign_nearest_winner(center, remaining_winners, tolerance=winner_tolerance)
         winner: Optional[Player] = None
         if winner_entry is not None:
             winner = match_short_to_full(
@@ -349,17 +363,14 @@ def build_quarterfinals(
     r16_matches: Sequence[Match],
     scores: List[ScoreEntry],
     players: Sequence[Player],
-    next_round_winners: Optional[Sequence[WinnerEntry]] = None,
-) -> List[Match]:
+    winner_entries: Optional[Sequence[WinnerEntry]] = None,
+    winner_tolerance: float = 25.0,
+    score_tolerance: float = 25.0,
+) -> Tuple[List[Match], List[WinnerEntry]]:
     remaining_scores = scores.copy()
+    remaining_winners = list(winner_entries) if winner_entries else []
 
     matches: List[Match] = []
-    semifinal_players: List[Player] = []
-    if next_round_winners:
-        semifinal_players = [
-            match_short_to_full(w.short, w.center, players, w.player_id_ext)
-            for w in next_round_winners
-        ]
     pair_count = (len(r16_matches) + 1) // 2
     for idx in range(pair_count):
         first_match = r16_matches[2 * idx]
@@ -377,12 +388,18 @@ def build_quarterfinals(
         if second_match:
             centers.append(second_match.center)
         center = sum(centers) / len(centers)
-        match_scores = assign_nearest_score(center, remaining_scores)
         winner: Optional[Player] = None
-        for candidate in semifinal_players:
-            if candidate in participants:
-                winner = candidate
-                break
+        winner_entry = assign_nearest_winner(center, remaining_winners, tolerance=winner_tolerance)
+        if winner_entry is not None:
+            try:
+                winner = match_short_to_full(
+                    winner_entry.short,
+                    winner_entry.center,
+                    players,
+                    winner_entry.player_id_ext,
+                )
+            except ValueError:
+                winner = None
         if winner is None:
             for candidate in participants:
                 if candidate == first_match.winner or (
@@ -392,8 +409,9 @@ def build_quarterfinals(
                     break
         if winner is None:
             winner = participants[0]
+        match_scores = assign_nearest_score(center, remaining_scores, tolerance=score_tolerance)
         matches.append(Match(players=participants, winner=winner, scores=match_scores, center=center))
-    return matches
+    return matches, remaining_winners
 
 def build_semifinals(
     quarterfinals: Sequence[Match],
@@ -416,12 +434,7 @@ def build_semifinals(
         participants = [first, second]
         center = (quarterfinals[2 * idx].center + quarterfinals[2 * idx + 1].center) / 2
         winner: Optional[Player] = None
-        winner_entry = assign_nearest_winner(
-            center,
-            remaining_winners,
-            tolerance=winner_tolerance,
-            fallback_tolerance=winner_tolerance + 10.0,
-        )
+        winner_entry = assign_nearest_winner(center, remaining_winners, tolerance=winner_tolerance)
         if winner_entry is not None:
             try:
                 winner = match_short_to_full(
@@ -682,9 +695,45 @@ def main() -> None:
                 words   = fetch_words(url)
                 players = extract_players(words)
 
+                # Precompute full-page winners/scores to detect late-stage columns.
+                all_scores_page = extract_score_entries(words, (0, 10000))
+                all_winners_page = extract_winner_entries(words, (0, 10000))
+
+                score_bands_page = _cluster_columns([s.x for s in all_scores_page])
+                winner_bands_page = _cluster_columns([w.x for w in all_winners_page])
+
+                rightmost_score_band: Optional[Tuple[float, float]] = (
+                    score_bands_page[-1] if score_bands_page else None
+                )
+                late_score_entries: List[ScoreEntry] = []
+                if rightmost_score_band:
+                    late_score_entries = [
+                        s
+                        for s in all_scores_page
+                        if rightmost_score_band[0] <= s.x <= rightmost_score_band[1]
+                    ]
+                    late_score_entries.sort(key=lambda e: e.center)
+
+                late_round_winner_band: Optional[Tuple[float, float]] = (
+                    winner_bands_page[-1] if winner_bands_page else None
+                )
+                late_winner_entries: List[WinnerEntry] = []
+                if late_round_winner_band:
+                    late_winner_entries = [
+                        w
+                        for w in all_winners_page
+                        if late_round_winner_band[0] <= w.x <= late_round_winner_band[1]
+                    ]
+                    late_winner_entries.sort(key=lambda e: e.center)
+
+                semifinal_score_band: Optional[Tuple[float, float]] = (
+                    rightmost_score_band if rightmost_score_band and rightmost_score_band[0] > 400 else None
+                )
+
                 # --- Build KO rounds, now with optional RO64 probe ---
                 r64_matches: Optional[List[Match]] = None
                 r32_matches: Optional[List[Match]] = None
+
 
                 # Probe RO64 (far-left column)
                 r64_winners = extract_winner_entries(words, R64_WINNERS_X)
@@ -693,24 +742,21 @@ def main() -> None:
                     r64_matches = build_round_of_16(players, r64_winners, r64_scores)
 
                     # Build RO32 from RO64
-                    r32_winners = extract_winner_entries(words, (220, 240))
-                    r32_scores  = extract_score_entries(words, (270, 320))
+                    r32_winners = extract_winner_entries(words, (260, 360))
+                    r32_scores  = extract_score_entries(words, (260, 420))
                     r32_matches = build_round_from_previous(
                         r64_matches, r32_winners, r32_scores, players,
-                        winner_tolerance=18.0,
-                        fallback_winner_tolerance=32.0,
-                        score_tolerance=20.0,   
+                        winner_tolerance=18.0, score_tolerance=20.0
                     )
 
                     # Build R16 from RO32
-                    r16_winners = extract_winner_entries(words, (300, 350))
-                    r16_scores  = extract_score_entries(words, (320, 380))
+                    r16_winners = extract_winner_entries(words, (360, 420))
+                    r16_scores  = extract_score_entries(words, (400, 460))
                     r16_matches = build_round_from_previous(
                         r32_matches, r16_winners, r16_scores, players,
-                        winner_tolerance=18.0,
-                        fallback_winner_tolerance=30.0,
-                        score_tolerance=20.0,
+                        winner_tolerance=18.0, score_tolerance=20.0
                     )
+
                 else:
                     # No RO64: your original RO16-first logic with optional RO32
                     r16_winners = extract_winner_entries(words, (220, 240))
@@ -720,14 +766,10 @@ def main() -> None:
                     if len(r16_matches) > 8:
                         # In this branch, r16_matches initially *are* the RO32 pairs
                         r32_matches = r16_matches
-                        r16_adv_winners = extract_winner_entries(words, (300, 350))
-                        r16_adv_scores  = extract_score_entries(words, (320, 380))
+                        r16_adv_winners = extract_winner_entries(words, (260, 360))
+                        r16_adv_scores  = extract_score_entries(words, (260, 420))
                         r16_matches = build_round_from_previous(
-                            r32_matches,
-                            r16_adv_winners,
-                            r16_adv_scores,
-                            players,
-                            fallback_winner_tolerance=30.0,
+                            r32_matches, r16_adv_winners, r16_adv_scores, players
                         )
 
                 # Fill upstream winners for consistency
@@ -747,25 +789,50 @@ def main() -> None:
                 # Keep the slightly widened ranges, but use tight first + safe fallbacks.
 
                 # ---------- QF ----------
-                qf_scores  = extract_score_entries(words, (330, 410))
-                sf_winners = extract_winner_entries(words, (380, 420)) or extract_winner_entries(words, (400, 470))
-                qf_matches = build_quarterfinals(r16_matches, qf_scores, players, sf_winners)
+                if rightmost_score_band and rightmost_score_band[0] > 400 and late_score_entries:
+                    qf_scores = list(late_score_entries)
+                else:
+                    qf_scores  = extract_score_entries(words, (330, 410))
+                if late_winner_entries:
+                    sf_winners = list(late_winner_entries)
+                elif late_round_winner_band:
+                    sf_winners = extract_winner_entries(words, late_round_winner_band)
+                else:
+                    sf_winners = extract_winner_entries(words, (380, 420)) or extract_winner_entries(words, (400, 470))
+                qf_matches, remaining_winners_after_qf = build_quarterfinals(
+                    r16_matches,
+                    qf_scores,
+                    players,
+                    sf_winners,
+                )
                 fill_missing_winners(r16_matches, qf_matches)
 
                 # ---------- SF ----------
-                sf_scores  = extract_score_entries(words, (420, 500)) or extract_score_entries(words, (430, 520))
-                semifinals = build_semifinals(qf_matches, sf_scores, sf_winners, players)
+                if rightmost_score_band and rightmost_score_band[0] > 400 and late_score_entries:
+                    sf_scores = list(late_score_entries)
+                elif semifinal_score_band:
+                    sf_scores = extract_score_entries(words, semifinal_score_band)
+                    if not sf_scores:
+                        sf_scores = extract_score_entries(words, (420, 500))
+                else:
+                    sf_scores  = extract_score_entries(words, (420, 500)) or extract_score_entries(words, (430, 520))
+                semifinals, remaining_winners_after_sf = build_semifinals(
+                    qf_matches,
+                    sf_scores,
+                    remaining_winners_after_qf,
+                    players,
+                )
                 fill_missing_winners(qf_matches, semifinals)
 
                 # ---------- Final (layout-based, robust) ----------
                 final_center_y = sum(m.center for m in semifinals) / len(semifinals)
 
                 # Scan whole page (we recorded each entry's x already)
-                all_winners = extract_winner_entries(words, (0, 10000))
-                all_scores  = extract_score_entries(words, (0, 10000))
+                all_winners = all_winners_page
+                all_scores  = all_scores_page
 
-                winner_bands = _cluster_columns([w.x for w in all_winners])
-                score_bands  = _cluster_columns([s.x for s in all_scores])
+                winner_bands = winner_bands_page
+                score_bands  = score_bands_page
 
                 # Rightmost bands hold the final column
                 final_winner_band = winner_bands[-1] if winner_bands else (0.0, 0.0)

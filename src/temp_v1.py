@@ -25,8 +25,8 @@ from db import get_conn
 
 
 SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30021']  # RO16 test
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625'] # RO32 test
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006'] # RO64 test
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625'] # RO32 test
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006'] # RO64 test
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['6955'] # RO128 test
 
 # -------------------------------------------------------------------
