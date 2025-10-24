@@ -1,3 +1,5 @@
+# src/temp_grok.py
+
 from __future__ import annotations
 import io
 import re
