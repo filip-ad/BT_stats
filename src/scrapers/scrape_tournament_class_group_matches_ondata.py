@@ -28,28 +28,28 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
     One DB row per match (symmetric S1/S2 fields), one logger success + inc_processed per match.
     """
     logger = OperationLogger(
-        verbosity=2,
-        print_output=False,
-        log_to_db=True,
-        cursor=cursor,
-        object_type="tournament_class_match_raw",
-        run_type="scrape",
-        run_id=run_id,
+        verbosity               = 2,
+        print_output            = False,
+        log_to_db               = True,
+        cursor                  = cursor,
+        object_type             = "tournament_class_match_raw",
+        run_type                = "scrape",
+        run_id                  = run_id,
     )
 
     cutoff_date = parse_date(SCRAPE_PARTICIPANTS_CUTOFF_DATE) if SCRAPE_PARTICIPANTS_CUTOFF_DATE else None
 
     classes = TournamentClass.get_filtered_classes(
-        cursor=cursor,
-        class_id_exts=SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
-        tournament_id_exts=SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
-        data_source_id=1 if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else None,
-        cutoff_date=cutoff_date,
-        require_ended=False,
-        allowed_structure_ids=[1, 2],   # Groups+KO or Groups-only
-        allowed_type_ids=[1],           # singles for now
-        max_classes=SCRAPE_PARTICIPANTS_MAX_CLASSES,
-        order=SCRAPE_PARTICIPANTS_ORDER,
+        cursor                  = cursor,
+        class_id_exts           = SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+        tournament_id_exts      = SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
+        data_source_id          = 1 if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else None,
+        cutoff_date             = cutoff_date,
+        require_ended           = False,
+        allowed_structure_ids   = [1, 2],   # Groups+KO or Groups-only
+        allowed_type_ids        = [1],           # singles for now
+        max_classes             = SCRAPE_PARTICIPANTS_MAX_CLASSES,
+        order                   = SCRAPE_PARTICIPANTS_ORDER,
     )
 
     tournament_ids  = [tc.tournament_id for tc in classes if tc.tournament_id is not None]
@@ -233,7 +233,7 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
                 is_valid, error_message = row.validate()
                 if is_valid:
                     row.compute_hash()
-                    row.insert(cursor)
+                    # row.insert(cursor)
                 else:
                     logger.failed(logger_keys.copy(), f"Validation failed: {error_message}")
                     continue

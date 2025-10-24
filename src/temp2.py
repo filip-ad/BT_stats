@@ -1,357 +1,441 @@
-# GPT think
+"""Extract the knockout bracket for tournament PDFs published on resultat.ondata.
 
+Fetches the first page of a tournament class PDF from OnData, reconstructs
+the knockout bracket by spatial layout, and prints every round with players,
+clubs, and game scores.
+"""
+
+from __future__ import annotations
+
+import argparse
 import io
 import re
-import requests
+from dataclasses import dataclass
+from typing import List, Optional, Sequence, Tuple
+
 import pdfplumber
-from typing import List, Dict, Optional, Tuple
+import requests
 
-PDF_URL = "https://resultat.ondata.se/ViewClassPDF.php?classID=30021&stage=5"
 
-# Calibrated for OnData PDFs: update if needed for other layouts
-ROUND_THRESHOLDS = [320, 410, 520]  # x0 boundaries -> round 1..N = [(..320), [320..410), [410..520), [>=520]]
+# Example fallback if no URL is given
+DEFAULT_PDF_URL = "https://resultat.ondata.se/ViewClassPDF.php?classID=29866&stage=5"
 
-ROUND_LABELS = {
-    1: "RO16",
-    2: "RO8/QF",
-    3: "RO4/SF",
-    4: "RO2/Final",
-}
+# Heuristic x-bands for optional Round-of-64 columns
+R64_WINNERS_X = (195, 250)
+R64_SCORES_X = (250, 305)
 
-# -------- geometry helpers --------
-def y_center(item: dict) -> float:
-    return (item["top"] + item["bottom"]) / 2.0
+WINNER_LABEL_PATTERN = re.compile(
+    r"^(?:(\d{1,3})\s+)?([\wÅÄÖåäö\-]+(?:\s+[\wÅÄÖåäö\-]+)*)$",
+    re.UNICODE,
+)
 
-def x_round(x_value: float) -> int:
-    for idx, boundary in enumerate(ROUND_THRESHOLDS, start=1):
-        if x_value < boundary:
-            return idx
-    return len(ROUND_THRESHOLDS) + 1
 
-def dist(a: float, b: float) -> float:
-    return abs(a - b)
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
 
-# -------- parsing helpers --------
-def short_name(full_name: str) -> str:
-    """
-    "Zhu Arvid" -> "Zhu A"
-    "Tallborn Åsberg Eric" -> "Tallborn Å"
-    Robust enough for Swedish characters.
-    """
-    parts = full_name.split()
-    if not parts:
-        return full_name.strip()
-    if len(parts) == 1:
-        return parts[0]
+@dataclass
+class Player:
+    full_name: str
+    club: str
+    short: str
+    center: float
+    player_id_ext: Optional[str]
+    player_suffix_id: Optional[str]
+
+
+@dataclass
+class ScoreEntry:
+    scores: Tuple[int, ...]
+    center: float
+
+
+@dataclass
+class WinnerEntry:
+    short: str
+    center: float
+    player_id_ext: Optional[str]
+
+
+@dataclass
+class Match:
+    players: List[Player]
+    winner: Optional[Player]
+    scores: Optional[Tuple[int, ...]]
+    center: float
+
+
+# ---------------------------------------------------------------------------
+# Parsing helpers
+# ---------------------------------------------------------------------------
+
+def fetch_words(url: str) -> List[dict]:
+    """Fetch the first page of the PDF and extract word boxes."""
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; BT-Stats/1.0)"}
+    response = requests.get(url, timeout=30, headers=headers)
+    response.raise_for_status()
+    payload = response.content
+    if not payload.lstrip().startswith(b"%PDF"):
+        snippet = payload[:200].decode("latin-1", errors="replace")
+        raise ValueError(
+            f"Response from {url} was not a PDF (content-type={response.headers.get('content-type')}); "
+            f"payload preview: {snippet!r}"
+        )
+    with pdfplumber.open(io.BytesIO(payload)) as pdf:
+        page = pdf.pages[0]
+        return page.extract_words(keep_blank_chars=True)
+
+
+def to_center(word: dict) -> float:
+    return (float(word["top"]) + float(word["bottom"])) / 2
+
+
+def make_short(name: str) -> str:
+    parts = name.split()
+    if len(parts) < 2:
+        return name
     return f"{parts[0]} {parts[1][0]}"
 
-def load_pdf_words(url: str):
-    resp = requests.get(url, timeout=30)
-    resp.raise_for_status()
-    with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
-        page = pdf.pages[0]
-        words = page.extract_words(keep_blank_chars=True, use_text_flow=True)  # use_text_flow helps order a bit
-    # Normalize structure
-    norm = []
-    for w in words:
-        norm.append({
-            "text": w["text"].strip(),
-            "x0": float(w["x0"]),
-            "x1": float(w["x1"]),
-            "top": float(w["top"]),
-            "bottom": float(w["bottom"]),
-            "y": y_center(w),
-        })
-    return norm
 
-def extract_entrants(words: List[dict], left_bound: float = 260.0) -> List[dict]:
-    """
-    Entrants lines look like: 'Surname Given, Club Name'
-    Left column is typically x0 < ~250-260.
-    """
-    entrants = []
-    for w in words:
-        if "," in w["text"] and w["x0"] < left_bound:
-            # Split only at first comma to preserve commas inside club names (very rare, but safe)
-            raw_name, raw_club = w["text"].split(",", 1)
-            name = raw_name.strip()
+# ---------------------------------------------------------------------------
+# Extraction routines
+# ---------------------------------------------------------------------------
+
+def extract_players(words: Sequence[dict]) -> List[Player]:
+    players: List[Player] = []
+    for word in words:
+        if float(word["x0"]) < 200 and "," in word["text"]:
+            match = re.match(
+                r"\s*(?:(\d{1,3})\s+)?([^,(]+?(?:\s+[^,(]+?)*)(?:\s*\(([^)]+)\))?,\s*(.+)",
+                word["text"],
+            )
+            if not match:
+                continue
+            player_id_ext, raw_name, player_suffix_id, raw_club = match.groups()
+            if player_id_ext:
+                player_id_ext = player_id_ext.strip()
+            full_name = raw_name.strip()
             club = raw_club.strip()
-            entrants.append({
-                "full": name,
-                "club": club,
-                "short": short_name(name),
-                "y": w["y"],
-            })
-    entrants.sort(key=lambda p: p["y"])
-    return entrants
+            players.append(
+                Player(
+                    full_name=full_name,
+                    club=club,
+                    short=make_short(full_name),
+                    center=to_center(word),
+                    player_id_ext=player_id_ext,
+                    player_suffix_id=None,
+                )
+            )
+    players.sort(key=lambda p: p.center)
+    return players
 
-SCORE_RE = re.compile(r"^\s*([0-9,\-\s]+)\s*$")
 
-def extract_scores(words: List[dict]) -> List[dict]:
-    """
-    Score tokens appear as comma-separated integers, sometimes with negatives.
-    """
-    out = []
-    for w in words:
-        m = SCORE_RE.match(w["text"])
-        if not m:
+def extract_score_entries(words: Sequence[dict], x_range: Tuple[float, float]) -> List[ScoreEntry]:
+    start, stop = x_range
+    entries: List[ScoreEntry] = []
+    for word in words:
+        x0 = float(word["x0"])
+        if not (start <= x0 <= stop):
             continue
-        tokens_str = m.group(1)
-        # Be conservative: must contain at least one digit
-        if not any(ch.isdigit() for ch in tokens_str):
+        raw = word["text"]
+        match = re.match(r"(-?\d+(?:\s*,\s*-?\d+)*)", raw)
+        if not match:
             continue
-        try:
-            tokens = [int(t.strip()) for t in tokens_str.split(",") if t.strip()]
-        except ValueError:
+        scores = tuple(int(token) for token in re.findall(r"-?\d+", match.group(1)))
+        entries.append(ScoreEntry(scores=scores, center=to_center(word)))
+    entries.sort(key=lambda e: e.center)
+    return entries
+
+
+def extract_winner_entries(words: Sequence[dict], x_range: Tuple[float, float]) -> List[WinnerEntry]:
+    start, stop = x_range
+    winners: List[WinnerEntry] = []
+    for word in words:
+        x0 = float(word["x0"])
+        if not (start <= x0 <= stop):
             continue
-        out.append({
-            "tokens": tokens,
-            "y": w["y"],
-            "x": w["x0"],
-            "round": x_round(w["x0"]),
-        })
-    out.sort(key=lambda s: (s["round"], s["y"]))
-    return out
-
-def looks_like_winner_hint(text: str) -> bool:
-    """
-    Winner hint is typically a short form: 'Ohlsén V', 'Zhu A', 'Jörgensen T'
-    Heuristics: no comma, no digits, <= 15 chars, at least one space.
-    """
-    if len(text) > 15 or "," in text:
-        return False
-    if any(ch.isdigit() for ch in text):
-        return False
-    if " " not in text:
-        return False
-    return True
-
-def extract_winner_hints(words: List[dict], min_x: float = 300.0) -> List[dict]:
-    hints = []
-    for w in words:
-        t = w["text"]
-        if w["x0"] >= min_x and looks_like_winner_hint(t):
-            hints.append({
-                "hint": t.strip(),
-                "short": t.strip(),  # already short format
-                "y": w["y"],
-                "x": w["x0"],
-                "round": x_round(w["x0"]),
-            })
-    # sort by round,y so nearest lookup is stable
-    hints.sort(key=lambda h: (h["round"], h["y"]))
-    return hints
-
-# -------- bracket assembly --------
-def nearest(items: List[dict], target_y: float, k: int = 1) -> List[dict]:
-    return sorted(items, key=lambda it: dist(it["y"], target_y))[:k]
-
-def associate_hint_to_score(score: dict, hints: List[dict], max_dy: float = 12.0) -> Optional[str]:
-    """
-    Attach the nearest winner hint to a score row if close enough vertically.
-    Returns the short-tag string (e.g., 'Zhu A') or None.
-    """
-    cand = nearest(hints, score["y"], k=1)
-    if cand and dist(cand[0]["y"], score["y"]) <= max_dy:
-        return cand[0]["short"]
-    return None
-
-def build_round1_matches(entrants: List[dict], scores_r1: List[dict], hints: List[dict]) -> Tuple[List[dict], List[dict]]:
-    """
-    Returns (matches_r1, winners_r1)
-    match: {left, right, tokens, winner_full, winner_club, y}
-    left/right: entrant dict
-    """
-    used_ids = set()
-    matches = []
-    winners = []
-
-    # Index entrants by short for winner matching
-    short_to_idx = {}
-    for i, p in enumerate(entrants):
-        short_to_idx.setdefault(p["short"], []).append(i)
-
-    for s in scores_r1:
-        # Pick two closest entrants around this score y
-        pair = nearest(entrants, s["y"], k=2)
-        if len(pair) < 2:
+        text = word["text"].replace("\xa0", " ").strip()
+        if not text:
             continue
-        left, right = sorted(pair, key=lambda p: p["y"])
-        # record their indices to avoid counting BYE later
-        left_idx = entrants.index(left)
-        right_idx = entrants.index(right)
-        used_ids.add(left_idx)
-        used_ids.add(right_idx)
-
-        # winner by short-hint near the score
-        hint = associate_hint_to_score(s, hints)
-        winner = None
-        if hint:
-            # disambiguate to these 2 players
-            if hint == left["short"]:
-                winner = left
-            elif hint == right["short"]:
-                winner = right
-            else:
-                # Try fuzzy: if hint startswith surname and first letter matches
-                def matches(player):
-                    sn = player["short"]
-                    return sn.split()[0] == hint.split()[0] and sn.split()[1][0] == hint.split()[1][0]
-                if matches(left):
-                    winner = left
-                elif matches(right):
-                    winner = right
-
-        match = {
-            "round": 1,
-            "left": left,
-            "right": right,
-            "tokens": s["tokens"],
-            "winner": winner,
-            "y": s["y"],
-        }
-        matches.append(match)
-
-        if winner:
-            winners.append({
-                "full": winner["full"],
-                "club": winner["club"],
-                "short": winner["short"],
-                "y": s["y"],  # carry forward at the score's y for next-round proximity
-            })
-
-    # BYEs = entrants not used in any R1 score
-    for i, p in enumerate(entrants):
-        if i not in used_ids:
-            matches.append({
-                "round": 1,
-                "left": p,
-                "right": None,
-                "tokens": None,
-                "winner": p,   # advances automatically
-                "y": p["y"],
-                "bye": True,
-            })
-            winners.append({
-                "full": p["full"],
-                "club": p["club"],
-                "short": p["short"],
-                "y": p["y"],
-            })
-
-    # Sort matches by y for clean printing
-    matches.sort(key=lambda m: m["y"])
-    return matches, winners
-
-def build_later_round(scores: List[dict], prev_winners: List[dict], hints: List[dict], round_no: int) -> Tuple[List[dict], List[dict]]:
-    """
-    Generic for R2..R4
-    Returns (matches_round, winners_round)
-    """
-    # We'll greedily consume the two nearest available winners for each score row
-    # but to avoid reusing, we'll mark consumed indices.
-    matches = []
-    winners = []
-
-    available = prev_winners[:]  # list of dicts with 'y' positions
-    taken = set()
-
-    for s in [sc for sc in scores if sc["round"] == round_no]:
-        # pick two nearest unused winners
-        candidates = sorted(
-            [(i, pw, dist(pw["y"], s["y"])) for i, pw in enumerate(available) if i not in taken],
-            key=lambda t: t[2]
+        if any(token in text for token in ("Slutspel", "Höstpool", "program")):
+            continue
+        match = WINNER_LABEL_PATTERN.match(text)
+        if not match:
+            continue
+        player_id_ext, label = match.groups()
+        if len(label.split()) < 2:
+            continue
+        if any(char.isdigit() for char in label):
+            continue
+        winners.append(
+            WinnerEntry(short=label.strip(), center=to_center(word), player_id_ext=player_id_ext)
         )
-        if len(candidates) < 2:
-            continue
-        (i1, p1, _), (i2, p2, _) = candidates[0], candidates[1]
-        taken.add(i1)
-        taken.add(i2)
-        left, right = sorted([p1, p2], key=lambda p: p["y"])
+    winners.sort(key=lambda w: w.center)
+    return winners
 
-        # winner by hint
-        hint = associate_hint_to_score(s, hints)
+
+# ---------------------------------------------------------------------------
+# Core mapping and matching
+# ---------------------------------------------------------------------------
+
+def match_short_to_full(
+    short: str,
+    center: float,
+    players: Sequence[Player],
+    player_id_ext: Optional[str] = None,
+) -> Player:
+    normalized = short.strip()
+    if player_id_ext:
+        id_candidates = [p for p in players if p.player_id_ext == player_id_ext]
+        if id_candidates:
+            return min(id_candidates, key=lambda p: abs(p.center - center))
+
+    candidates = [p for p in players if p.short == normalized]
+    if candidates:
+        return min(candidates, key=lambda p: abs(p.center - center))
+    raise ValueError(f"No player match for {short!r}")
+
+
+def format_player(player: Player) -> str:
+    if not player:
+        return "Unknown"
+    prefix = f"[{player.player_id_ext}] " if player.player_id_ext else ""
+    suffix = f"[{player.player_suffix_id}]" if player.player_suffix_id else ""
+    return f"{prefix}{player.full_name}{suffix}, {player.club}"
+
+
+def assign_nearest_score(
+    center: float, pool: List[ScoreEntry], tolerance: float = 15.0
+) -> Optional[Tuple[int, ...]]:
+    if not pool:
+        return None
+    best_index = None
+    best_delta = None
+    for idx, entry in enumerate(pool):
+        delta = abs(entry.center - center)
+        if best_delta is None or delta < best_delta:
+            best_delta = delta
+            best_index = idx
+    if best_delta is None or best_delta > tolerance or best_index is None:
+        return None
+    return pool.pop(best_index).scores
+
+
+def assign_nearest_winner(
+    center: float, pool: List[WinnerEntry], tolerance: float = 15.0
+) -> Optional[WinnerEntry]:
+    if not pool:
+        return None
+    best_index = None
+    best_delta = None
+    for idx, entry in enumerate(pool):
+        delta = abs(entry.center - center)
+        if best_delta is None or delta < best_delta:
+            best_delta = delta
+            best_index = idx
+    if best_delta is None or best_delta > tolerance or best_index is None:
+        return None
+    return pool.pop(best_index)
+
+
+# ---------------------------------------------------------------------------
+# Round builders
+# ---------------------------------------------------------------------------
+
+def build_round_of_16(
+    players: Sequence[Player],
+    winners: Sequence[WinnerEntry],
+    scores: List[ScoreEntry],
+    winner_tolerance: float = 12.0,
+) -> List[Match]:
+    remaining_scores = scores.copy()
+    matches: List[Match] = []
+    for winner_entry in winners:
+        participants = [
+            player
+            for player in players
+            if abs(player.center - winner_entry.center) <= winner_tolerance
+        ]
+        winner: Optional[Player] = None
+        try:
+            winner = match_short_to_full(
+                winner_entry.short,
+                winner_entry.center,
+                players,
+                winner_entry.player_id_ext,
+            )
+        except ValueError:
+            pass
+        match_scores = assign_nearest_score(winner_entry.center, remaining_scores)
+        matches.append(Match(players=participants, winner=winner, scores=match_scores, center=winner_entry.center))
+    return matches
+
+
+def build_round_from_previous(
+    previous_round: Sequence[Match],
+    winners: Sequence[WinnerEntry],
+    scores: List[ScoreEntry],
+    players: Sequence[Player],
+    winner_tolerance: float = 18.0,
+    score_tolerance: float = 20.0,
+) -> List[Match]:
+    remaining_scores = scores.copy()
+    remaining_winners = list(winners)
+    matches: List[Match] = []
+    idx = 0
+    while idx < len(previous_round):
+        first = previous_round[idx]
+        second = previous_round[idx + 1] if idx + 1 < len(previous_round) else None
+        participants: List[Player] = []
+        if first.winner:
+            participants.append(first.winner)
+        if second and second.winner:
+            participants.append(second.winner)
+        center = (first.center + (second.center if second else first.center)) / 2
+        nearest_winner = assign_nearest_winner(center, remaining_winners, winner_tolerance)
+        nearest_score = assign_nearest_score(center, remaining_scores, score_tolerance)
         winner = None
-        if hint:
-            if hint == left["short"]:
-                winner = left
-            elif hint == right["short"]:
-                winner = right
-            else:
-                # fuzzy fallback
-                def matches(player):
-                    sn = player["short"]
-                    return sn.split()[0] == hint.split()[0] and sn.split()[1][0] == hint.split()[1][0]
-                if matches(left):
-                    winner = left
-                elif matches(right):
-                    winner = right
+        if nearest_winner:
+            try:
+                winner = match_short_to_full(
+                    nearest_winner.short,
+                    nearest_winner.center,
+                    players,
+                    nearest_winner.player_id_ext,
+                )
+            except ValueError:
+                pass
+        matches.append(Match(players=participants, winner=winner, scores=nearest_score, center=center))
+        idx += 2
+    return matches
 
-        matches.append({
-            "round": round_no,
-            "left": left,
-            "right": right,
-            "tokens": s["tokens"],
-            "winner": winner,
-            "y": s["y"],
-        })
 
-        if winner:
-            winners.append({
-                "full": winner["full"],
-                "club": winner["club"],
-                "short": winner["short"],
-                "y": s["y"],
-            })
+def build_quarterfinals(r16_matches, qf_scores, players, sf_winners):
+    return build_round_from_previous(r16_matches, sf_winners, qf_scores, players)
 
-    matches.sort(key=lambda m: m["y"])
-    return matches, winners
 
-# -------- pretty printing --------
-def label_player(p: dict) -> str:
-    return f"{p['full']}, {p['club']}"
+def build_semifinals(qf_matches, sf_scores, sf_winners, players):
+    return build_round_from_previous(qf_matches, sf_winners, sf_scores, players)
 
-def print_round(label: str, matches: List[dict]):
-    print(f"{label}:")
-    for m in matches:
-        if m.get("bye"):
-            print(f"{label_player(m['left'])}\t\t-> BYE (meaning moving on automatically, identified by no opponent on corresponding match row/line)")
+
+def build_final(sf_matches, final_scores, final_winner_entry, players):
+    winners = [final_winner_entry]
+    return build_round_from_previous(sf_matches, winners, final_scores, players)[0]
+
+
+def fill_missing_winners(source_round, target_round):
+    """Propagate winners if target round lacks explicit ones."""
+    for src, tgt in zip(source_round, target_round):
+        if not tgt.players and src.winner:
+            tgt.players.append(src.winner)
+
+
+# ---------------------------------------------------------------------------
+# Printing / labeling
+# ---------------------------------------------------------------------------
+
+def label_round(round_name: str, matches: Sequence[Match]) -> None:
+    print(f"===== {round_name} =====")
+    for match in matches:
+        if len(match.players) < 2:
             continue
-        left = label_player(m["left"])
-        right = label_player(m["right"])
-        tok = f" -> Game tokens: ({', '.join(str(t) for t in m['tokens'])})" if m["tokens"] is not None else ""
-        if m["winner"]:
-            w = f"{m['winner']['full']}, {m['winner']['club']}"
-            print(f"{left} vs {right}\t-> Winner: {w}\t{tok}")
-        else:
-            print(f"{left} vs {right}\t-> Winner: Unknown\t{tok}")
+        left, right = match.players
+        winner_label = (
+            f"Winner: {format_player(match.winner)}"
+            if match.winner
+            else "Winner: Unknown"
+        )
+        score_label = (
+            f" | Scores: {match.scores}"
+            if match.scores
+            else ""
+        )
+        print(f"{format_player(left)} vs {format_player(right)} -> {winner_label}{score_label}")
+
+
+# ---------------------------------------------------------------------------
+# CLI / main
+# ---------------------------------------------------------------------------
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Extract and print knockout matches from a tournament PDF."
+    )
+    parser.add_argument(
+        "url",
+        nargs="?",
+        default=DEFAULT_PDF_URL,
+        help="Tournament PDF URL (defaults to an example class).",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    words = fetch_words(args.url)
+    players = extract_players(words)
+
+    r16_winners = extract_winner_entries(words, R64_WINNERS_X)
+    r16_scores = extract_score_entries(words, (270, 320))
+
+    r64_matches: Optional[List[Match]] = None
+    ro32_matches: Optional[List[Match]] = None
+    r16_matches: List[Match]
+
+    # Detect whether the leftmost column corresponds to RO32 or RO64.
+    if len(r16_winners) > 16:
+        r64_scores = extract_score_entries(words, R64_SCORES_X)
+        r64_matches = build_round_of_16(players, r16_winners, r64_scores or r16_scores, winner_tolerance=18.0)
+        r32_winners = extract_winner_entries(words, (300, 350))
+        r32_scores = extract_score_entries(words, (320, 380))
+        ro32_matches = build_round_from_previous(
+            r64_matches, r32_winners, r32_scores, players, winner_tolerance=18.0
+        )
+        r16_progress_winners = extract_winner_entries(words, (360, 410)) or extract_winner_entries(words, (350, 420))
+        r16_progress_scores = extract_score_entries(words, (360, 420))
+        r16_matches = build_round_from_previous(
+            ro32_matches, r16_progress_winners, r16_progress_scores, players
+        )
+    else:
+        r16_matches = build_round_of_16(players, r16_winners, r16_scores)
+
+    if len(r16_matches) > 8 and ro32_matches is None:
+        ro32_matches = r16_matches
+        r16_advancing_winners = extract_winner_entries(words, (300, 350))
+        r16_advancing_scores = extract_score_entries(words, (320, 380))
+        r16_matches = build_round_from_previous(ro32_matches, r16_advancing_winners, r16_advancing_scores, players)
+
+    qf_scores = extract_score_entries(words, (330, 410))
+    sf_winners = extract_winner_entries(words, (380, 430 if r64_matches else 420))
+    qf_matches = build_quarterfinals(r16_matches, qf_scores, players, sf_winners)
+    fill_missing_winners(r16_matches, qf_matches)
+    if ro32_matches:
+        fill_missing_winners(ro32_matches, r16_matches)
+    if r64_matches and ro32_matches:
+        fill_missing_winners(r64_matches, ro32_matches)
+
+    sf_scores = extract_score_entries(words, (420, 500))
+    semifinals = build_semifinals(qf_matches, sf_scores, sf_winners, players)
+    fill_missing_winners(qf_matches, semifinals)
+
+    final_scores = extract_score_entries(words, (500, 560))
+    final_winner_list = extract_winner_entries(words, (460, 520)) or extract_winner_entries(words, (520, 600))
+    final_match = build_final(semifinals, final_scores, final_winner_list[0], players)
+
+    if r64_matches:
+        label_round("RO64", r64_matches)
+        print()
+    if ro32_matches:
+        label_round("RO32", ro32_matches)
+        print()
+    label_round("RO16", r16_matches)
     print()
+    label_round("RO8/QF", qf_matches)
+    print()
+    label_round("RO4/SF", semifinals)
+    print()
+    label_round("RO2/Final", [final_match])
 
-# -------- main driver --------
-def main():
-    words = load_pdf_words(PDF_URL)
-    entrants = extract_entrants(words)
-    scores = extract_scores(words)
-    hints = extract_winner_hints(words)
-
-    # Round 1
-    r1_scores = [s for s in scores if s["round"] == 1]
-    r1_matches, r1_winners = build_round1_matches(entrants, r1_scores, hints)
-
-    # Round 2..N
-    all_round_matches = {1: r1_matches}
-    prev_winners = r1_winners
-    max_round = max([s["round"] for s in scores] + [1])
-
-    for r in range(2, max_round + 1):
-        r_matches, r_winners = build_later_round(scores, prev_winners, hints, round_no=r)
-        all_round_matches[r] = r_matches
-        prev_winners = r_winners
-
-    # Print in desired order/labels
-    for r in sorted(all_round_matches.keys()):
-        label = ROUND_LABELS.get(r, f"Round {r}")
-        print_round(label, all_round_matches[r])
 
 if __name__ == "__main__":
     main()

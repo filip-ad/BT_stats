@@ -168,7 +168,7 @@ def main():
             do_scrape_tournament_classes                            = False,
             do_scrape_tournament_class_entries                      = False,
             do_scrape_tournament_class_group_matches_ondata         = False,
-            do_scrape_tournament_class_knockout_matches_ondata      = False
+            do_scrape_tournament_class_knockout_matches_ondata      = True
         )
 
         export_runs_to_excel()
