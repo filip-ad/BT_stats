@@ -25,8 +25,8 @@ from db import get_conn
 
 
 SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30021']  # RO16 test
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625'] # RO32 test
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006'] # RO64 test
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625'] # RO32 test
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006'] # RO64 test
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['6955'] # RO128 test
 
 # -------------------------------------------------------------------
@@ -733,6 +733,12 @@ def main() -> None:
                 # --- Build KO rounds, now with optional RO64 probe ---
                 r64_matches: Optional[List[Match]] = None
                 r32_matches: Optional[List[Match]] = None
+                qf_matches: List[Match] = []
+                semifinals: List[Match] = []
+                final_match: Optional[Match] = None
+                final_candidates: List[WinnerEntry] = []
+                final_score_candidates: List[ScoreEntry] = []
+                remaining_winners_after_qf: List[WinnerEntry] = []
 
 
                 # Probe RO64 (far-left column)
@@ -860,6 +866,12 @@ def main() -> None:
                     final_scores_for_builder = []
 
                 final_match = build_final(semifinals, final_scores_for_builder, final_winner_entry, players)
+
+
+                if final_match is None:
+                    # As a last resort, synthesize an empty final to avoid crashes downstream.
+                    final_match = Match(players=[], winner=None, scores=None, center=0.0)
+
 
 
 
