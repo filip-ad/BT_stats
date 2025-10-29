@@ -41,3 +41,6 @@ node_modules/  # If you have JavaScript in your project
 # Custom
 logs.xlsx
 missing_clubs.txt
+
+# PDF cache
+/src/data/
