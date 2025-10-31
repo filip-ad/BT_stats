@@ -5,6 +5,7 @@ import sqlite3
 from config import DB_NAME
 import logging
 import datetime
+import time
 
 # --- register adapters/converters once (Python 3.12+ friendly) ---
 _ADAPTERS_REGISTERED = False
@@ -32,6 +33,7 @@ def get_conn():
     except sqlite3.Error as e:
         print(f"❌ Database connection failed: {e}")
         raise
+
 
 def compact_sqlite():
     print("ℹ️  Compacting SQLite database...")

@@ -78,24 +78,61 @@ def setup_logging():
     print(f"Logging configured to {LOG_FILE} at level {LOG_LEVEL}")
     print("-------------------------------------------------------------------")
 
+# def setup_driver():
+#     chrome_options = Options()
+#     chrome_options.add_argument("--headless")
+#     chrome_options.add_argument("--disable-gpu")
+#     chrome_options.add_argument("--no-sandbox")
+#     chrome_options.add_argument("--ignore-certificate-errors")
+#     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+#     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36")
+    
+#     # Disable images to reduce load time
+#     prefs = {"profile.managed_default_content_settings.images": 2}
+#     chrome_options.add_experimental_option("prefs", prefs)
+
+#     service = Service(ChromeDriverManager().install())
+#     driver = webdriver.Chrome(service=service, options=chrome_options)
+#     logging.info("WebDriver initialized")
+#     logging.info("-------------------------------------------------------------------")
+#     return driver
+
 def setup_driver():
+    from selenium import webdriver
+    from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.chrome.options import Options
+    from webdriver_manager.chrome import ChromeDriverManager
+    import platform, os, logging
+
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")  # important for Docker
     chrome_options.add_argument("--ignore-certificate-errors")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36")
-    
-    # Disable images to reduce load time
-    prefs = {"profile.managed_default_content_settings.images": 2}
-    chrome_options.add_experimental_option("prefs", prefs)
+    chrome_options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+    )
+    chrome_options.add_experimental_option(
+        "prefs", {"profile.managed_default_content_settings.images": 2}
+    )
+
+    # Detect Linux/WSL/Docker (no GUI)
+    system = platform.system().lower()
+    if system == "linux":
+        for path in ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"]:
+            if os.path.exists(path):
+                chrome_options.binary_location = path
+                break
+        else:
+            logging.warning("⚠️ Chrome binary not found — make sure it's installed in Docker!")
 
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
-    logging.info("WebDriver initialized")
-    logging.info("-------------------------------------------------------------------")
+    logging.info("✅ WebDriver initialized")
     return driver
+
 
 def parse_date(date_str, context=None, return_iso=False):
     """
