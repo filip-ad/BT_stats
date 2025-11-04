@@ -31,12 +31,13 @@ def upd_tournament_data(
             try: 
 
                 scrape_tournaments_ondata_listed(cursor, run_id=run_id)
-
             except Exception as e:
                 print(f"Error in do_scrape_tournaments: {e}")
                 pass
 
-        resolve_tournaments(cursor, run_id=run_id)
+            resolve_tournaments(cursor, run_id=run_id)
+
+        
 
         if do_scrape_tournament_classes:
             try:
@@ -47,7 +48,7 @@ def upd_tournament_data(
                 print(f"Error in do_scrape_tournament_classes: {e}")
                 pass
 
-        resolve_tournament_classes(cursor, run_id=run_id)
+            resolve_tournament_classes(cursor, run_id=run_id)
 
         if do_scrape_tournament_class_entries:
             try:
@@ -58,7 +59,7 @@ def upd_tournament_data(
                 print(f"Error in scrape_tournament_class_entries_ondata: {e}")
                 pass
 
-        resolve_tournament_class_entries(cursor, run_id=run_id)
+            resolve_tournament_class_entries(cursor, run_id=run_id)
 
         if do_scrape_tournament_class_group_matches_ondata:
             try:

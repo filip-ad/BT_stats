@@ -24,7 +24,7 @@ class TournamentClassMatchRaw:
     game_point_tokens:                          Optional[str]   = None            # e.g. "8, 7, -3, 5"
     best_of:                                    Optional[int]   = None
     raw_line_text:                              Optional[str]   = None
-    tournament_class_stage_id:                  Optional[int]   = None    # 1 = GROUP for this scraper
+    tournament_class_stage_id:                  Optional[int]   = None    # 1 = GROUP for example
     data_source_id:                             int             = 1
     content_hash:                               Optional[str]   = None
     row_created:                                Optional[str]   = None
