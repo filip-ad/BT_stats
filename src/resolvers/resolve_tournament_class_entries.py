@@ -1,10 +1,11 @@
-# src/resolvers/resolve_tournament_class_entries.py
-
 from asyncio.log import logger
+from multiprocessing.util import debug
 from models.tournament_class import TournamentClass
 from models.tournament_class_entry import TournamentClassEntry
 from models.tournament_class_player import TournamentClassPlayer
 from models.tournament_class_entry_raw import TournamentClassEntryRaw
+from models.tournament_class_group import TournamentClassGroup  # Import new
+from models.tournament_class_group_member import TournamentClassGroupMember  # Import new
 from models.club import Club
 from models.player import Player
 from models.player_license import PlayerLicense
@@ -13,9 +14,10 @@ from typing import List, Dict, Optional, Tuple
 import sqlite3
 from datetime import date
 from config import RESOLVE_ENTRIES_CUTOFF_DATE
+import re  # For extracting sort_order
 
 def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> None:
-    """Resolve raw entries into tournament_class_entry and tournament_class_player tables."""
+    """Resolve raw entries into tournament_class_entry, tournament_class_player, tournament_class_group, and tournament_class_group_member tables."""
 
     logger = OperationLogger(
         verbosity       = 2,
@@ -26,6 +28,8 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
         run_type        = "resolve",
         run_id          = run_id
     )
+
+    debug = False
 
     raw_rows = TournamentClassEntryRaw.get_all(cursor)
     if not raw_rows:
@@ -48,11 +52,6 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
     else:
         logger.info("Resolving tournament class entries...", to_console=True)
 
-    # # For testing, limit to specific tournament_class_id_ext
-    # tournament_class_id_ext = ('507', '1613', '1618', '1650', '1651', '1645', '611', '501', '515') 
-    # if tournament_class_id_ext:
-    #     raw_rows = [r for r in raw_rows if r.tournament_class_id_ext in tournament_class_id_ext]
-
     # Groups needed to resolve doubles, where 1 entry maps to 2 players (with same group_id)
     groups: Dict[str, Dict[int, List[TournamentClassEntryRaw]]] = {}
     for row in raw_rows:
@@ -71,7 +70,6 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
     unverified_appearance_map = Player.cache_unverified_appearances(cursor)
     license_name_club_map = PlayerLicense.cache_name_club_map(cursor)
 
-    # for class_ext, class_groups in groups.items():
     for idx, (class_ext, class_groups) in enumerate(groups.items(), start=1):
 
         logger_keys = {
@@ -93,16 +91,14 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
             class_date = tc.startdate if tc.startdate else date.today()
             logger_keys.update({'tournament_class_shortname': tc.shortname})
 
-            # logger.info(f"Resolving entries for tournament_class_id_ext={class_ext} (tournament_class_id={tournament_class_id}) with {len(class_groups)} groups...", to_console=True)
             logger.info(f"[{idx}/{len(groups)}] Resolving entries for tournament_class_id_ext={class_ext} (tournament_class_id={tournament_class_id}) with {len(class_groups)} groups...", to_console=True)
-
 
             for group_id, group_rows in class_groups.items():   
                 if not group_rows:
                     logger.skipped(logger_keys, f"Empty group of entries (group_id={group_id})")
                     continue
                 
-                # Use first row for entry fields
+                # Use first row for entry fields, including new group_id_raw and seed_in_group_raw
                 first_row = group_rows[0]        
                 if first_row.fullname_raw is None or first_row.clubname_raw is None:
                     logger.failed(logger_keys, f"Missing required raw data in group (row_id={first_row.row_id})")
@@ -125,15 +121,53 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
                     action = entry.upsert(cursor)
                     if not action:
                         logger.failed(logger_keys.copy(), f"Entry upsert failed for group {group_id} (row_id={first_row.row_id})")
+
                         continue
+                    # ── CLEAR EXISTING ROWS FOR THIS ENTRY (run ONCE per group) ────────────────
+                    # 1) Remove all players linked to this entry
+                    TournamentClassPlayer.remove_for_entry(cursor, entry.tournament_class_entry_id)
+
+                    # 2) Remove group-membership for this entry (prevents PK conflicts on rerun)
+                    TournamentClassGroupMember.remove_for_entry(cursor, entry.tournament_class_entry_id)
+                    # ───────────────────────────────────────────────────────────────────────────
 
                     logger_keys.update({
                         'fullname_raw': first_row.fullname_raw,
                         'clubname_raw': first_row.clubname_raw
                     })
 
+                    # Handle group assignment if group_id_raw present
+                    group_id_raw = first_row.group_id_raw
+                    seed_in_group_raw = first_row.seed_in_group_raw
+                    tournament_class_group_id = None
+                    if group_id_raw:
+                        # Extract sort_order from group_id_raw (e.g., "Pool 3" -> 3)
+                        sort_order = extract_group_sort_order(group_id_raw)
+                        tcg = TournamentClassGroup.get_by_description(cursor, tournament_class_id, group_id_raw)
+                        if not tcg:
+                            tcg = TournamentClassGroup(
+                                tournament_class_id=tournament_class_id,
+                                description=group_id_raw,
+                                sort_order=sort_order
+                            )
+                            tcg.upsert(cursor)
+                        tournament_class_group_id = tcg.tournament_class_group_id
+
+                        # Assign member with seed_in_group
+                        seed_in_group = int(seed_in_group_raw) if seed_in_group_raw and seed_in_group_raw.isdigit() else None
+                        member = TournamentClassGroupMember(
+                            tournament_class_group_id=tournament_class_group_id,
+                            tournament_class_entry_id=entry.tournament_class_entry_id,
+                            seed_in_group=seed_in_group
+                        )
+                        is_valid, error_message = member.validate()
+                        if is_valid:
+                            member.insert(cursor)
+                        else:
+                            logger.warning(logger_keys, f"Group member validation failed: {error_message}")
+
                 except Exception as e:
-                    logger.failed(logger_keys, f"Failed to create entry for group {group_id} (row_id={first_row.row_id}): {str(e)}")
+                    logger.failed(logger_keys, f"Failed to create entry/group for group {group_id} (row_id={first_row.row_id}): {str(e)}")
                     continue
 
                 for raw_row in group_rows:
@@ -163,12 +197,6 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
                         club = Club(club_id=9999)
                     club_id = club.club_id
                     logger_keys['club_id'] = club_id
-
-                    # Delete existing TournamentClassPlayer records for this entry
-                    deleted_count = TournamentClassPlayer.remove_for_entry(cursor, entry.tournament_class_entry_id)
-                    if deleted_count > 0:
-                        # logger.info(logger_keys.copy(), f"Deleted {deleted_count} existing TournamentClassPlayer records for tournament_class_entry_id={entry.tournament_class_entry_id}")
-                        pass
 
                     player_id, match_type = match_player(
                         cursor,
@@ -202,7 +230,6 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
                         continue
                     action = player.upsert(cursor)
                     if action:
-                        # logger.success(logger_keys.copy(), f"Player successfully {action}")
                         pass
                     else:
                         logger.warning(logger_keys.copy(), "Player upsert failed (invalid or no change)")
@@ -214,7 +241,6 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
                         if status == "created":
                             logger.info(logger_keys.copy(), "Created new unverified appearance", to_console=False)
                         else:
-                            # logger.info(logger_keys.copy(), "Unverified appearance already linked (duplicate)")
                             pass
 
 
@@ -224,55 +250,6 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
             logger.failed(logger_keys.copy(), f"Exception during resolution: {str(e)}")
 
     logger.summarize()
-
-# def match_player(
-#     cursor,
-#     fullname_raw: str,
-#     clubname_raw: str,
-#     class_date: date,
-#     license_name_club_map,
-#     player_name_map,
-#     player_unverified_name_map,
-#     unverified_appearance_map,
-#     logger: OperationLogger,
-#     item_keys: Dict,
-#     club_id: Optional[int] = None
-# ) -> Tuple[Optional[int], Optional[str]]:
-#     """Match player using strategies from previous version."""
-#     strategies = [
-#         match_by_license_exact,
-#         match_by_license_substring,
-#         match_by_any_season_exact,
-#         match_by_any_season_substring,
-#         match_by_transition_exact,
-#         match_by_transition_substring,
-#         match_by_name_exact,
-#         match_by_unverified_with_club
-#     ]
-
-#     for strategy in strategies:
-#         outcome = strategy(
-#             cursor,
-#             fullname_raw,
-#             clubname_raw,
-#             class_date,
-#             license_name_club_map,
-#             player_name_map,
-#             club_id,
-#             logger,
-#             item_keys.copy(),
-#             unverified_appearance_map if strategy == match_by_unverified_with_club else None
-#         )
-#         if outcome:
-#             pid, match_type = outcome
-#             print(f"Strategy {strategy.__name__} matched player {fullname_raw} with match_type={match_type}")
-#             return pid, match_type
-
-#     pid = fallback_unverified(cursor, fullname_raw, clubname_raw, player_unverified_name_map, logger, item_keys.copy())
-#     if pid:
-#         logger.warning(item_keys.copy(), "Matched with unverified player as fallback")
-#         return pid, "unverified"
-#     return None, None
 
 def match_player(
     cursor,
@@ -326,7 +303,8 @@ def match_player(
                 "clubname_raw": clubname_raw,
                 "club_id": club_id,
             })
-            logger.info(log_keys, f"Matched player via {strategy.__name__}", to_console=False)
+            if debug:
+                logger.info(log_keys, f"Matched player via {strategy.__name__}", to_console=False)
             return pid, match_type
 
     # fallback
@@ -476,28 +454,6 @@ def match_by_name_exact(cursor, fullname_raw: str, clubname_raw: str, class_date
         return pid, "name_exact_verified"
     return None
 
-# def fallback_unverified(cursor, fullname_raw: str, clubname_raw: str, player_unverified_name_map: Dict[str, int], logger: OperationLogger, item_keys: Dict):
-#     clean = normalize_key(fullname_raw)
-    
-#     # 1. Check in-memory map first
-#     existing = player_unverified_name_map.get(clean)
-#     if existing is not None:
-#         return existing
-
-#     # 2. Otherwise try insert/reuse
-#     res = Player.insert_unverified(cursor, fullname_raw)
-#     if res["status"] in ("created", "reused") and res["player_id"]:
-#         player_unverified_name_map[clean] = res["player_id"]
-#         if res["status"] == "created":
-#             # 3. Keep in-memory map up-to-date (always, not only on "created")
-#             player_unverified_name_map[clean] = res["player_id"]
-#             logger.warning(item_keys.copy(), "Created new unverified player")
-#         else:
-#             logger.warning(item_keys.copy(), "Reused existing unverified player")
-#         return res["player_id"]
-#     logger.failed(item_keys.copy(), "Failed to insert/reuse unverified player")
-#     return None
-
 def fallback_unverified(
     cursor,
     fullname_raw: str,
@@ -546,3 +502,7 @@ def get_name_candidates(fullname_raw: str, player_name_map: Dict[str, List[int]]
     for k in keys:
         matches.update(player_name_map.get(k, []))
     return list(matches)
+
+def extract_group_sort_order(group_id_raw: str) -> Optional[int]:
+    match = re.search(r'\d+', group_id_raw)
+    return int(match.group()) if match else None

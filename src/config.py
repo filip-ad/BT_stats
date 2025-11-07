@@ -23,11 +23,12 @@ SCRAPE_CLASSES_MAX_TOURNAMENTS          = None         # Maximum number of tourn
 SCRAPE_CLASSES_TOURNAMENT_ID_EXTS       = None       # List (TEXT) ['123', '234'], None for all
 
 # Update defaults to use None for "no limit/all"
-SCRAPE_PARTICIPANTS_CUTOFF_DATE         = '2000-10-01'          # Date format: YYYY-MM-DD, None for all
-SCRAPE_PARTICIPANTS_MAX_CLASSES         = 100                  # Maximum number of classes to scrape participants from, None for all classes
+SCRAPE_PARTICIPANTS_CUTOFF_DATE         = '2025-08-01'          # Date format: YYYY-MM-DD, None for all
+SCRAPE_PARTICIPANTS_MAX_CLASSES         = None                  # Maximum number of classes to scrape participants from, None for all classes
 SCRAPE_PARTICIPANTS_CLASS_ID_EXTS       = None                 # List (TEXT) ['123', '234'], None for all
 SCRAPE_PARTICIPANTS_TNMT_ID_EXTS        = None                  # List (TEXT) ['123', '234'], None for all
 SCRAPE_PARTICIPANTS_ORDER               = "oldest"              # Order of classes to scrape participants from, "oldest" or "newest"
 
 RESOLVE_ENTRIES_CUTOFF_DATE             = '2025-09-01'          # Date format: YYYY-MM-DD, None for all
 
+RESOLVE_MATCHES_CUTOFF_DATE             = '2000-01-25'          # Date format: YYYY-MM-DD, None for all

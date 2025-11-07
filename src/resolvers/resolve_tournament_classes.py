@@ -1,4 +1,5 @@
-# src/resolve_tournament_classes.py
+# src/resolvers/resolve_tournament_classes.py
+
 import sqlite3
 from typing import Optional, List
 import re

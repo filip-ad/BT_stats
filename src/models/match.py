@@ -1,213 +1,42 @@
 # src/models/match.py
-from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional, List, Tuple, Dict, Any
+
+from dataclasses import dataclass, fields
+from typing import Dict, Any, Optional, Tuple
 import sqlite3
-import logging
+from datetime import date
 
 @dataclass
 class Match:
-    # Core match
-    match_id: Optional[int] = None
-    best_of: Optional[int] = None
-    date: Optional[str] = None  # 'YYYY-MM-DD' or None
+    match_id:       Optional[int] = None
+    best_of:        Optional[int] = None
+    date:           Optional[date] = None
+    status:         str = 'completed'
+    winner_side:    Optional[int] = None
+    walkover_side:  Optional[int] = None
+    row_created:    Optional[str] = None
+    row_updated:    Optional[str] = None
 
-    # External identity (for idempotence)
-    match_id_ext: Optional[str] = None
-    data_source_id: Optional[int] = None  # REQUIRED if match_id_ext is provided
+    def to_dict(self) -> Dict[str, Any]:
+        return {f.name: getattr(self, f.name) for f in fields(self) if f.name != 'match_id' or self.match_id is not None}
 
-    # Competition context (competition_type_id = 1 for TournamentClass)
-    competition_type_id: int = 1                       # fixed for tournament classes
-    tournament_class_id: Optional[int] = None          # REQUIRED when competition_type_id=1
-    tournament_class_group_id: Optional[int] = None    # nullable
-    tournament_class_stage_id: Optional[int] = None    # nullable
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Match":
+        return cls(**{k: d.get(k) for k in {f.name for f in fields(cls)}})
 
-    # In-memory buffers to stage sides and games before save
-    _sides: List[Tuple[int, int]] = field(default_factory=list)       # list of (side, participant_id)
-    _games: List[Tuple[int, int]] = field(default_factory=list)       # list of (side1_points, side2_points)
+    def validate(self) -> Tuple[bool, str]:
+        missing = []
+        if self.best_of is None:
+            missing.append("best_of")
+        if missing:
+            return False, f"Missing fields: {', '.join(missing)}"
+        return True, ""
 
-    # ------------- Builders -------------
-
-    def add_side_participant(self, side: int, participant_id: int) -> None:
+    def insert(self, cursor: sqlite3.Cursor) -> int:
+        sql = """
+            INSERT INTO match (best_of, date, status, winner_side, walkover_side)
+            VALUES (:best_of, :date, :status, :winner_side, :walkover_side)
+            RETURNING match_id;
         """
-        Stage a side for this match. Side must be 1 or 2.
-        """
-        if side not in (1, 2):
-            raise ValueError("side must be 1 or 2")
-        self._sides.append((side, participant_id))
-
-    def add_game(self, game_no: int, side1_points: int, side2_points: int) -> None:
-        """
-        Stage a game (set). game_no is implicit by insertion order on save.
-        """
-        self._games.append((side1_points, side2_points))
-
-    def _update_match_row(self, cursor: sqlite3.Cursor) -> None:
-        cursor.execute(
-            """
-            UPDATE match
-            SET best_of = ?, date = ?, row_updated = CURRENT_TIMESTAMP
-            WHERE match_id = ?
-            """,
-            (self.best_of, self.date, self.match_id),
-        )
-
-
-    # ------------- Persistence -------------
-
-    def _find_existing_match_id(self, cursor: sqlite3.Cursor) -> Optional[int]:
-        """
-        If match_id_ext + data_source_id are provided, return existing match_id if mapped.
-        """
-        if not self.match_id_ext or self.data_source_id is None:
-            return None
-        cursor.execute(
-            """
-            SELECT match_id 
-            FROM match_id_ext
-            WHERE match_id_ext = ? AND data_source_id = ?
-            """,
-            (self.match_id_ext, self.data_source_id),
-        )
-        row = cursor.fetchone()
-        return row[0] if row else None
-
-    def _insert_match_row(self, cursor: sqlite3.Cursor) -> int:
-        cursor.execute(
-            """
-            INSERT INTO match (best_of, date)
-            VALUES (?, ?)
-            RETURNING match_id
-            """,
-            (self.best_of, self.date),
-        )
-        mid = cursor.fetchone()[0]
-        return mid
-
-    def _ensure_match_id_ext(self, cursor: sqlite3.Cursor) -> None:
-        """
-        Create link in match_id_ext if we have an ext id. Idempotent via PK.
-        """
-        if not self.match_id_ext or self.data_source_id is None:
-            return
-        cursor.execute(
-            """
-            INSERT OR IGNORE INTO match_id_ext (match_id, match_id_ext, data_source_id)
-            VALUES (?, ?, ?)
-            """,
-            (self.match_id, self.match_id_ext, self.data_source_id),
-        )
-
-    def _upsert_match_competition(self, cursor: sqlite3.Cursor) -> None:
-        """
-        Upsert row in match_competition keyed by (match_id, competition_type_id).
-        Conforms to your CHECKs:
-          - For competition_type_id=1 we must provide tournament_class_id (not NULL)
-          - Group/stage are optional for TC
-        """
-        if self.competition_type_id != 1:
-            raise NotImplementedError("Only competition_type_id=1 (TournamentClass) is implemented here.")
-        if not self.tournament_class_id:
-            raise ValueError("tournament_class_id is required for competition_type_id=1")
-
-        cursor.execute(
-            """
-            INSERT INTO match_competition (
-                match_id, competition_type_id, tournament_class_id,
-                fixture_id, tournament_class_group_id, tournament_class_stage_id
-            )
-            VALUES (?, ?, ?, NULL, ?, ?)
-            ON CONFLICT(match_id, competition_type_id) DO UPDATE SET
-                tournament_class_id       = excluded.tournament_class_id,
-                tournament_class_group_id = excluded.tournament_class_group_id,
-                tournament_class_stage_id = excluded.tournament_class_stage_id,
-                row_updated               = CURRENT_TIMESTAMP
-            """,
-            (
-                self.match_id,
-                self.competition_type_id,
-                self.tournament_class_id,
-                self.tournament_class_group_id,
-                self.tournament_class_stage_id,
-            ),
-        )
-
-    def _save_sides(self, cursor: sqlite3.Cursor) -> None:
-        """
-        Insert or replace sides by (match_id, side) uniqueness.
-        """
-        # Optional: ensure at most one entry per side in the staged list
-        latest_for_side: Dict[int, int] = {}
-        for side, pid in self._sides:
-            latest_for_side[side] = pid
-
-        for side in (1, 2):
-            pid = latest_for_side.get(side)
-            if pid is None:
-                continue
-            cursor.execute(
-                """
-                INSERT INTO match_side (match_id, side, participant_id)
-                VALUES (?, ?, ?)
-                ON CONFLICT(match_id, side) DO UPDATE SET
-                    participant_id = excluded.participant_id,
-                    row_updated    = CURRENT_TIMESTAMP
-                """,
-                (self.match_id, side, pid),
-            )
-
-    def _save_games(self, cursor: sqlite3.Cursor) -> None:
-        """
-        Replace existing games with the staged list.
-        """
-        cursor.execute("DELETE FROM game WHERE match_id = ?", (self.match_id,))
-        for i, (s1, s2) in enumerate(self._games, start=1):
-            winning_side = None
-            if s1 is not None and s2 is not None:
-                if s1 > s2:
-                    winning_side = 1
-                elif s2 > s1:
-                    winning_side = 2
-            cursor.execute(
-                """
-                INSERT INTO game (match_id, game_nbr, side1_points, side2_points, winning_side)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (self.match_id, i, s1, s2, winning_side),
-            )
-
-    def save_to_db(self, cursor: sqlite3.Cursor) -> Dict[str, Any]:
-        """
-        Idempotent upsert:
-        1) Reuse existing match via (match_id_ext, data_source_id) if present; update core fields
-        2) Else insert new match
-        3) Ensure match_id_ext mapping (if provided)
-        4) Upsert match_competition
-        5) Upsert sides
-        6) Replace games
-        """
-        try:
-            existing = self._find_existing_match_id(cursor)
-            created = False
-            if existing:
-                self.match_id = existing
-                # keep core fields fresh on re-runs
-                self._update_match_row(cursor)
-            else:
-                self.match_id = self._insert_match_row(cursor)
-                created = True
-
-            self._ensure_match_id_ext(cursor)
-            self._upsert_match_competition(cursor)
-            self._save_sides(cursor)
-            self._save_games(cursor)
-
-            return {
-                "status": "inserted" if created else "updated",
-                "match_id": self.match_id,
-                "sides": len(self._sides),
-                "games": len(self._games),
-            }
-        except Exception as e:
-            logging.exception("Error saving match")
-            return {"status": "failed", "reason": str(e)}
+        cursor.execute(sql, self.to_dict())
+        self.match_id = cursor.fetchone()[0]
+        return self.match_id

@@ -161,3 +161,13 @@ class TournamentClassMatchRaw:
                 (tournament_class_id_ext, data_source_id, tournament_class_stage_id),
             )
         return cursor.rowcount
+
+
+    @classmethod
+    def get_all(cls, cursor: sqlite3.Cursor) -> list["TournamentClassMatchRaw"]:
+        """Fetch all raw match rows."""
+        cursor.row_factory = sqlite3.Row
+        cursor.execute("SELECT * FROM tournament_class_match_raw")
+        rows = cursor.fetchall()
+        cursor.row_factory = None
+        return [cls.from_dict(dict(row)) for row in rows]

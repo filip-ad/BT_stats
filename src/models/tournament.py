@@ -83,26 +83,26 @@ class Tournament(CacheMixin):
             return False, f"Missing/invalid fields: {', '.join(missing)}"
         return True, ""
     
-    # @classmethod
-    # def get_internal_tournament_ids(
-    #     cls,
-    #     cursor: sqlite3.Cursor,
-    #     tournament_id_exts: List[str],
-    #     data_source_id: int
-    # ) -> List[int]:
-    #     """Convert external tournament IDs to internal tournament_ids."""
-    #     if not tournament_id_exts:
-    #         return []
+    @classmethod
+    def get_internal_tournament_ids(
+        cls,
+        cursor: sqlite3.Cursor,
+        tournament_id_exts: List[str],
+        data_source_id: int
+    ) -> List[int]:
+        """Convert external tournament IDs to internal tournament_ids."""
+        if not tournament_id_exts:
+            return []
 
-    #     placeholders = ",".join("?" for _ in tournament_id_exts)
-    #     sql = f"""
-    #         SELECT tournament_id, tournament_id_ext 
-    #         FROM tournament 
-    #         WHERE tournament_id_ext IN ({placeholders}) AND data_source_id = ?
-    #     """
-    #     params = tournament_id_exts + [data_source_id]
-    #     cursor.execute(sql, params)
-    #     return [row[0] for row in cursor.fetchall()]
+        placeholders = ",".join("?" for _ in tournament_id_exts)
+        sql = f"""
+            SELECT tournament_id, tournament_id_ext 
+            FROM tournament 
+            WHERE tournament_id_ext IN ({placeholders}) AND data_source_id = ?
+        """
+        params = tournament_id_exts + [data_source_id]
+        cursor.execute(sql, params)
+        return [row[0] for row in cursor.fetchall()]
 
 
     # Used in get_filtered_classes in upd_tournament_classes (filtering by id_exts)

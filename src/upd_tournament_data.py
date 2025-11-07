@@ -11,6 +11,7 @@ from scrapers.scrape_tournament_class_knockout_matches_ondata   import scrape_to
 from resolvers.resolve_tournaments                              import resolve_tournaments
 from resolvers.resolve_tournament_classes                       import resolve_tournament_classes
 from resolvers.resolve_tournament_class_entries                 import resolve_tournament_class_entries
+from resolvers.resolve_tournament_class_matches                 import resolve_tournament_class_matches
 
 
 def upd_tournament_data(
@@ -36,9 +37,7 @@ def upd_tournament_data(
                 pass
 
             resolve_tournaments(cursor, run_id=run_id)
-
         
-
         if do_scrape_tournament_classes:
             try:
 
@@ -78,6 +77,8 @@ def upd_tournament_data(
             except Exception as e:
                 print(f"Error importing scrape_tournament_knockout_matches_ondata: {e}")
                 pass
+
+        resolve_tournament_class_matches(cursor, run_id=run_id)
 
 
     

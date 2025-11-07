@@ -120,6 +120,13 @@ def main():
                 # 'player_id_ext',                        # References player (verified)
                 # 'player'
 
+                # # Matches and related
+                # 'match_player',
+                # 'game',
+                # 'fixture_match',
+                # 'match_side',
+                # 'tournament_class_match'
+
                 # # Debugging tables (no FKs assumed)
                 # 'club_missing',                       # FK club
                 # 'club_name_prefix_match',             # FK club
@@ -157,7 +164,7 @@ def main():
         # upd_player_data(
         #     run_id                            = pipeline_run_id,
         #     do_scrape_player_licenses         = True, 
-        #     do_scrape_player_rankings         = False,
+        #     do_scrape_player_rankings         = True,
         #     do_scrape_player_transitions      = True
         # )
 
@@ -168,7 +175,7 @@ def main():
             do_scrape_tournament_classes                            = False,
             do_scrape_tournament_class_entries                      = False,
             do_scrape_tournament_class_group_matches_ondata         = False,
-            do_scrape_tournament_class_knockout_matches_ondata      = True
+            do_scrape_tournament_class_knockout_matches_ondata      = False
         )
 
         export_runs_to_excel()

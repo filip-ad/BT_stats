@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 import sqlite3
-from typing import Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple
 
 from models.cache_mixin import CacheMixin
 
@@ -90,3 +90,33 @@ class TournamentClassEntry(CacheMixin):
                 return "inserted"
             return "updated"
         return "unchanged"
+    
+    @classmethod
+    def fetch_participants_for_class(cls, cursor, tournament_class_id: int) -> List[Dict[str, Any]]:
+        """
+        Returns one row per participant in a class with:
+          tpid_ext, entry_id, entry_group_id, player_id, player_name, club_id, club_shortname, group_desc
+        Uses a zip(cursor.description, row) conversion so callers don't depend on row_factory.
+        """
+        cursor.execute("""
+            SELECT
+                tp.tournament_player_id_ext            AS tpid_ext,
+                e.tournament_class_entry_id            AS entry_id,
+                e.tournament_class_entry_group_id_int  AS entry_group_id,
+                p.player_id,
+                p.fullname_raw                         AS player_name,
+                tp.club_id,
+                c.shortname                            AS club_shortname,
+                (SELECT description
+                   FROM tournament_class_group_member g
+                   JOIN tournament_class_group tcg USING (tournament_class_group_id)
+                  WHERE g.tournament_class_entry_id = e.tournament_class_entry_id
+                  LIMIT 1)                             AS group_desc
+            FROM tournament_class_player tp
+            JOIN tournament_class_entry e ON tp.tournament_class_entry_id = e.tournament_class_entry_id
+            JOIN player p ON tp.player_id = p.player_id
+            JOIN club   c ON tp.club_id = c.club_id
+            WHERE e.tournament_class_id = ?;
+        """, (tournament_class_id,))
+        cols = [col[0] for col in cursor.description]
+        return [{col: val for col, val in zip(cols, rec)} for rec in cursor.fetchall()]

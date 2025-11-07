@@ -235,6 +235,8 @@ def create_raw_tables(cursor, logger):
                 tournament_player_id_ext        TEXT,            
                 fullname_raw                    TEXT NOT NULL,   
                 clubname_raw                    TEXT,   
+                group_id_raw                    TEXT,
+                seed_in_group_raw               TEXT,
                 seed_raw                        TEXT,        
                 final_position_raw              TEXT,            
                 entry_group_id_int              INTEGER,            
@@ -429,15 +431,16 @@ def create_tables(cursor):
             row_created                                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             row_updated                                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
+            PRIMARY KEY (tournament_class_id, match_id),
+                       
             FOREIGN KEY (tournament_class_id)               REFERENCES tournament_class(tournament_class_id)        ON DELETE CASCADE,
             FOREIGN KEY (match_id)                          REFERENCES match(match_id)                              ON DELETE CASCADE,
-            FOREIGN KEY (tournament_class_stage_id)         REFERENCES tournament_class_stage(tournament_class_stage_id),
+            FOREIGN KEY (tournament_class_stage_id)         REFERENCES tournament_class_stage(tournament_class_stage_id)
              
             -- Enforce that the group (if present) belongs to the same class
             --FOREIGN KEY (tournament_class_id, tournament_class_group_id)
             --  REFERENCES tournament_class_group (tournament_class_id, tournament_class_group_id),
 
-            PRIMARY KEY (tournament_class_id, match_id)
         );
     ''')
 
@@ -465,11 +468,11 @@ def create_tables(cursor):
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-                FOREIGN KEY (match_id)                      REFERENCES match(match_id),
-                FOREIGN KEY (represented_league_team_id)    REFERENCES league_team(league_team_id),
-                FOREIGN KEY (represented_entry_id)          REFERENCES tournament_class_entry(tournament_class_entry_id),
+                PRIMARY KEY (match_id, side_no),            
 
-                PRIMARY KEY (match_id, side_no),
+                FOREIGN KEY (match_id)                      REFERENCES match(match_id)                  ON DELETE CASCADE,
+                FOREIGN KEY (represented_league_team_id)    REFERENCES league_team(league_team_id),
+                FOREIGN KEY (represented_entry_id)          REFERENCES tournament_class_entry(tournament_class_entry_id),           
 
                 CHECK (side_no IN (1, 2)),
                 CHECK (
@@ -491,11 +494,11 @@ def create_tables(cursor):
             row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-            FOREIGN KEY (match_id, side_no) REFERENCES match_side(match_id, side_no),
+            PRIMARY KEY (match_id, side_no, player_id),
+                       
+            FOREIGN KEY (match_id, side_no) REFERENCES match_side(match_id, side_no)        ON DELETE CASCADE,
             FOREIGN KEY (player_id)         REFERENCES player(player_id),
             FOREIGN KEY (club_id)           REFERENCES club(club_id),
-
-            PRIMARY KEY (match_id, side_no, player_id),
 
             CHECK (player_order IN (1, 2))
         );
@@ -511,9 +514,11 @@ def create_tables(cursor):
             row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-            FOREIGN KEY (match_id)          REFERENCES match(match_id),
+            PRIMARY KEY (match_id, game_no),
+            
+            FOREIGN KEY (match_id)          REFERENCES match(match_id)                      ON DELETE CASCADE
 
-            PRIMARY KEY (match_id, game_no)
+            
         );
     ''')
 
@@ -1622,8 +1627,238 @@ def create_views(cursor):
         LEFT JOIN ranking_points_per_player rpp
             ON p.player_id = rpp.player_id;
         '''
-    )
+    ),
 
+    (
+        "v_trnmt_entry",
+        '''
+        CREATE VIEW IF NOT EXISTS v_trnmt_entry AS
+            SELECT
+                -- Tournament context
+                t.shortname          AS tournament_shortname,
+                --t.startdate          AS tournament_startdate,
+
+                -- Class context
+                tc.shortname         AS class_shortname,
+                tc.longname          AS class_longname,
+                tc.startdate         AS class_date,
+
+                -- Player (single resolved name)
+                CASE 
+                    WHEN p.is_verified = 1 THEN TRIM(p.firstname || ' ' || p.lastname)
+                    ELSE TRIM(
+                        CASE 
+                            WHEN INSTR(p.fullname_raw, ' ') > 0 
+                            THEN SUBSTR(p.fullname_raw, INSTR(p.fullname_raw, ' ') + 1) 
+                                || ' ' || SUBSTR(p.fullname_raw, 1, INSTR(p.fullname_raw, ' ') - 1)
+                            ELSE p.fullname_raw
+                        END
+                    )
+                END AS player_name,
+                
+                p.player_id,
+                
+                
+
+                -- Club context
+                c.shortname          AS club_shortname,
+                
+                c.club_id,
+
+                -- Entry details
+                tce.seed                         AS class_seed,
+                tce.final_position               AS final_position,
+                tcp.tournament_player_id_ext,
+                tcg.description                  AS group_name,
+                tcgm.seed_in_group               AS group_seed,
+
+                -- IDs last
+                t.tournament_id,
+                t.tournament_id_ext,
+                tc.tournament_class_id,
+                tc.tournament_class_id_ext,
+                tce.tournament_class_entry_id,
+                tce.tournament_class_entry_group_id_int AS entry_group_id,
+                tcg.tournament_class_group_id
+
+        
+
+            FROM tournament_class_entry tce
+            JOIN tournament_class_player tcp
+                ON tcp.tournament_class_entry_id = tce.tournament_class_entry_id
+            JOIN tournament_class tc
+                ON tc.tournament_class_id = tce.tournament_class_id
+            JOIN tournament t
+                ON t.tournament_id = tc.tournament_id
+            JOIN player p
+                ON p.player_id = tcp.player_id
+            JOIN club c
+                ON c.club_id = tcp.club_id
+            LEFT JOIN tournament_class_group_member tcgm
+                ON tcgm.tournament_class_entry_id = tce.tournament_class_entry_id
+            LEFT JOIN tournament_class_group tcg
+                ON tcg.tournament_class_group_id = tcgm.tournament_class_group_id
+
+            ORDER BY t.startdate, tc.startdate, tcg.sort_order, tce.seed, tcgm.seed_in_group;
+        '''
+),
+
+(
+        "v_trnmt_matches",
+        '''
+            CREATE VIEW IF NOT EXISTS v_trnmt_matches AS
+            WITH
+                game_summary AS (
+                    SELECT
+                        g.match_id,
+                        GROUP_CONCAT(g.points_side1 || '-' || g.points_side2, ', ') AS games_score,
+                        SUM(CASE WHEN g.points_side1 > g.points_side2 THEN 1 ELSE 0 END) AS games_won_side1,
+                        SUM(CASE WHEN g.points_side2 > g.points_side1 THEN 1 ELSE 0 END) AS games_won_side2
+                    FROM game g
+                    GROUP BY g.match_id
+                ),
+                side1 AS (
+                    SELECT 
+                        ms.match_id,
+                        GROUP_CONCAT(
+                            CASE 
+                                WHEN p.is_verified = 1 THEN TRIM(p.firstname || ' ' || p.lastname)
+                                ELSE TRIM(
+                                    CASE 
+                                        WHEN INSTR(p.fullname_raw, ' ') > 0 
+                                        THEN SUBSTR(p.fullname_raw, INSTR(p.fullname_raw, ' ') + 1) 
+                                            || ' ' || SUBSTR(p.fullname_raw, 1, INSTR(p.fullname_raw, ' ') - 1)
+                                        ELSE p.fullname_raw
+                                    END
+                                )
+                            END, ', '
+                        ) AS side1_player_name,
+                        GROUP_CONCAT(p.player_id, ', ') AS side1_player_id,
+                        GROUP_CONCAT(c.shortname, ', ') AS side1_club_name,
+                        GROUP_CONCAT(c.club_id, ', ')   AS side1_club_id
+                    FROM match_side ms
+                    JOIN match_player mp 
+                        ON ms.match_id = mp.match_id AND ms.side_no = mp.side_no
+                    JOIN player p 
+                        ON p.player_id = mp.player_id
+                    JOIN club c 
+                        ON c.club_id = mp.club_id
+                    WHERE ms.side_no = 1
+                    GROUP BY ms.match_id
+                ),
+                side2 AS (
+                    SELECT 
+                        ms.match_id,
+                        GROUP_CONCAT(
+                            CASE 
+                                WHEN p.is_verified = 1 THEN TRIM(p.firstname || ' ' || p.lastname)
+                                ELSE TRIM(
+                                    CASE 
+                                        WHEN INSTR(p.fullname_raw, ' ') > 0 
+                                        THEN SUBSTR(p.fullname_raw, INSTR(p.fullname_raw, ' ') + 1) 
+                                            || ' ' || SUBSTR(p.fullname_raw, 1, INSTR(p.fullname_raw, ' ') - 1)
+                                        ELSE p.fullname_raw
+                                    END
+                                )
+                            END, ', '
+                        ) AS side2_player_name,
+                        GROUP_CONCAT(p.player_id, ', ') AS side2_player_id,
+                        GROUP_CONCAT(c.shortname, ', ') AS side2_club_name,
+                        GROUP_CONCAT(c.club_id, ', ')   AS side2_club_id
+                    FROM match_side ms
+                    JOIN match_player mp 
+                        ON ms.match_id = mp.match_id AND ms.side_no = mp.side_no
+                    JOIN player p 
+                        ON p.player_id = mp.player_id
+                    JOIN club c 
+                        ON c.club_id = mp.club_id
+                    WHERE ms.side_no = 2
+                    GROUP BY ms.match_id
+                )
+            SELECT
+                -- Tournament context
+                t.shortname             AS tournament_shortname,
+                t.startdate             AS tournament_startdate,
+                t.city                  AS tournament_city,
+                t.url                   AS tournament_url,
+
+                -- Class context
+                tc.shortname            AS class_shortname,
+                tc.longname             AS class_longname,
+                tc.startdate            AS class_date,
+
+                -- Stage / group context
+                tcs.shortname           AS stage_shortname,
+                tcs.description         AS stage_description,
+                tcm.stage_round_no      AS stage_round_no,
+                tcm.draw_pos            AS draw_position,
+                tcg.description         AS group_name,
+
+                -- Match info
+                m.match_id,
+                m.best_of,
+                m.date,
+                m.status,
+                m.winner_side,
+                m.walkover_side,
+
+                -- Player & club details
+                s1.side1_player_name,
+                s1.side1_player_id,
+                s1.side1_club_name,
+                s1.side1_club_id,
+
+                s2.side2_player_name,
+                s2.side2_player_id,
+                s2.side2_club_name,
+                s2.side2_club_id,
+
+                -- Results
+                gs.games_score,
+                gs.games_won_side1,
+                gs.games_won_side2,
+                CASE 
+                    WHEN gs.games_won_side1 IS NOT NULL AND gs.games_won_side2 IS NOT NULL
+                    THEN gs.games_won_side1 || '-' || gs.games_won_side2
+                    ELSE NULL
+                END AS match_score_summary,
+
+                CASE 
+                    WHEN m.winner_side = 1 THEN s1.side1_player_name
+                    WHEN m.winner_side = 2 THEN s2.side2_player_name
+                    ELSE NULL
+                END AS winner_name,
+
+                -- IDs last
+                t.tournament_id,
+                t.tournament_id_ext,
+                tc.tournament_class_id,
+                tc.tournament_class_id_ext,
+                tcs.tournament_class_stage_id,
+                tcg.tournament_class_group_id,
+                m.match_id
+
+            FROM tournament_class_match tcm
+            JOIN tournament_class tc
+                ON tc.tournament_class_id = tcm.tournament_class_id
+            JOIN tournament t
+                ON t.tournament_id = tc.tournament_id
+            JOIN match m
+                ON m.match_id = tcm.match_id
+            LEFT JOIN tournament_class_stage tcs
+                ON tcs.tournament_class_stage_id = tcm.tournament_class_stage_id
+            LEFT JOIN tournament_class_group tcg
+                ON tcg.tournament_class_group_id = tcm.tournament_class_group_id
+            LEFT JOIN game_summary gs
+                ON gs.match_id = m.match_id
+            LEFT JOIN side1 s1
+                ON s1.match_id = m.match_id
+            LEFT JOIN side2 s2
+                ON s2.match_id = m.match_id
+
+            ORDER BY t.startdate, tc.startdate, tcs.round_order, tcm.stage_round_no, m.match_id;
+        '''
+)
 
     ]
 

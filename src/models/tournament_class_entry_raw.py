@@ -18,7 +18,9 @@ class TournamentClassEntryRaw(CacheMixin):
     tournament_class_id_ext:            Optional[str] = None    
     tournament_player_id_ext:           Optional[str] = None       
     fullname_raw:                       Optional[str] = None     
-    clubname_raw:                       Optional[str] = None     
+    clubname_raw:                       Optional[str] = None
+    group_id_raw:                       Optional[str] = None 
+    seed_in_group_raw:                  Optional[str] = None
     seed_raw:                           Optional[str] = None      
     final_position_raw:                 Optional[str] = None      
     entry_group_id_int:                 Optional[int] = None
@@ -35,6 +37,8 @@ class TournamentClassEntryRaw(CacheMixin):
             tournament_player_id_ext    = data.get("tournament_player_id_ext"),
             fullname_raw                = data.get("fullname_raw"),
             clubname_raw                = data.get("clubname_raw"),
+            group_id_raw                = data.get("group_id_raw"),
+            seed_in_group_raw           = data.get("seed_in_group_raw"),
             seed_raw                    = data.get("seed_raw"),
             final_position_raw          = data.get("final_position_raw"),
             entry_group_id_int          = data.get("entry_group_id_int"),
@@ -52,6 +56,8 @@ class TournamentClassEntryRaw(CacheMixin):
             "tournament_player_id_ext":     self.tournament_player_id_ext,
             "fullname_raw":                 self.fullname_raw,
             "clubname_raw":                 self.clubname_raw,
+            "group_id_raw":                 self.group_id_raw,
+            "seed_in_group_raw":            self.seed_in_group_raw,
             "seed_raw":                     self.seed_raw,
             "final_position_raw":           self.final_position_raw,
             "entry_group_id_int":           self.entry_group_id_int,
@@ -79,10 +85,18 @@ class TournamentClassEntryRaw(CacheMixin):
         return True, ""
 
     def compute_hash(self) -> None:
-        """Compute and assign content hash for uniqueness check."""
+        """
+        Compute and assign content hash for uniqueness check.
+
+        We EXCLUDE group_id_raw and seed_in_group_raw (and entry_group_id_int)
+        so the hash is stable between stage=1 and stage=2 enrichment runs.
+        """
         self.content_hash = _compute_content_hash(
             self,
-            exclude_fields={"row_id", "row_created", "row_updated", "content_hash", "entry_group_id_int"}
+            exclude_fields={
+                "row_id", "row_created", "row_updated", "content_hash",
+                "entry_group_id_int", "group_id_raw", "seed_in_group_raw"
+            }
         )
 
     def insert(self, cursor: sqlite3.Cursor) -> None:
@@ -92,12 +106,14 @@ class TournamentClassEntryRaw(CacheMixin):
 
         cursor.execute("""
             INSERT OR IGNORE INTO tournament_class_entry_raw (
-                tournament_id_ext, 
-                tournament_class_id_ext, 
+                tournament_id_ext,
+                tournament_class_id_ext,
                 tournament_player_id_ext,
-                fullname_raw, 
-                clubname_raw, 
-                seed_raw, 
+                fullname_raw,
+                clubname_raw,
+                group_id_raw,
+                seed_in_group_raw,
+                seed_raw,
                 final_position_raw,
                 entry_group_id_int,
                 data_source_id,
@@ -105,8 +121,8 @@ class TournamentClassEntryRaw(CacheMixin):
             )
             VALUES
             (:tournament_id_ext, :tournament_class_id_ext, :tournament_player_id_ext,
-             :fullname_raw, :clubname_raw, :seed_raw, :final_position_raw,
-             :entry_group_id_int, :data_source_id, :content_hash)
+             :fullname_raw, :clubname_raw, :group_id_raw, :seed_in_group_raw,
+             :seed_raw, :final_position_raw, :entry_group_id_int, :data_source_id, :content_hash)
         """, self.to_dict())
 
     @classmethod
@@ -156,7 +172,79 @@ class TournamentClassEntryRaw(CacheMixin):
             return cursor.rowcount, ""
         except Exception as e:
             return 0, f"Failed to batch update final positions: {str(e)}"
-  
+        
+    # Used in group seeding    
+    @staticmethod
+    def batch_update_groups(
+        cursor,
+        *,
+        tournament_class_id_ext: str,
+        data_source_id: int,
+        groups: List[Dict[str, Any]],
+    ) -> Tuple[int, Optional[str]]:
+        from utils import normalize_key
+        import logging
+
+        updated = 0
+        try:
+            cursor.execute("""
+                SELECT row_id, tournament_player_id_ext, fullname_raw, clubname_raw
+                FROM tournament_class_entry_raw
+                WHERE tournament_class_id_ext = ? AND data_source_id = ?
+            """, (tournament_class_id_ext, data_source_id))
+            rows = cursor.fetchall()
+
+            by_tpid = {}
+            by_nameclub = {}
+            for row_id, tpid, fn, cl in rows:
+                if tpid is not None and str(tpid).strip() != "":
+                    raw = str(tpid).strip()
+                    by_tpid[raw] = row_id
+                    by_tpid[str(tpid).lstrip("0") or "0"] = row_id  # depadded
+                by_nameclub[(normalize_key(fn or ""), normalize_key(cl or ""))] = row_id
+
+            to_update = []
+            with_seeds = 0
+            for g in groups:
+                gid  = g.get("group_id_raw")
+                seed = g.get("seed_in_group_raw")
+                tpid = g.get("tournament_player_id_ext")
+                fn   = g.get("fullname_raw")
+                cl   = g.get("clubname_raw")
+
+                row_id = None
+                if tpid is not None and str(tpid).strip() != "":
+                    key = str(tpid).strip()
+                    row_id = by_tpid.get(key) or by_tpid.get(key.lstrip("0") or "0")
+                if row_id is None and fn and cl:
+                    row_id = by_nameclub.get((normalize_key(fn), normalize_key(cl)))
+
+                if row_id is None or gid is None:
+                    continue
+
+                to_update.append((gid, seed, row_id))
+                if seed:
+                    with_seeds += 1
+
+            if to_update:
+                cursor.executemany("""
+                    UPDATE tournament_class_entry_raw
+                    SET group_id_raw = ?,
+                        seed_in_group_raw = ?
+                    WHERE row_id = ?
+                """, to_update)
+                updated = cursor.rowcount
+            else:
+                updated = 0
+
+            # logging.info(
+            #     "[STG2][UPDATE] class=%s updated=%d (with group seeds=%d)",
+            #     str(tournament_class_id_ext), updated, with_seeds
+            # )
+            return updated, None
+
+        except Exception as e:
+            return updated, f"batch_update_groups failed: {e}"
 
     @classmethod
     def get_all(cls, cursor: sqlite3.Cursor) -> List["TournamentClassEntryRaw"]:

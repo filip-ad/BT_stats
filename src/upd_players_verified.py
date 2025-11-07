@@ -58,6 +58,9 @@ def upd_players_verified(cursor, run_id=None):
     try:
         logger.info("Updating player table...")
 
+        # 🧩 Ensure 'Unknown Player' exists
+        _ensure_unknown_player(cursor, logger)
+
         # 1) load raw
         player_data = _load_raw_player_data(cursor)
         logger.info(f"Found {len(player_data):,} unique external players in license and ranking tables")
@@ -348,3 +351,21 @@ def _purge_unverified_orphans(cursor, logger: OperationLogger) -> int:
         )
     return purged_players
 
+def _ensure_unknown_player(cursor, logger: OperationLogger) -> int:
+    """
+    Ensure a placeholder player exists with player_id=99999 and name='Unknown Player'.
+    Returns the player_id (creates if missing).
+    """
+    player_id = 99999
+    cursor.execute("SELECT 1 FROM player WHERE player_id = ?", (player_id,))
+    if cursor.fetchone():
+        logger.info({"player_id": player_id}, "Unknown Player already exists")
+        return player_id
+
+    # Create it manually, bypassing Player.save_to_db to avoid duplicate logic
+    cursor.execute("""
+        INSERT INTO player (player_id, firstname, lastname, year_born, is_verified)
+        VALUES (?, ?, ?, NULL, 1)
+    """, (player_id, "Unknown", "Player"))
+    logger.success({"player_id": player_id}, "Inserted Unknown Player placeholder")
+    return player_id

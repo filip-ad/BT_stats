@@ -1,6 +1,7 @@
 # scrapers/scrape_group_matches_ondata.py
 
 from __future__ import annotations
+from datetime import date
 import logging
 from typing import List
 import io, re
@@ -46,8 +47,8 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
         data_source_id          = 1 if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else None,
         cutoff_date             = cutoff_date,
         require_ended           = False,
-        allowed_structure_ids   = [1, 2],   # Groups+KO or Groups-only
-        allowed_type_ids        = [1],           # singles for now
+        allowed_structure_ids   = [1, 2],           # Groups+KO or Groups-only
+        allowed_type_ids        = [1],              # singles for now
         max_classes             = SCRAPE_PARTICIPANTS_MAX_CLASSES,
         order                   = SCRAPE_PARTICIPANTS_ORDER,
     )
@@ -90,11 +91,24 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
             pass
 
         # Download / reuse cached PDF (strictly stage=3)
+
+        # Force refresh if the tournament ended within the last 90 days
+        today = date.today()
+        ref_date = (tc.startdate or today)
+        force_refresh = False
+        if ref_date:
+            try:
+                ref_date = ref_date.date() if hasattr(ref_date, "date") else ref_date
+                if (today - ref_date).days <= 90:
+                    force_refresh = True
+            except Exception:
+                pass
+
         pdf_path, downloaded, msg = _download_pdf_ondata_by_tournament_class_and_stage(
             tournament_id_ext=tid_ext or "",
             class_id_ext=cid_ext or "",
             stage=3,
-            force_download=False,
+            force_download=force_refresh,
         )
         if msg:
             # logger.info(logger_keys.copy(), msg)
@@ -129,7 +143,7 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
         wo_flags_by_group: dict[str, set[str]] = {}
         if any_wo:
             wo_flags_by_group = _load_stage4_break_flags(
-                tid_ext, cid_ext, names_by_group, logger=logger, logger_keys=logger_keys
+                tid_ext, cid_ext, names_by_group, logger=logger, logger_keys=logger_keys, force_refresh=force_refresh
             )
 
         kept = 0
@@ -324,7 +338,8 @@ def _load_stage4_break_flags(
     names_by_group: dict[str, set[str]],
     *,
     logger,
-    logger_keys: dict
+    logger_keys: dict,
+    force_refresh: bool = False
 ) -> dict[str, set[str]]:
     """
     Download+parse stage=4 PDF and return { 'Pool X': {normalized_name, ...}, ... }
@@ -336,7 +351,7 @@ def _load_stage4_break_flags(
         tournament_id_ext=tournament_id_ext or "",
         class_id_ext=class_id_ext or "",
         stage=4,
-        force_download=False,
+        force_download=force_refresh,
     )
     if msg:
         # logger.info(logger_keys.copy(), msg)
