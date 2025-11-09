@@ -1,24 +1,29 @@
 # src/resolvers/resolve_tournament_class_matches.py
-# Updated to remove group/member post-processing, as now handled in entries resolver
 
 from models.tournament_class import TournamentClass
 from models.tournament_class_match_raw import TournamentClassMatchRaw
 from models.tournament_class_entry import TournamentClassEntry
-from models.tournament_class_player import TournamentClassPlayer
 from models.match import Match
 from models.game import Game
 from models.match_side import MatchSide
 from models.match_player import MatchPlayer
 from models.tournament_class_match import TournamentClassMatch
 from models.tournament_class_group import TournamentClassGroup
-from models.club import Club
-from models.player import Player
-from utils import OperationLogger, normalize_key, name_keys_for_lookup_all_splits, parse_date
+from utils import OperationLogger, normalize_key, parse_date
 from typing import List, Dict, Optional, Tuple, Any
 import sqlite3
 from datetime import date
-from config import RESOLVE_MATCHES_CUTOFF_DATE
 import re
+from config import (
+    SCRAPE_PARTICIPANTS_MAX_CLASSES,
+    SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+    SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
+    SCRAPE_PARTICIPANTS_ORDER,
+    SCRAPE_PARTICIPANTS_CUTOFF_DATE,
+    RESOLVE_MATCHES_CUTOFF_DATE
+)
+
+SCRAPE_PARTICIPANTS_CLASS_ID_EXTS =['30834']  # Edge case, with duplicate matches in 2-page PDF - https://resultat.ondata.se/ViewClassPDF.php?classID=30834&stage=3
 
 def resolve_tournament_class_matches(cursor: sqlite3.Cursor, run_id=None) -> None:
     """Resolve raw matches into match-related tables."""
@@ -42,10 +47,12 @@ def resolve_tournament_class_matches(cursor: sqlite3.Cursor, run_id=None) -> Non
     if cutoff_date:
         filtered_classes = TournamentClass.get_filtered_classes(
             cursor,
-            cutoff_date       = cutoff_date,
-            require_ended     = False,
-            allowed_type_ids  = [1],  # singles for initial
-            order             = "newest"
+            cutoff_date             = cutoff_date,
+            class_id_exts           = SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
+            data_source_id          = 1 if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else None,
+            require_ended           = False,
+            allowed_type_ids        = [1],  # singles for initial
+            order                   = "newest"
         )
         allowed_class_exts = {tc.tournament_class_id_ext for tc in filtered_classes if tc.tournament_class_id_ext}
         if allowed_class_exts:

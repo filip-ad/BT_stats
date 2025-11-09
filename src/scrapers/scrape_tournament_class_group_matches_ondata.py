@@ -23,6 +23,10 @@ from models.tournament import Tournament
 from models.tournament_class import TournamentClass
 from models.tournament_class_match_raw import TournamentClassMatchRaw
 
+SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30834']
+
+debug = False
+
 def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
     """
     Scrape GROUP stage match rows (stage=3) from OnData, store into tournament_class_match_raw.
@@ -124,6 +128,12 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
             with open(pdf_path, "rb") as f:
                 pdf_bytes = f.read()
             groups = _parse_groups_pdf(pdf_bytes)
+            before = sum(len(g.get("matches", [])) for g in groups)
+            groups = _dedupe_groups(groups)
+            after  = sum(len(g.get("matches", [])) for g in groups)
+            if before != after:
+                logger.info(logger_keys.copy(), f"De-duplicated overlay rows: {before - after} removed (from {before} → {after})")
+
             # logger.info(logger_keys.copy(), f"Parsed {len(groups)} pools")
         except Exception as e:
             logger.failed(logger_keys.copy(), f"PDF parsing failed: {e}")
@@ -257,6 +267,10 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
                     kept += 1
                     total_inserted += 1
                     logger.success(match_keys, "Raw match saved")
+
+                    if debug:
+                        print(row)
+
                     if hasattr(logger, "inc_processed"):
                         logger.inc_processed()
                 except Exception as e:
@@ -637,3 +651,88 @@ def _parse_groups_pdf(pdf_bytes: bytes) -> list[dict]:
         _debug_unmatched(text)
 
     return groups
+
+def _split_name_club(raw: str) -> dict:
+    s = _RE_LEADING_CODE.sub("", raw.strip())
+    m = _RE_NAME_CLUB.match(s)
+    name = (m.group("name") if m else s).strip()
+    club = (m.group("club") if m else None)
+
+    # OnData stage=3 sometimes repeats page-1 rows on page-2 and appends '*' to club.
+    overlay = False
+    if club:
+        club = club.strip()
+        if club.endswith("*"):
+            overlay = True
+            club = club[:-1].rstrip()
+
+    return {"raw": raw, "name": name, "club": (club or None), "overlay": overlay}
+
+def _dedupe_groups(groups: list[dict]) -> list[dict]:
+    """
+    De-duplicate repeated 'overlay' rows that appear on some OnData stage=3 PDFs.
+
+    Context:
+      - Certain tournaments produce a second page that repeats the same matches
+        and appends '*' to the club names.
+      - We want exactly one row per actual match.
+
+    Strategy:
+      - Build a canonical key: normalized p1, normalized p2, and normalized token CSV.
+      - For each key, keep the "best" row by score:
+            non-overlay  > overlay
+            with codes   > without codes
+            with matchid > without matchid
+      - Return groups with duplicates removed and original group structure preserved.
+    """
+    def norm_name(n: str | None) -> str:
+        return _norm(n or "")
+
+    def score(match: dict) -> tuple[int, int, int]:
+        # Higher is better
+        is_overlay = 1 if ((match.get("p1") or {}).get("overlay") or (match.get("p2") or {}).get("overlay")) else 0
+        has_codes  = 1 if (match.get("p1_code") and match.get("p2_code")) else 0
+        has_mid    = 1 if match.get("match_id_ext") else 0
+        # prefer non-overlay => invert overlay bit in score
+        return (1 - is_overlay, has_codes, has_mid)
+
+    # index best match per canonical key
+    best_by_key: dict[tuple[str, str, str], dict] = {}
+    key_to_groupnames: dict[tuple[str, str, str], list[str]] = {}
+
+    for g in groups:
+        gname = g.get("name")
+        for mm in g.get("matches", []):
+            # tokens already normalized later when building row; for dedupe we reformat here too
+            tokens_raw = mm.get("tokens") or []
+            tokens_csv = _normalize_sign_tokens(tokens_raw)
+            key = (norm_name((mm.get("p1") or {}).get("name")),
+                   norm_name((mm.get("p2") or {}).get("name")),
+                   tokens_csv.strip())
+
+            cand = best_by_key.get(key)
+            if cand is None or score(mm) > score(cand):
+                best_by_key[key] = mm
+            key_to_groupnames.setdefault(key, []).append(gname)
+
+    # Rebuild groups: keep only best matches per key; assign to their original group
+    # (If a key appeared in multiple groups by error, we keep it in the first seen group.)
+    kept_keys = set()
+    out: list[dict] = []
+    for g in groups:
+        gname = g.get("name")
+        new_matches: list[dict] = []
+        for mm in g.get("matches", []):
+            tokens_csv = _normalize_sign_tokens(mm.get("tokens") or [])
+            key = (norm_name((mm.get("p1") or {}).get("name")),
+                   norm_name((mm.get("p2") or {}).get("name")),
+                   tokens_csv.strip())
+            if key in kept_keys:
+                continue
+            # keep only if this group is the first where the best candidate appeared
+            if best_by_key.get(key) is mm and key_to_groupnames.get(key, [gname])[0] == gname:
+                new_matches.append(mm)
+                kept_keys.add(key)
+        if new_matches:
+            out.append({"name": gname, "matches": new_matches})
+    return out

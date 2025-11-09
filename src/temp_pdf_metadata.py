@@ -17,8 +17,7 @@ from typing import Any, Dict, Iterable, List
 import pdfplumber
 import requests
 
-PDF_URL = "https://resultat.ondata.se/ViewClassPDF.php?classID=30156&stage=1"
-
+PDF_URL = "https://resultat.ondata.se/ViewClassPDF.php?classID=30834&stage=3"
 
 def download_pdf(url: str) -> bytes:
     resp = requests.get(url)
