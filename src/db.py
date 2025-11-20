@@ -281,7 +281,31 @@ def create_raw_tables(cursor, logger):
                 UNIQUE (tournament_id_ext, tournament_class_id_ext, raw_line_text, data_source_id),
                 UNIQUE (tournament_id_ext, tournament_class_id_ext, match_id_ext, data_source_id)
             );
+        ''',
+
+        "league_raw":
         '''
+            CREATE TABLE IF NOT EXISTS league_raw (
+                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_id_ext                   TEXT,
+                season_label                    TEXT,
+                league_level                    TEXT,
+                name                            TEXT,
+                organizer                       TEXT,
+                active                          INTEGER DEFAULT 0 CHECK(active IN (0,1)),
+                url                             TEXT,
+                start_date                      DATE,
+                end_date                        DATE,
+                data_source_id                  INTEGER DEFAULT 1,
+                content_hash                    TEXT,
+                last_seen_at                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (data_source_id)    REFERENCES data_source(data_source_id)
+            );
+        ''',
+
     }
 
     created, skipped = [], []
@@ -714,12 +738,15 @@ def create_tables(cursor):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS league (
                 league_id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_id_ext                   TEXT,
                 season_id                       INTEGER,
                 league_level_id                 INTEGER,
                 name                            TEXT,
                 organizer                       TEXT,
                 active                          INTEGER DEFAULT 0 CHECK(active IN (0,1)),
                 url                             TEXT,
+                start_date                      DATE,
+                end_date                        DATE,
                 row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                        
@@ -732,6 +759,7 @@ def create_tables(cursor):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS league_team (
                 league_team_id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_team_id_ext              TEXT,
                 league_id                       INTEGER,
                 club_id                         INTEGER,
                 name                            TEXT,
@@ -748,8 +776,6 @@ def create_tables(cursor):
             CREATE TABLE IF NOT EXISTS league_team_player (
                 league_team_id                  INTEGER,
                 player_id                       INTEGER,
-                valid_from                      DATE,
-                valid_to                        DATE,
                 row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -764,6 +790,7 @@ def create_tables(cursor):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS fixture (
                 fixture_id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                fixture_id_ext                  TEXT,
                 league_id                       INTEGER,
                 date                            DATE,
                 round                           INTEGER,
@@ -1145,7 +1172,8 @@ def create_and_populate_static_tables(cursor, logger):
             (7, 'SF',       'Semifinal',                1,  4),
             (8, 'F',        'Final',                    1,  2),
             (9,  'SWISS',   'Swiss System',             0,  None),      # A Swiss-system stage pairs players with similar scores across several rounds; nobody is eliminated each round. It’s neither simple group round-robin nor KO.
-            (10, 'KO_QAL',  'Knockout Qualification',   1,  None)       # Qualification matches to enter a knockout stage (e.g. R32) after a group stage
+            (10, 'KO_QAL',  'Knockout Qualification',   1,  None),       # Qualification matches to enter a knockout stage (e.g. R32) after a group stage
+            (11, 'GROUP_STG2', 'Group Stage 2',         0,  None)      # Second group stage (after an initial group stage), e.g. in some international competitions
         ]
 
         cursor.executemany('''
@@ -1188,6 +1216,7 @@ def create_and_populate_static_tables(cursor, logger):
             (1, 'Groups_and_KO'),
             (2, 'Groups_only'),
             (3, 'KO_only'),
+            (4, 'Groups_and_Groups'),
             (9, 'Unknown')
         ]
 
@@ -1872,8 +1901,9 @@ def create_views(cursor):
 
 
 def execute_custom_sql(cursor):
+    print("ℹ️  Executing custom SQL...")
     cursor.execute('''
-        DELETE FROM TOURNAMENT_CLASS WHERE tournament_class_id_ext = '29604'
+        --- Example custom SQL execution
     ''')
 
 

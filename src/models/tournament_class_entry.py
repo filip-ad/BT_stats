@@ -104,7 +104,10 @@ class TournamentClassEntry(CacheMixin):
                 e.tournament_class_entry_id            AS entry_id,
                 e.tournament_class_entry_group_id_int  AS entry_group_id,
                 p.player_id,
-                p.fullname_raw                         AS player_name,
+                COALESCE(
+                    NULLIF(p.fullname_raw, ''),
+                    TRIM(COALESCE(p.firstname, '') || ' ' || COALESCE(p.lastname, ''))
+                )                                      AS player_name,
                 tp.club_id,
                 c.shortname                            AS club_shortname,
                 (SELECT description

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import date
 import hashlib
 import io
 import re
-from dataclasses import dataclass
+import unicodedata
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import pdfplumber
@@ -36,6 +38,8 @@ from utils import (
     parse_date,
     OperationLogger,
     _download_pdf_ondata_by_tournament_class_and_stage,
+    sanitize_name,
+    normalize_key,
 )
 from models.tournament import Tournament
 from models.tournament_class import TournamentClass
@@ -44,19 +48,20 @@ from models.tournament_class_match_raw import TournamentClassMatchRaw
 # Manual toggles used during ad-hoc testing (last assignment wins)
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29622']           # RO8 test
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30021']           # RO16 test
-# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29866']           # Qualification + RO16 test
-# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625']           # RO32 test
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006']            # RO64 test
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29866']           # Qualification + RO16 test -- 16 matches 
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625']           # RO32 test -- 19 matches
+SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006']            # RO64 test without player ID:s
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['6955']          # RO128 test
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['25395']           # RO16 but missing ko_tree_size
-# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ["125"] # Faulty deviating RO16
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ["125"] # RO16 without player ID:s
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ["492"]
+
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30284']
 
 # Map url -> md5 hash so repeated runs can detect PDF changes.
 LAST_PDF_HASHES: Dict[str, str] = {}
 
 DEBUG_OUTPUT: bool = True
-
-
 
 
 def _debug_print(message: str) -> None:
@@ -89,6 +94,7 @@ class Player:
     center: float
     player_id_ext: Optional[str]
     player_suffix_id: Optional[str]
+    aliases: Set[str] = field(default_factory=set)
 
 @dataclass
 class ScoreEntry:
@@ -164,6 +170,8 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
             "duplicate_players_in_first_round":         "",
             "inconsistent_best_of_in_round":            "",
             "misc_validation_issues":                   "",
+            "round_name":                               "",
+            "players":                                  ""
         }
 
         
@@ -176,11 +184,26 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
             logger.failed(logger_keys.copy(), "No tournament_class_id_ext available for class")
             continue
 
+        # Force refresh if the tournament ended within the last 90 days
+        today = date.today()
+        ref_date = (tclass.startdate or today)
+        force_refresh = False
+        if ref_date:
+            try:
+                ref_date = ref_date.date() if hasattr(ref_date, "date") else ref_date
+                if (today - ref_date).days <= 90:
+                    force_refresh = True
+            except Exception:
+                pass
+
+        # Currently disable force refresh
+        force_refresh = False
+
         pdf_path, downloaded, msg = _download_pdf_ondata_by_tournament_class_and_stage(
             tournament_id_ext=tid_ext or "",
             class_id_ext=cid_ext or "",
             stage=5,
-            force_download=False,
+            force_download=force_refresh,
         )
         if msg and DEBUG_OUTPUT:
             _debug_print(msg)
@@ -420,6 +443,11 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
                             score_entries_pool.pop(idx)
                             break
 
+            for matches in all_rounds:
+                _ensure_winner_first(matches)
+            if qualification:
+                _ensure_winner_first(qualification)
+
             _validate_bracket(
                 pdf_hash_key,
                 tclass,
@@ -563,6 +591,66 @@ def _split_score_and_label(text: str) -> Tuple[Optional[str], str]:
     return None, cleaned.strip()
 
 
+def _build_name_aliases(full_name: str) -> Set[str]:
+    """Generate alias set for robust matching, including initials and splits."""
+    if not full_name.strip():
+        return set()
+    full_name = unicodedata.normalize('NFC', full_name)
+    normalized = normalize_key(full_name, preserve_diacritics=True, preserve_nordic=True)
+    tokens = normalized.split()
+    aliases: Set[str] = {normalized}  # Full normalized
+
+    # Local version of name_keys_for_lookup_all_splits to preserve diacritics
+    if len(tokens) > 1:
+        for i in range(1, len(tokens)):
+            prefix = " ".join(tokens[:i])
+            suffix = " ".join(tokens[i:])
+            fn_ln = f"{prefix} {suffix}"
+            ln_fn = f"{suffix} {prefix}"
+            aliases.add(fn_ln)
+            if fn_ln != ln_fn:
+                aliases.add(ln_fn)
+
+    if len(tokens) <= 1:
+        return aliases
+
+    # For each possible surname prefix length (assume first 1+ tokens as surname group)
+    for surname_start in range(1, len(tokens) + 1):
+        surname_tokens = tokens[:surname_start]
+        firstname_tokens = tokens[surname_start:]
+        if not firstname_tokens:
+            continue
+
+        # Surname group as-is
+        surname = " ".join(surname_tokens)
+        aliases.add(surname)
+
+        # Initials for firstnames
+        initials = " ".join(t[0] for t in firstname_tokens if t)
+        if initials:
+            aliases.add(f"{surname} {initials}")
+            # Concat initials if single-letter
+            if all(len(t) == 1 for t in firstname_tokens):
+                concat_initials = "".join(firstname_tokens)
+                aliases.add(f"{surname} {concat_initials}")
+
+        # Reversed order (firstname initials + surname)
+        if len(firstname_tokens) > 1:
+            fn_initials = " ".join(t[0] for t in firstname_tokens[:-1]) + f" {firstname_tokens[-1]}"
+            aliases.add(f"{fn_initials} {surname}")
+
+    # Handle hyphenated: treat as single token but also split
+    hyphen_tokens = re.split(r"[\s-]", normalized)
+    if len(hyphen_tokens) > len(tokens):
+        for i in range(1, len(hyphen_tokens)):
+            prefix = " ".join(hyphen_tokens[:i])
+            suffix = " ".join(hyphen_tokens[i:])
+            aliases.add(f"{prefix} {suffix}")
+            aliases.add(f"{suffix} {prefix}")
+
+    return aliases
+
+
 def _extract_players(words: Sequence[dict]) -> List[Player]:
     players: List[Player] = []
     for word in words:
@@ -580,18 +668,18 @@ def _extract_players(words: Sequence[dict]) -> List[Player]:
             player_id_ext, raw_name, player_suffix_id, raw_club = match.groups()
             if player_id_ext:
                 player_id_ext = player_id_ext.strip()
-            full_name = raw_name.strip()
-            club = raw_club.strip()
-            players.append(
-                Player(
-                    full_name=full_name,
-                    club=club,
-                    short=_make_short(full_name),
-                    center=_to_center(word),
-                    player_id_ext=player_id_ext,
-                    player_suffix_id=None,
-                )
+            full_name = unicodedata.normalize('NFC', raw_name.strip())
+            club = unicodedata.normalize('NFC', raw_club.strip())
+            player = Player(
+                full_name=full_name,
+                club=club,
+                short=_make_short(full_name),
+                center=_to_center(word),
+                player_id_ext=player_id_ext,
+                player_suffix_id=None,
             )
+            player.aliases = _build_name_aliases(full_name)
+            players.append(player)
     players.sort(key=lambda p: p.center)
     return players
 
@@ -656,9 +744,10 @@ def _extract_winner_entries(words: Sequence[dict], x_range: Tuple[float, float])
             continue
         if " " not in label:
             continue
+        label = unicodedata.normalize('NFC', label.strip())
         winners.append(
             WinnerEntry(
-                short=label.strip(),
+                short=label,
                 center=_to_center(word),
                 x=x0,
                 player_id_ext=player_id_ext,
@@ -674,22 +763,45 @@ def _match_short_to_full(
     players: Sequence[Player],
     player_id_ext: Optional[str] = None,
 ) -> Player:
-    normalized = short.strip()
+    short = unicodedata.normalize('NFC', short)
+    normalized = normalize_key(short, preserve_diacritics=True, preserve_nordic=True)
+    if not normalized.strip():
+        raise ValueError(f"Empty label {short!r}")
+
+    # Existing fast paths
     if player_id_ext:
         id_candidates = [p for p in players if p.player_id_ext == player_id_ext]
         if id_candidates:
             return min(id_candidates, key=lambda p: abs(p.center - center))
-    candidates = [p for p in players if p.short == normalized]
+
+    candidates = [p for p in players if p.short == short]
     if candidates:
         return min(candidates, key=lambda p: abs(p.center - center))
-    alt_short = _make_short(normalized)
-    if alt_short != normalized:
+
+    alt_short = _make_short(short)
+    if alt_short != short:
         candidates = [p for p in players if p.short == alt_short]
         if candidates:
             return min(candidates, key=lambda p: abs(p.center - center))
-    prefix_matches = [p for p in players if p.full_name.startswith(normalized)]
+
+    prefix_matches = [p for p in players if p.full_name.startswith(short)]
     if prefix_matches:
         return min(prefix_matches, key=lambda p: abs(p.center - center))
+
+    # New alias matching
+    alias_matches: List[Tuple[float, Player]] = []
+    for p in players:
+        if normalized in p.aliases:
+            delta = abs(p.center - center)
+            alias_matches.append((delta, p))
+
+    if alias_matches:
+        alias_matches.sort(key=lambda t: t[0])
+        best = alias_matches[0][1]
+        if DEBUG_OUTPUT and len(alias_matches) > 1:
+            _debug_print(f"Alias match ambiguity for {short!r}: resolved to {best.full_name} via proximity")
+        return best
+
     raise ValueError(f"No player matches label {short!r}")
 
 
@@ -919,14 +1031,22 @@ def _build_first_round(
             )
         except ValueError:
             try:
-                winner = _match_short_to_full(
+                candidate = _match_short_to_full(
                     winner_entry.short,
                     winner_entry.center,
                     players,
                     winner_entry.player_id_ext,
                 )
             except ValueError:
-                winner = participants[0] if participants else None
+                candidate = None
+            if candidate and candidate in participants:
+                winner = candidate
+            elif candidate and len(participants) == 1:
+                winner = candidate
+            else:
+                if winner_entry.short.strip():
+                    _debug_print(f"Failed to match winner label {winner_entry.short!r} at y={winner_entry.center}")
+                winner = None
 
         if winner is None and len(participants) == 1:
             winner = participants[0]
@@ -1024,15 +1144,18 @@ def _build_next_round(
                         players,
                         winner_entry.player_id_ext,
                     )
+                    if candidate in participants:
+                        winner = candidate
+                    elif len(participants) == 1:
+                        winner = candidate
+                    else:
+                        if DEBUG_OUTPUT:
+                            _debug_print(f"Matched {winner_entry.short!r} to non-participant {candidate.full_name if candidate else 'None'}")
+                        winner = None
                 except ValueError:
-                    candidate = None
-                if candidate and candidate in participants:
-                    winner = candidate
-                elif candidate and len(participants) == 1:
-                    winner = candidate
-                else:
                     winner = None
-        if winner is None and participants:
+
+        if winner is None and participants and (winner_entry is None or not winner_entry.short.strip()):
             winner = participants[0]
 
         match_scores = _pop_score_aligned(
@@ -1063,6 +1186,20 @@ def _fill_missing_winners(previous_round: Sequence[Match], next_round: Sequence[
                 if player in advancing_players:
                     match.winner = player
                     break
+
+
+def _ensure_winner_first(matches: Sequence[Match]) -> None:
+    for match in matches:
+        if match.winner is None or len(match.players) < 2:
+            continue
+        winner_key = _player_key(match.winner)
+        for idx, player in enumerate(match.players):
+            if _player_key(player) == winner_key:
+                if idx == 0:
+                    break
+                player_to_front = match.players.pop(idx)
+                match.players.insert(0, player_to_front)
+                break
 
 
 def _label_round(name: str, matches: Sequence[Match]) -> List[str]:
@@ -1352,9 +1489,9 @@ def _validate_bracket(
                     if inferred is not None:
                         best_of_values.add(inferred)
             if len(match.players) == 2 and match.winner is None:
+                logger_keys.update({"round_name": round_name, "players": f"{match.players[0].full_name} vs {match.players[1].full_name}"})
                 logger.warning(
-                    logger_keys.copy(),
-                    f"{round_name}: missing winner for {match.players[0].full_name} vs {match.players[1].full_name}",
+                    logger_keys.copy(), "Missing winner for match",
                 )
         if len(best_of_values) > 1:
             logger_keys.update({"inconsistent_best_of_in_round": f"{round_name}: {sorted(best_of_values)}"})
@@ -1440,11 +1577,11 @@ def _extract_player_like_in_band(words: Sequence[dict], y_min: float, y_max: flo
         if not m:
             continue
         player_id_ext, raw_name, player_suffix_id, raw_club = m.groups()
-        full_name = raw_name.strip()
+        full_name = unicodedata.normalize('NFC', raw_name.strip())
         out.append(
             Player(
                 full_name=full_name,
-                club=raw_club.strip(),
+                club=unicodedata.normalize('NFC', raw_club.strip()),
                 short=_make_short(full_name),
                 center=y,
                 player_id_ext=player_id_ext.strip() if player_id_ext else None,

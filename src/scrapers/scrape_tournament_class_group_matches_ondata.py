@@ -3,7 +3,7 @@
 from __future__ import annotations
 from datetime import date
 import logging
-from typing import List
+from typing import List, Optional
 import io, re
 import unicodedata
 import pdfplumber
@@ -23,9 +23,12 @@ from models.tournament import Tournament
 from models.tournament_class import TournamentClass
 from models.tournament_class_match_raw import TournamentClassMatchRaw
 
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30834']
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['557']
 
 debug = False
+
+# Stage ids used when scraping pools (group stage + stage 2 pools)
+GROUP_STAGE_IDS = (1, 11)
 
 def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
     """
@@ -51,7 +54,7 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
         data_source_id          = 1 if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else None,
         cutoff_date             = cutoff_date,
         require_ended           = False,
-        allowed_structure_ids   = [1, 2],           # Groups+KO or Groups-only
+        allowed_structure_ids   = [1, 2, 4],           # Groups+KO or Groups-only or Groups+Second group stage
         allowed_type_ids        = [1],              # singles for now
         max_classes             = SCRAPE_PARTICIPANTS_MAX_CLASSES,
         order                   = SCRAPE_PARTICIPANTS_ORDER,
@@ -61,7 +64,7 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
     tid_to_ext      = Tournament.get_id_ext_map_by_id(cursor, tournament_ids)
 
     # run_keys        = {"source": "ondata", "stage": 3, "classes": len(classes)}
-    logger.info(f"Scraping tournament class group matches for {len(classes)} classes from Ondata")
+    logger.info(f"Scraping tournament class group matches for {len(classes)} classes from Ondata (cutoff: {cutoff_date or 'none'})")
 
     total_matches       = 0
     total_inserted      = 0
@@ -82,13 +85,16 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
             "stage":                    3,
         }
 
-        # Remove previous raw rows for this class/source
-        removed = TournamentClassMatchRaw.remove_for_class(
-            cursor,
-            tournament_class_id_ext     = cid_ext,
-            data_source_id              = 1,
-            tournament_class_stage_id   = 1,   # GROUP
-        )
+        # Remove previous raw rows for this class/source across supported group stages.
+        # Stage 1 = main pools, Stage 2 = "Slutspel" pools – they share the same PDF.
+        removed = 0
+        for stage_id in GROUP_STAGE_IDS:
+            removed += TournamentClassMatchRaw.remove_for_class(
+                cursor,
+                tournament_class_id_ext     = cid_ext,
+                data_source_id              = 1,
+                tournament_class_stage_id   = stage_id,
+            )
 
         if removed:
             # logger.info(logger_keys.copy(), f"Removed {removed} existing raw rows")
@@ -107,6 +113,9 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
                     force_refresh = True
             except Exception:
                 pass
+
+        # Currently disable force refresh
+        force_refresh = False
 
         pdf_path, downloaded, msg = _download_pdf_ondata_by_tournament_class_and_stage(
             tournament_id_ext=tid_ext or "",
@@ -162,6 +171,7 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
         # Insert raw rows (one per match)
         for g in groups:
             group_desc = g.get("name")
+            group_stage_id = g.get("stage_id") or 1
             for mm in g.get("matches", []):
                 total_matches += 1
 
@@ -210,6 +220,26 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
                     f"{tokens_csv}"
                 ).strip()
 
+                match_keys = logger_keys.copy()
+                match_keys.update({
+                    "group_id_ext":     group_desc or "None",
+                    "match_id_ext":     (mm.get("match_id_ext") or "None"),
+                })
+
+                # Skip Vakant-vs-Vakant rows entirely; they provide no information yet
+                # would otherwise clog the resolver with placeholder entries.
+                if _is_vakant_name(p1.get("name")) and _is_vakant_name(p2.get("name")):
+                    skipped += 1
+                    total_skipped += 1
+                    logger.info(match_keys, "Skipped placeholder-only match (Vakant vs Vakant)")
+                    continue
+
+                if not tokens_csv:
+                    skipped += 1
+                    total_skipped += 1
+                    logger.info(match_keys, "Skipped match with empty score tokens")
+                    continue
+
                 row = TournamentClassMatchRaw(
                     tournament_id_ext=tid_ext or "",
                     tournament_class_id_ext=cid_ext or "",
@@ -224,7 +254,7 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
                     game_point_tokens=tokens_csv or None,
                     best_of=best_of,
                     raw_line_text=raw_line_text,
-                    tournament_class_stage_id=1,           # GROUP
+                    tournament_class_stage_id=mm.get("stage_id") or group_stage_id,
                     data_source_id=1,
                 )
 
@@ -248,12 +278,6 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
                 if missing:
                     logger.warning(logger_keys.copy(), f"Missing/invalid fields: {', '.join(missing)}")
 
-                match_keys = logger_keys.copy()
-                match_keys.update({
-                    "group_id_ext":     group_desc          or "None",
-                    "match_id_ext":     row.match_id_ext    or "None",
-                })
-
                 is_valid, error_message = row.validate()
                 if is_valid:
                     row.compute_hash()
@@ -269,7 +293,7 @@ def scrape_tournament_class_group_matches_ondata(cursor, run_id=None):
                     logger.success(match_keys, "Raw match saved")
 
                     if debug:
-                        print(row)
+                        logger.info(logger_keys.copy(), row)
 
                     if hasattr(logger, "inc_processed"):
                         logger.inc_processed()
@@ -299,6 +323,14 @@ def _normalize_sign_tokens(tokens: List[str]) -> str:
         else:
             norm.append(t)
     return ", ".join(norm)
+
+_RE_VAKANT = re.compile(r"\bvakant\b", re.IGNORECASE)
+
+def _is_vakant_name(name: Optional[str]) -> bool:
+    """Return True if the provided name is a placeholder Vakant entry."""
+    if not name:
+        return False
+    return bool(_RE_VAKANT.search(name))
 
 # ───────────────────────── Name / stage-4 helpers ─────────────────────────
 
@@ -431,7 +463,26 @@ def _load_stage4_break_flags(
     return flagged_by_group
 
 
-_RE_POOL = re.compile(r"\bPool\s+\d+\b", re.IGNORECASE)
+POOL_KEYWORDS = ("pool", "pulje", "poule", "grupp", "gruppe", "group")
+FINAL_GROUP_KEYWORDS = (
+    "slutspel",
+    "slutspil",
+    "sluttspel",
+    "sluttspill",
+    "finalspel",
+    "finalspil",
+    "finalrunde",
+    "finalrunda",
+    "finalerunde",
+    "final group",
+)
+
+_RE_POOL = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(word) for word in POOL_KEYWORDS)
+    + r")\s+\d+\b",
+    re.IGNORECASE,
+)
 _RE_NAME_CLUB = re.compile(r"^(?P<name>.+?)(?:,\s*(?P<club>.+))?$")
 _RE_LEADING_CODE = re.compile(r"^\s*(?:\d{1,3})\s+(?=\S)")
 
@@ -561,11 +612,17 @@ def _parse_groups_pdf(pdf_bytes: bytes) -> list[dict]:
 
     for row in rows:
         text = row["text"]
+        stripped_text = text.strip()
 
-        # Pool header
-        m_pool = _RE_POOL.search(text)
+        # Pool header (Pool/Pulje/Grupp etc.)
+        m_pool = _RE_POOL.search(stripped_text)
         if m_pool:
-            current = {"name": m_pool.group(0), "matches": []}
+            current = {"name": m_pool.group(0), "matches": [], "stage_id": 1}
+            groups.append(current)
+            continue
+        final_heading = _match_heading(stripped_text, FINAL_GROUP_KEYWORDS)
+        if final_heading:
+            current = {"name": "Stage 2 Pool", "matches": [], "stage_id": 11}
             groups.append(current)
             continue
         if not current:
@@ -599,6 +656,7 @@ def _parse_groups_pdf(pdf_bytes: bytes) -> list[dict]:
                 "p1": _split_name_club(p1_str),
                 "p2": _split_name_club(p2_str),
                 "tokens": _tokenize_right(rest),
+                "stage_id": current.get("stage_id", 1),
             })
             continue
 
@@ -624,6 +682,7 @@ def _parse_groups_pdf(pdf_bytes: bytes) -> list[dict]:
                 "p1": _split_name_club(p1_str),
                 "p2": _split_name_club(p2_str),
                 "tokens": _tokenize_right(rest),
+                "stage_id": current.get("stage_id", 1),
             })
             continue
 
@@ -645,6 +704,7 @@ def _parse_groups_pdf(pdf_bytes: bytes) -> list[dict]:
                 "p1":           _split_name_club(p1_str),
                 "p2":           _split_name_club(p2_str),
                 "tokens":       _tokenize_right(rest),
+                "stage_id": current.get("stage_id", 1),
             })
             continue
 
@@ -736,3 +796,14 @@ def _dedupe_groups(groups: list[dict]) -> list[dict]:
         if new_matches:
             out.append({"name": gname, "matches": new_matches})
     return out
+
+
+def _match_heading(text: str, keywords: tuple[str, ...]) -> Optional[str]:
+    stripped = text.strip()
+    if not stripped:
+        return None
+    lowered = stripped.lower()
+    for kw in keywords:
+        if lowered.startswith(kw):
+            return stripped
+    return None

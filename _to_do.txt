@@ -1,11 +1,14 @@
 To do
 =======================================================
+- Fixa ett script som laddar ner alla PDF:er senaste månaden, sedan ta bort force download i scrapers/resolvers
 - Fixa RO64 PDF match parser...
-
+- Fixa run log så att runs appendar och inte tar bort gamla rader?
+- Ordna upp filer, så att alla loggar hamnar på samma ställe, clubs_data etc ligger i proper folder names... ta bort skit som inte används
 
 
 Improvements long term
 =======================================================
+- Run the Codex code review from Github
 - When scheduling, implement a logfunction that writes the task (eg scrape_tournaments_ondata) and the results (updated/inserted/failed) - in single file that can be read in the morning
 - How to "upgrade" player to verified? With a separate script?
   - Create a script for identifying non verified players that now have a license...?    

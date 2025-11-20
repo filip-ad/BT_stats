@@ -20,6 +20,9 @@ from urllib3.util.retry import Retry
 PDF_BASE = "https://resultat.ondata.se/ViewClassPDF.php"
 CACHE_DIR = Path(PDF_CACHE_DIR)
 
+# SCRAPE_CLASSES_TOURNAMENT_ID_EXTS = ['000660'] # Ungdoms Top 12, 2020 structure 4 but Danish
+
+
 def scrape_tournament_classes_ondata(cursor, run_id=None) -> None:
     """
     Scrape raw tournament classes from ondata for tournaments after cutoff or specific ext_ids,
@@ -41,7 +44,7 @@ def scrape_tournament_classes_ondata(cursor, run_id=None) -> None:
     classes_processed   = 0
     bytes_downloaded    = 0
     PDFs_downloaded     = 0
-
+    
     # Fetch tournaments by status and filter by cutoff date or ext_ids
     if SCRAPE_CLASSES_TOURNAMENT_ID_EXTS:  # treat empty list or None as False
         filtered_tournaments = Tournament.get_by_ext_ids(
@@ -103,7 +106,7 @@ def scrape_tournament_classes_ondata(cursor, run_id=None) -> None:
 
         try:
             # Scrape raw classes
-            raw_classes, raw_classes_processed = _scrape_raw_classes_for_tournament_ondata(t, logger_keys, logger, wait_between_requests=0.2)
+            raw_classes, raw_classes_processed = _scrape_raw_classes_for_tournament_ondata(t, logger_keys, logger, wait_between_requests=0.1)
             classes_processed += raw_classes_processed
             if not raw_classes:
                 logger.failed(logger_keys, "No classes found on tournament page")
@@ -225,7 +228,7 @@ def _scrape_raw_classes_for_tournament_ondata(
     tournament: Tournament,
     logger_keys: Dict[str, str],
     logger: OperationLogger,
-    wait_between_requests: float = 0.2
+    wait_between_requests: float = 0.1
 ) -> List[Dict[str, Any]]:
     """
     Scrape raw class data from tournament page.

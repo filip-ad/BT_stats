@@ -36,22 +36,7 @@ import time
 
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30232', '30017', '29926', '30804']
 
-
-# 1	Groups_and_KO
-# 2	Groups_only
-# 3	KO_only
-# 4	Groups_and_Groups
-# 9	Unknown
-
-# 10044 = structure 1 groups + ko
-# 1007 = structure 2 groups only
-# 9972 = structure 3 ko only
-# 7875 = structure 4 groups + groups
-
-# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['10044', '1007', '9972', '7875']
-
-# Shared placeholder detector for final-position tables (works for Swedish/English terms).
-FINAL_POSITION_PLACEHOLDER_RE = re.compile(r"\b(vakant|vacant|reserv|reserve)\b", re.I)
+SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1007']
 
 
 
@@ -108,9 +93,9 @@ def scrape_tournament_class_entries_ondata(cursor, include_positions: bool = Tru
         logger.inc_processed()
 
         logger_keys = {
-            'tournament_id':            str(tc.tournament_id or 'N/A'),
-            'tournament_id_ext':        'N/A',
-            'tournament_shortname':     'N/A',
+            'tournament_id': str(tc.tournament_id or 'N/A'),
+            'tournament_id_ext': 'N/A',
+            'tournament_shortname': 'N/A',
             'tournament_class_shortname': tc.shortname or 'N/A',
             'tournament_class_id': str(tc.tournament_class_id or 'N/A'),
             'tournament_class_id_ext': str(tc.tournament_class_id_ext or 'N/A'),
@@ -205,11 +190,7 @@ def scrape_tournament_class_entries_ondata(cursor, include_positions: bool = Tru
         # parse stage=2 (groups) for class types that include group play ----
         groups_found = 0
         group_seeds_found = 0
-        if (
-            initial_success
-            and tc.tournament_class_type_id in (1, 2)
-            and tc.tournament_class_structure_id != 3
-        ):
+        if initial_success and tc.tournament_class_type_id in (1, 2):
             stage2_pdf_path, downloaded2, msg2 = _download_pdf_ondata_by_tournament_class_and_stage(
                 tid_ext, tc.tournament_class_id_ext, stage=2, force_download=force_refresh
             )
@@ -252,39 +233,36 @@ def scrape_tournament_class_entries_ondata(cursor, include_positions: bool = Tru
                         logger.warning(logger_keys.copy(), f"Failed to scrape final positions: {message}")
                         final_success = False
                 if final_pdf_path and final_success:
-                    if tc.tournament_class_structure_id == 4:
-                        positions = _parse_final_positions_groups_and_groups(
-                            final_pdf_path,
-                            tc.tournament_class_id_ext,
-                            tid_ext,
-                            1,
-                        )
-                    else:
-                        positions = _parse_final_positions_pdf(
-                            final_pdf_path,
-                            tc.tournament_class_id_ext,
-                            tid_ext,
-                            1,
-                        )
-
+                    positions = _parse_final_positions_pdf(final_pdf_path, tc.tournament_class_id_ext, tid_ext, 1)
                     if positions:
-                        updated_count, unmatched = _apply_final_positions_updates(
+                        final_positions_found = len(positions)
+
+                        # Batch update final positions
+                        updated_count, error_message = TournamentClassEntryRaw.batch_update_final_positions(
                             cursor,
                             tournament_class_id_ext=tc.tournament_class_id_ext,
                             data_source_id=1,
-                            positions=positions,
+                            positions=positions
                         )
-                        final_positions_found = updated_count
-                        if unmatched > 0:
-                            logger.warning(
-                                logger_keys.copy(),
-                                f"Final positions parsed but {unmatched} row(s) could not be matched to entries",
-                            )
+                        if error_message:
+                            logger.warning(logger_keys.copy(), error_message)
                     else:
                         logger.warning(logger_keys.copy(), "No positions parsed from final PDF")
                         final_success = False
                 elif not final_success:
                     pass  # No additional failure increment here
+
+            # # Update print statement with final positions if applicable
+            # if initial_success:
+            #     if final_success and final_positions_found > 0:
+            #         logger.success(logger_keys.copy(), f"All expected participants inserted, including seeds and final positions")
+            #     elif initial_success:
+            #         logger.success(logger_keys.copy(), f"All expected participants inserted (could not resolve seeds and/or final positions)")
+            #     logger.info(logger_keys.copy(), f"[{i}/{len(classes)}] Parsed class {tc.shortname or 'N/A'}, {tournament_shortname}, {tc.startdate or 'N/A'} "
+            #           f"(tcid: {tc.tournament_class_id}, tcid_ext: {tc.tournament_class_id_ext}, tid: {tc.tournament_id}, tid_ext: {tid_ext}). "
+            #           f"Expected {effective_expected_count if effective_expected_count is not None else '—'}, "
+            #           f"found {found}, seeded: {seeded_count}, deleted: {deleted_count} old participants, "
+            #           f"final positions found: {final_positions_found}", emoji=icon, to_console=True, show_key=False)
                 
             if initial_success:
                 if final_success and final_positions_found > 0:
@@ -554,6 +532,7 @@ def _parse_final_positions_pdf(pdf_path: Path, tournament_class_id_ext: str, tou
 
     # Regex for position patterns (e.g., "1. Name, Club" or "1 Name, Club")
     POSITION_RE = re.compile(r'^\s*(?P<pos>\d+)\.?\s+(?P<name>[^,]+?)\s*,\s*(?P<club>\S.*\S)\s*$', re.M)
+    PLACEHOLDER_NAME_RE = re.compile(r"\b(vakant|vacant|reserv|reserve)\b", re.I)
 
     try:
         with pdfplumber.open(pdf_path) as pdf:
@@ -572,10 +551,8 @@ def _parse_final_positions_pdf(pdf_path: Path, tournament_class_id_ext: str, tou
                     club_name = m.group('club').strip()
                     position_raw = m.group('pos').strip()
 
-                    raw_name = _clean_final_name(raw_name)
-
                     # Skip placeholders
-                    if FINAL_POSITION_PLACEHOLDER_RE.search(raw_name):
+                    if PLACEHOLDER_NAME_RE.search(raw_name):
                         continue
                     if len(raw_name) < 3 or not any(unicodedata.category(ch).startswith("L") for ch in club_name):
                         continue
@@ -601,184 +578,7 @@ def _parse_final_positions_pdf(pdf_path: Path, tournament_class_id_ext: str, tou
 
     return positions
 
-
-def _parse_final_positions_groups_and_groups(
-    pdf_path: Path,
-    tournament_class_id_ext: str,
-    tournament_id_ext: str,
-    data_source_id: int,
-) -> List[Dict[str, Any]]:
-    """
-    Specialised parser for structure=4 finals. These PDFs contain a
-    "Slutspel" table listing the final ranking for the combined pool.
-    """
-    positions: List[Dict[str, Any]] = []
-    unique_entries: Set[Tuple[str, str]] = set()
-    position_re = re.compile(
-        r'^\s*(?P<pos>\d+)\.?\s+(?P<name>[^,]+?)\s*,\s*(?P<club>\S.*\S)\s*$'
-    )
-
-    try:
-        with pdfplumber.open(pdf_path) as pdf:
-            in_slutspel = False
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                for line in text.splitlines():
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    lower = stripped.lower()
-
-                    if lower.startswith("slutspel"):
-                        in_slutspel = True
-                        continue
-                    if lower.startswith("pool "):
-                        # A new pool header after Slutspel means we are done with finals.
-                        if in_slutspel:
-                            in_slutspel = False
-                        continue
-                    if not in_slutspel:
-                        continue
-
-                    match = position_re.match(stripped)
-                    if not match:
-                        continue
-
-                    raw_name = match.group("name").strip()
-                    club_name = match.group("club").strip()
-                    position_raw = match.group("pos").strip()
-
-                    raw_name = _clean_final_name(raw_name)
-
-                    if FINAL_POSITION_PLACEHOLDER_RE.search(raw_name):
-                        continue
-                    if len(raw_name) < 3 or len(club_name) < 2:
-                        continue
-
-                    key = (raw_name.lower(), club_name.lower())
-                    if key in unique_entries:
-                        continue
-                    unique_entries.add(key)
-
-                    positions.append(
-                        {
-                            "tournament_id_ext": tournament_id_ext,
-                            "tournament_class_id_ext": tournament_class_id_ext,
-                            "tournament_player_id_ext": None,
-                            "data_source_id": data_source_id,
-                            "fullname_raw": raw_name,
-                            "clubname_raw": club_name,
-                            "final_position_raw": position_raw,
-                        }
-                    )
-    except Exception as exc:
-        logging.error(
-            {
-                "pdf_path": str(pdf_path),
-                "error": str(exc),
-                "context": "parse_final_positions_groups_and_groups",
-            },
-            "Exception during Slutspel parsing",
-        )
-        return []
-
-    return positions
-
-
-def _apply_final_positions_updates(
-    cursor,
-    *,
-    tournament_class_id_ext: str,
-    data_source_id: int,
-    positions: List[Dict[str, Any]],
-) -> Tuple[int, int]:
-    """
-    Match parsed final-position rows back to stage-1 entries using TPID or
-    normalised name+club, then update final_position_raw.
-
-    Returns (updates_applied, unmatched_rows).
-    """
-    if not positions:
-        return 0, 0
-
-    cursor.execute(
-        """
-        SELECT row_id, tournament_player_id_ext, fullname_raw, clubname_raw
-        FROM tournament_class_entry_raw
-        WHERE tournament_class_id_ext = ? AND data_source_id = ?
-        """,
-        (tournament_class_id_ext, data_source_id),
-    )
-    rows = cursor.fetchall()
-
-    by_tpid: Dict[str, int] = {}
-    by_nameclub: Dict[Tuple[str, str], int] = {}
-    by_name_only: Dict[str, Optional[int]] = {}
-    for row_id, tpid, fn, cl in rows:
-        if tpid is not None:
-            raw = str(tpid).strip()
-            if raw:
-                by_tpid[raw] = row_id
-                by_tpid[raw.lstrip("0") or "0"] = row_id
-        key = (normalize_key(fn or ""), normalize_key(cl or ""))
-        by_nameclub[key] = row_id
-        name_key = normalize_key(fn or "")
-        if name_key:
-            if name_key in by_name_only:
-                by_name_only[name_key] = None
-            else:
-                by_name_only[name_key] = row_id
-
-    updates: List[Tuple[str, int]] = []
-    unmatched = 0
-    for pos in positions:
-        row_id = None
-        tpid = pos.get("tournament_player_id_ext")
-        if tpid:
-            raw = str(tpid).strip()
-            if raw:
-                row_id = by_tpid.get(raw) or by_tpid.get(raw.lstrip("0") or "0")
-        if row_id is None:
-            key = (
-                normalize_key(pos.get("fullname_raw") or ""),
-                normalize_key(pos.get("clubname_raw") or ""),
-            )
-            row_id = by_nameclub.get(key)
-        if row_id is None:
-            name_key = normalize_key(pos.get("fullname_raw") or "")
-            if name_key:
-                name_candidate = by_name_only.get(name_key)
-                if name_candidate:
-                    row_id = name_candidate
-
-        if row_id is None:
-            unmatched += 1
-            continue
-
-        updates.append((pos.get("final_position_raw"), row_id))
-
-    if updates:
-        cursor.executemany(
-            """
-            UPDATE tournament_class_entry_raw
-            SET final_position_raw = ?
-            WHERE row_id = ?
-            """,
-            updates,
-        )
-
-    return len(updates), unmatched
-
-
-def _clean_final_name(name: str) -> str:
-    """
-    Remove leading ranking/TPID tokens from final-position names.
-    Example: "086 Carlsson Anna" -> "Carlsson Anna".
-    """
-    cleaned = re.sub(r"^\d+\s+", "", name or "")
-    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
-    return cleaned
-
+# # GROK
 def _parse_groups_stage_pdf_using_stage1(
     pdf_path: Path,
     stage1_entries: List[Dict[str, Any]],

@@ -50,11 +50,13 @@ from models.tournament_class_match_raw import TournamentClassMatchRaw
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30021']           # RO16 test
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29866']           # Qualification + RO16 test -- 16 matches 
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29625']           # RO32 test -- 19 matches
-# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006']            # RO64 test without player ID:s
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['1006']            # RO64 test without player ID:s -- 47 matches
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['6955']          # RO128 test
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['25395']           # RO16 but missing ko_tree_size
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ["125"] # RO16 without player ID:s
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ["492"]
+
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30284']
 
 # Map url -> md5 hash so repeated runs can detect PDF changes.
 LAST_PDF_HASHES: Dict[str, str] = {}
@@ -194,6 +196,9 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
             except Exception:
                 pass
 
+        # Currently disable force refresh
+        force_refresh = False
+
         pdf_path, downloaded, msg = _download_pdf_ondata_by_tournament_class_and_stage(
             tournament_id_ext=tid_ext or "",
             class_id_ext=cid_ext or "",
@@ -240,13 +245,20 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
                 while tree_size - 1 < total_winners and tree_size <= 512:
                     tree_size *= 2
 
-            # Group winners by x-bands
-            winners_by_round: List[List[WinnerEntry]] = []
-            for band in winner_bands_page:
-                chunk = [w for w in all_winners_page if band[0] <= w.x <= band[1]]
-                chunk.sort(key=lambda w: w.center)
-                if chunk:
-                    winners_by_round.append(chunk)
+            # Group winners by x-bands (merge/split when large brackets collapse columns)
+            if tree_size >= 64:
+                winners_by_round = _allocate_winners_by_round(
+                    all_winners_page,
+                    winner_bands_page,
+                    tree_size,
+                )
+            else:
+                winners_by_round: List[List[WinnerEntry]] = []
+                for band in winner_bands_page:
+                    chunk = [w for w in all_winners_page if band[0] <= w.x <= band[1]]
+                    chunk.sort(key=lambda w: w.center)
+                    if chunk:
+                        winners_by_round.append(chunk)
 
             all_rounds: List[List[Match]] = []
             previous_round: Optional[List[Match]] = None
@@ -254,12 +266,18 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
             score_entries_pool = list(all_scores_page)
 
             round_winner_entries: List[List[WinnerEntry]] = []
+            carry_winners: List[WinnerEntry] = []
             for ridx, winner_chunk in enumerate(winners_by_round):
-                if not winner_chunk:
+                combined_winners = []
+                if carry_winners:
+                    combined_winners.extend(carry_winners)
+                    carry_winners = []
+                combined_winners.extend(winner_chunk)
+                if not combined_winners:
                     continue
-                round_winner_entries.append(list(winner_chunk))
-                win_min = min(w.x for w in winner_chunk)
-                win_max = max(w.x for w in winner_chunk)
+                round_winner_entries.append(list(combined_winners))
+                win_min = min(w.x for w in combined_winners)
+                win_max = max(w.x for w in combined_winners)
                 winner_band = (win_min, win_max)
                 score_band = _find_closest_score_band(available_score_bands, winner_band)
                 band_was_available = False
@@ -280,7 +298,7 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
                 if previous_round is None:
                     current_round, leftover_scores = _build_first_round(
                         players,
-                        winner_chunk,
+                        combined_winners,
                         scores_for_round,
                         score_window,
                         tree_size=tree_size
@@ -288,9 +306,9 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
                     remaining_ids = {id(entry) for entry in leftover_scores}
                     consumed = [entry for entry in original_scores if id(entry) not in remaining_ids]
                 else:
-                    current_round, _, leftover_scores = _build_next_round(
+                    current_round, remaining_winners, leftover_scores = _build_next_round(
                         previous_round,
-                        winner_chunk,
+                        combined_winners,
                         scores_for_round,
                         players,
                         score_window,
@@ -298,6 +316,8 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
                         score_tolerance=28.0 + 4.0 * tolerance_step,
                     )
                     _fill_missing_winners(previous_round, current_round)
+                    if remaining_winners:
+                        carry_winners.extend(remaining_winners)
                     remaining_ids = {id(entry) for entry in leftover_scores}
                     consumed = [entry for entry in original_scores if id(entry) not in remaining_ids]
                 if current_round:
@@ -437,6 +457,11 @@ def scrape_tournament_class_knockout_matches_ondata(cursor, run_id=None):
                         if entry.scores == match.scores:
                             score_entries_pool.pop(idx)
                             break
+
+            for matches in all_rounds:
+                _ensure_winner_first(matches)
+            if qualification:
+                _ensure_winner_first(qualification)
 
             _validate_bracket(
                 pdf_hash_key,
@@ -1178,6 +1203,20 @@ def _fill_missing_winners(previous_round: Sequence[Match], next_round: Sequence[
                     break
 
 
+def _ensure_winner_first(matches: Sequence[Match]) -> None:
+    for match in matches:
+        if match.winner is None or len(match.players) < 2:
+            continue
+        winner_key = _player_key(match.winner)
+        for idx, player in enumerate(match.players):
+            if _player_key(player) == winner_key:
+                if idx == 0:
+                    break
+                player_to_front = match.players.pop(idx)
+                match.players.insert(0, player_to_front)
+                break
+
+
 def _label_round(name: str, matches: Sequence[Match]) -> List[str]:
     lines: List[str] = [f"{name}:"]
     for match in matches:
@@ -1224,6 +1263,40 @@ def _cluster_columns(xs: List[float], max_gap: float = 25.0) -> List[Tuple[float
         prev = x
     bands.append((start, prev))
     return bands
+
+
+def _expected_winner_counts(tree_size: int) -> List[int]:
+    counts: List[int] = []
+    size = max(tree_size, 0)
+    while size >= 2:
+        size //= 2
+        counts.append(size)
+    return counts
+
+
+def _allocate_winners_by_round(
+    all_winners_page: Sequence[WinnerEntry],
+    winner_bands_page: Sequence[Tuple[float, float]],
+    tree_size: int,
+) -> List[List[WinnerEntry]]:
+    """Merge/split winner columns to match expected round sizes for large brackets."""
+    band_entries: List[List[WinnerEntry]] = []
+    for band in winner_bands_page:
+        chunk = [w for w in all_winners_page if band[0] <= w.x <= band[1]]
+        chunk.sort(key=lambda w: w.center)
+        if chunk:
+            band_entries.append(chunk)
+
+    winners_by_round: List[List[WinnerEntry]] = []
+    band_idx = 0
+    for expected in _expected_winner_counts(tree_size):
+        current: List[WinnerEntry] = []
+        while len(current) < expected and band_idx < len(band_entries):
+            entries = band_entries[band_idx]
+            current.extend(entries)
+            band_idx += 1
+        winners_by_round.append(current)
+    return winners_by_round
 
 
 def _deduplicate_winner_entries(entries: Sequence[WinnerEntry], center_tolerance: float = 6.0) -> List[WinnerEntry]:

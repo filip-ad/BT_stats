@@ -13,26 +13,9 @@ from config import RESOLVE_CLASSES_CUTOFF_DATE, RESOLVE_CLASS_ID_EXTS
 
 
 # RESOLVE_CLASS_ID_EXTS = ['30834']
-# RESOLVE_CLASS_ID_EXTS = ['30830']
-
-# RESOLVE_CLASS_ID_EXTS = ['15438']
 
 
 debug = False
-
-POOL_HEADING_KEYWORDS = ("pool", "pulje", "poule", "grupp", "gruppe", "group")
-FINAL_GROUP_HEADING_KEYWORDS = (
-    "slutspel",
-    "slutspil",
-    "sluttspel",
-    "sluttspill",
-    "finalspel",
-    "finalspil",
-    "finalrunde",
-    "finalrunda",
-    "finalerunde",
-    "final group",
-)
 
 def resolve_tournament_classes(cursor, run_id=None) -> List[TournamentClass]:
     """
@@ -92,6 +75,20 @@ def resolve_tournament_classes(cursor, run_id=None) -> List[TournamentClass]:
         )
     elif not RESOLVE_CLASS_ID_EXTS:
         logger.info("No RESOLVE_CLASSES_CUTOFF_DATE set -> resolving ALL classes")
+
+    # if RESOLVE_CLASSES_CUTOFF_DATE:
+    #     cutoff = parse_date(RESOLVE_CLASSES_CUTOFF_DATE)
+    #     before_filter = len(raw_objects)
+    #     raw_objects = [
+    #         r for r in raw_objects
+    #         if r.startdate and r.startdate >= cutoff
+    #     ]
+    #     logger.info(
+    #         f"Cutoff {cutoff}: {len(raw_objects)} remain "
+    #         f"(filtered out {before_filter - len(raw_objects)})"
+    #     )
+    # else:
+    #     logger.info("No RESOLVE_CLASSES_CUTOFF_DATE set -> resolving ALL classes")
 
     raw_count = len(raw_objects)
     logger.info(f"Resolving {raw_count} raw tournament classes...")
@@ -270,22 +267,6 @@ def _detect_type_id(shortname: str, longname: str) -> int:
     # Default Singles (1)
     return 1
 
-
-def _line_startswith_keyword(raw_line: str, keywords: tuple[str, ...]) -> bool:
-    if not raw_line:
-        return False
-    stripped = raw_line.strip().lower()
-    for kw in keywords:
-        kw_lower = kw.lower()
-        if stripped.startswith(kw_lower):
-            next_char_index = len(kw_lower)
-            if next_char_index >= len(stripped):
-                return True
-            next_char = stripped[next_char_index]
-            if not next_char.isalpha():
-                return True
-    return False
-
 def _infer_structure_id(raw_stages: Optional[str]) -> int:
     """
     Derive structure from the comma-separated stages string.
@@ -375,9 +356,11 @@ def _refine_group_structure(
                 raw_line = line.strip()
                 if not raw_line:
                     continue
+                norm = raw_line.lower()
+
                 # Detect a dedicated 'Slutspel' section heading at the start
                 # of a line (not in the class title like 'D-slutspel').
-                if _line_startswith_keyword(raw_line, FINAL_GROUP_HEADING_KEYWORDS):
+                if norm.startswith("slutspel"):
                     in_slutspel = True
                     got_heading = True
                     continue
@@ -405,55 +388,5 @@ def _refine_group_structure(
 
         if got_heading and carried_with_star > 0 and new_without_star > 0:
             return 4  # STRUCT_GROUPS_AND_GROUPS
-
-        if stage == 4:
-            pool_players: set[str] = set()
-            slutspel_players: set[str] = set()
-            current_group: Optional[str] = None
-
-            for text in texts:
-                if not text:
-                    continue
-                for line in text.splitlines():
-                    raw_line = line.strip()
-                    if not raw_line:
-                        continue
-                    if _line_startswith_keyword(raw_line, POOL_HEADING_KEYWORDS):
-                        current_group = "pool"
-                        continue
-                    if _line_startswith_keyword(raw_line, FINAL_GROUP_HEADING_KEYWORDS):
-                        current_group = "slutspel"
-                        continue
-
-                    if current_group not in {"pool", "slutspel"}:
-                        continue
-
-                    m = re.match(r"^\d+\s+(.*)$", raw_line)
-                    if not m:
-                        continue
-                    rest = m.group(1)
-                    # Cut off trailing numeric stats; keep only the name/club segment.
-                    m_name = re.match(r"^(.*?)(?:\s+\d.*)?$", rest)
-                    name_part = (m_name.group(1) if m_name else rest).strip()
-                    if not name_part:
-                        continue
-
-                    if current_group == "pool":
-                        pool_players.add(name_part)
-                    else:
-                        slutspel_players.add(name_part)
-
-            if slutspel_players:
-                overlap = len(pool_players & slutspel_players)
-                if debug:
-                    logger.info(
-                        logger_keys.copy(),
-                        f"Refine structure stage=4 overlap: pools={len(pool_players)}, slutspel={len(slutspel_players)}, overlap={overlap}",
-                    )
-                # If most final-group players also appeared in an earlier pool,
-                # this strongly suggests a groups→groups structure.
-                threshold = max(4, int(0.7 * len(slutspel_players)))
-                if overlap >= threshold:
-                    return 4  # STRUCT_GROUPS_AND_GROUPS
 
     return 2

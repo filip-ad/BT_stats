@@ -93,17 +93,6 @@ class TournamentClassRaw:
                 "content_hash"
             }
         )
-    
-    # @classmethod
-    # def get_all(cls, cursor: sqlite3.Cursor) -> List["TournamentClassRaw"]:
-    #     """Fetch all valid raw tournament class entries."""
-    #     cursor.execute("SELECT * FROM tournament_class_raw")
-    #     columns = [
-    #         'row_id', 'tournament_id_ext', 'tournament_class_id_ext', 'startdate',
-    #         'shortname', 'longname', 'gender', 'max_rank', 'max_age', 'url',
-    #         'raw_stages', 'raw_stage_hrefs', 'data_source_id'
-    #     ]
-    #     return [cls.from_dict(dict(zip(columns, row))) for row in cursor.fetchall()]
 
     @classmethod
     def get_all(cls, cursor: sqlite3.Cursor) -> List["TournamentClassRaw"]:
@@ -209,85 +198,3 @@ class TournamentClassRaw:
         except sqlite3.Error as e:
             # This error will be caught and logged by the scraper, so we return None
             return None
-
-    # def upsert(self, cursor: sqlite3.Cursor) -> str:
-    #     """
-    #     Upsert the raw tournament class data based on (tournament_id_ext, tournament_class_id_ext, data_source_id).
-    #     Returns "inserted" or "updated" to indicate the action performed.
-    #     """
-    #     action = None
-    #     row_id = None
-
-    #     # Check if a row exists with the unique constraint
-    #     cursor.execute(
-    #         """
-    #         SELECT row_id FROM tournament_class_raw
-    #         WHERE tournament_id_ext = ? AND tournament_class_id_ext = ? AND data_source_id = ?;
-    #         """,
-    #         (self.tournament_id_ext, self.tournament_class_id_ext, self.data_source_id),
-    #     )
-    #     row = cursor.fetchone()
-
-    #     if row:
-    #         row_id = row[0]
-    #         # Update existing row
-    #         cursor.execute(
-    #             """
-    #             UPDATE tournament_class_raw
-    #             SET startdate = ?,
-    #                 shortname = ?,
-    #                 longname = ?,
-    #                 gender = ?,
-    #                 max_rank = ?,
-    #                 max_age = ?,
-    #                 url = ?,
-    #                 raw_stages = ?,
-    #                 raw_stage_hrefs = ?,
-    #                 row_updated = CURRENT_TIMESTAMP
-    #             WHERE row_id = ?
-    #             RETURNING row_id;
-    #             """,
-    #             (
-    #                 self.startdate,
-    #                 self.shortname,
-    #                 self.longname,
-    #                 self.gender,
-    #                 self.max_rank,
-    #                 self.max_age,
-    #                 self.url,
-    #                 self.raw_stages,
-    #                 self.raw_stage_hrefs,
-    #                 row_id,
-    #             ),
-    #         )
-    #         self.row_id = cursor.fetchone()[0]
-    #         action = "updated"
-    #     else:
-    #         # Insert new row
-    #         cursor.execute(
-    #             """
-    #             INSERT INTO tournament_class_raw (
-    #                 tournament_class_id_ext, tournament_id_ext, startdate, shortname, longname,
-    #                 gender, max_rank, max_age, url, raw_stages, raw_stage_hrefs, data_source_id
-    #             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    #             RETURNING row_id;
-    #             """,
-    #             (
-    #                 self.tournament_class_id_ext,
-    #                 self.tournament_id_ext,
-    #                 self.startdate,
-    #                 self.shortname,
-    #                 self.longname,
-    #                 self.gender,
-    #                 self.max_rank,
-    #                 self.max_age,
-    #                 self.url,
-    #                 self.raw_stages,
-    #                 self.raw_stage_hrefs,
-    #                 self.data_source_id,
-    #             ),
-    #         )
-    #         self.row_id = cursor.fetchone()[0]
-    #         action = "inserted"
-
-    #     return action

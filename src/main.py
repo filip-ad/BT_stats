@@ -126,6 +126,7 @@ def main():
                 # 'fixture_match',
                 # 'match_side',
                 # 'tournament_class_match'
+                # 'fixture'
 
                 # # Debugging tables (no FKs assumed)
                 # 'club_missing',                       # FK club
@@ -156,25 +157,24 @@ def main():
         ### NEW WORKFLOW
         ################################################################################################
         
+        # # # Update club data
+        # upd_clubs(dry_run=False)
 
-        # # Update club data
-        upd_clubs(dry_run=False)
-
-        # Update player data
-        upd_player_data(
-            run_id                            = pipeline_run_id,
-            do_scrape_player_licenses         = True, 
-            do_scrape_player_rankings         = True,
-            do_scrape_player_transitions      = True
-        )
+        # # Update player data
+        # upd_player_data(
+        #     run_id                            = pipeline_run_id,
+        #     do_scrape_player_licenses         = True, 
+        #     do_scrape_player_rankings         = True,
+        #     do_scrape_player_transitions      = True
+        # )
 
         # Update tournament data
         upd_tournament_data(
             run_id                                                  = pipeline_run_id,
-            do_scrape_tournaments                                   = True,
-            do_scrape_tournament_classes                            = True,
-            do_scrape_tournament_class_entries                      = True,
-            do_scrape_tournament_class_group_matches_ondata         = True,
+            do_scrape_tournaments                                   = False,
+            do_scrape_tournament_classes                            = False,
+            do_scrape_tournament_class_entries                      = False,
+            do_scrape_tournament_class_group_matches_ondata         = False,
             do_scrape_tournament_class_knockout_matches_ondata      = True
         )
 

@@ -20,10 +20,18 @@ from config import (
     SCRAPE_PARTICIPANTS_TNMT_ID_EXTS,
     SCRAPE_PARTICIPANTS_ORDER,
     SCRAPE_PARTICIPANTS_CUTOFF_DATE,
-    RESOLVE_MATCHES_CUTOFF_DATE
+    RESOLVE_MATCHES_CUTOFF_DATE,
+    PLACEHOLDER_PLAYER_ID,
+    PLACEHOLDER_PLAYER_NAME,
+    PLACEHOLDER_CLUB_ID,
 )
 
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS =['30834']  # Edge case, with duplicate matches in 2-page PDF - https://resultat.ondata.se/ViewClassPDF.php?classID=30834&stage=3
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS =['30834']  # Edge case, with duplicate matches in 2-page PDF - https://resultat.ondata.se/ViewClassPDF.php?classID=30834&stage=3
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30284']
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['557']
+# RESOLVE_MATCHES_CUTOFF_DATE = '2000-01-01'
+
+debug = False
 
 def resolve_tournament_class_matches(cursor: sqlite3.Cursor, run_id=None) -> None:
     """Resolve raw matches into match-related tables."""
@@ -51,6 +59,7 @@ def resolve_tournament_class_matches(cursor: sqlite3.Cursor, run_id=None) -> Non
             class_id_exts           = SCRAPE_PARTICIPANTS_CLASS_ID_EXTS,
             data_source_id          = 1 if (SCRAPE_PARTICIPANTS_CLASS_ID_EXTS or SCRAPE_PARTICIPANTS_TNMT_ID_EXTS) else None,
             require_ended           = False,
+            allowed_structure_ids   = [1,2,3,4],
             allowed_type_ids        = [1],  # singles for initial
             order                   = "newest"
         )
@@ -67,6 +76,9 @@ def resolve_tournament_class_matches(cursor: sqlite3.Cursor, run_id=None) -> Non
         class_ext = row.tournament_class_id_ext
         if class_ext:
             groups.setdefault(class_ext, []).append(row)
+
+            if debug:
+                logger.info(f"Found raw match for class_ext={class_ext}: row_id={row.row_id}, s1='{row.s1_fullname_raw}', s2='{row.s2_fullname_raw}', tokens='{row.game_point_tokens}', match_id_ext='{row.match_id_ext}'")
 
     logger.info({}, f"Classes with raw match rows: {len(groups)}")
 
@@ -85,7 +97,7 @@ def resolve_tournament_class_matches(cursor: sqlite3.Cursor, run_id=None) -> Non
 
             tc = TournamentClass.get_by_ext_id(cursor, class_ext)
             if not tc:
-                logger.failed(logger_keys, "No matching tournament_class found")
+                logger.failed(logger_keys.copy(), "No matching tournament_class found")
                 continue
 
             tournament_class_id = tc.tournament_class_id
@@ -147,11 +159,13 @@ def resolve_tournament_class_matches(cursor: sqlite3.Cursor, run_id=None) -> Non
                 # Resolve sides (always pick best candidate within the class)
                 side1 = resolve_side(
                     raw.s1_player_id_ext, raw.s1_fullname_raw, raw.s1_clubname_raw,
-                    entry_index, cursor, logger, logger_keys, side=1, group_desc_hint=raw.group_id_ext
+                    entry_index, cursor, logger, logger_keys, side=1,
+                    tournament_class_id=tournament_class_id, group_desc_hint=raw.group_id_ext
                 )
                 side2 = resolve_side(
                     raw.s2_player_id_ext, raw.s2_fullname_raw, raw.s2_clubname_raw,
-                    entry_index, cursor, logger, logger_keys, side=2, group_desc_hint=raw.group_id_ext
+                    entry_index, cursor, logger, logger_keys, side=2,
+                    tournament_class_id=tournament_class_id, group_desc_hint=raw.group_id_ext
                 )
 
                 if not side1 or not side2:
@@ -163,7 +177,29 @@ def resolve_tournament_class_matches(cursor: sqlite3.Cursor, run_id=None) -> Non
                 entry_id2, players2, clubs2 = side2
 
                 # Parse scores
+
                 games, winner_side, walkover_side = parse_scores(raw.game_point_tokens, raw.best_of)
+                side1_placeholder = players1 and players1[0] == PLACEHOLDER_PLAYER_ID
+                side2_placeholder = players2 and players2[0] == PLACEHOLDER_PLAYER_ID
+
+                # Backfill missing winner info when WO tokens specify the forfeiting side.
+                if walkover_side in (1, 2) and winner_side is None:
+                    winner_side = 2 if walkover_side == 1 else 1
+
+                tokens_upper = (raw.game_point_tokens or "").strip().upper()
+                # Some PDFs only output "WO" with no :S1/:S2 marker. If exactly one side
+                # is the placeholder entry we infer the walkover direction automatically.
+                if (
+                    walkover_side is None
+                    and winner_side is None
+                    and tokens_upper == "WO"
+                    and (side1_placeholder ^ side2_placeholder)
+                ):
+                    walkover_side = 1 if side1_placeholder else 2
+                    winner_side = 2 if walkover_side == 1 else 1
+
+                if debug:
+                    logger.info(logger_keys.copy(),f"Parsed games for match_id_ext={raw.match_id_ext}: side1={raw.s1_fullname_raw}, side2={raw.s2_fullname_raw}, winner_side={winner_side}, walkover_side={walkover_side}, games={games}")
 
                 # Create match
                 match = Match(best_of=raw.best_of, date=match_date, winner_side=winner_side, walkover_side=walkover_side)
@@ -202,14 +238,19 @@ def resolve_tournament_class_matches(cursor: sqlite3.Cursor, run_id=None) -> Non
 
             # ── post-process: fill tcm.group_id for group stage ───────────────
             for stage_id, group_matches in stage_group_matches.items():
-                if stage_id != 1:  # 1 = GROUP
+                if stage_id not in (1, 11):  # 1 = GROUP, 11 = GROUP_STG2
                     continue
                 for group_ext, gmatches in group_matches.items():
                     if not group_ext:
                         continue
                     tcg = TournamentClassGroup.get_by_description(cursor, tournament_class_id, group_ext)
                     if not tcg:
-                        continue
+                        tcg = TournamentClassGroup(
+                            tournament_class_id=tournament_class_id,
+                            description=group_ext,
+                            sort_order=extract_group_sort_order(group_ext) if group_ext else None,
+                        )
+                        tcg.upsert(cursor)
                     group_id = tcg.tournament_class_group_id
                     for raw in gmatches:
                         cursor.execute("""
@@ -337,6 +378,7 @@ def resolve_side(
     logger: OperationLogger,
     logger_keys: Dict,
     side: int,
+    tournament_class_id: int,
     group_desc_hint: Optional[str] = None
 ) -> Optional[Tuple[int, List[int], List[int]]]:
     """
@@ -359,6 +401,11 @@ def resolve_side(
     raw_name  = normalize_key(fullname_raw)
     raw_club  = _norm(clubname_raw)
     raw_group = _norm(group_desc_hint)
+
+    # Replace placeholder names ("Vakant", "WO") with the Unknown Player entry.
+    # This lets us keep WO rows while still producing valid match_side rows.
+    if _is_placeholder(fullname_raw):
+        return ensure_placeholder_participant(cursor, tournament_class_id, entry_index)
 
     # ---- 1) hard key: tournament_player_id_ext -------------------------------
     by_ext = entry_index.get("by_ext", {})
@@ -522,43 +569,60 @@ def resolve_side(
     return chosen["entry_id"], [chosen["player_id"]], [chosen["club_id"]]
 
 def parse_scores(tokens: Optional[str], best_of: Optional[int]) -> Tuple[List[Game], Optional[int], Optional[int]]:
-    # Q1: Table tennis, so points to 11, win by 2 assumed in calculation
-    # Q3: Parse as margins, positive for side1 win, negative for side2; calc points as max(11, abs(m) + 2) for winner
-    # Q11: Detect WO:S1 or WO:S2 for walkover
+    # Table tennis scoring: games to 11, win by 2
+    # Tokens represent loser's score: positive for side2 loss (side1 win), negative for side1 loss (side2 win)
+    # If |token| > 9, winner's score = |token| + 2 (deuce)
+    # Detect WO:S1 or WO:S2 for walkover
     if not tokens:
         return [], None, None
 
-    if tokens.upper().startswith("WO:S"):
-        wo_side = int(tokens[-1])
-        return [], None, wo_side
+    stripped = tokens.strip()
+    upper = stripped.upper()
+    if upper.startswith("WO"):
+        wo_side = None
+        if upper.startswith("WO:S"):
+            side_token = upper.split(":")[-1]
+            side_token = re.sub(r"\D", "", side_token) or side_token
+            try:
+                wo_side = int(side_token[-1])
+            except (ValueError, IndexError):
+                wo_side = None
+        winner = None
+        if wo_side in (1, 2):
+            winner = 2 if wo_side == 1 else 1
+        return [], winner, wo_side
 
     try:
-        margins = [int(t.strip()) for t in tokens.split(',') if t.strip()]
+        scores = [int(t.strip()) for t in stripped.split(',') if t.strip()]
     except ValueError:
         return [], None, None
-
     games = []
     side1_wins = 0
     side2_wins = 0
-    for i, m in enumerate(margins, start=1):
-        if m > 0:
-            p1 = max(11, m + 2) if abs(m) > 9 else 11  # Adjust for deuce
-            p2 = p1 - m
+    for i, loser_score in enumerate(scores, start=1):
+        abs_loser = abs(loser_score)
+        if abs_loser > 9:
+            winner_points = abs_loser + 2
+        else:
+            winner_points = 11
+        if loser_score > 0:
+            # Side1 wins, side2 has loser_score
+            p1 = winner_points
+            p2 = loser_score
             side1_wins += 1
         else:
-            p2 = max(11, abs(m) + 2) if abs(m) > 9 else 11
-            p1 = p2 + m  # m negative
+            # Side2 wins, side1 has abs_loser
+            p1 = abs_loser
+            p2 = winner_points
             side2_wins += 1
         games.append(Game(game_no=i, points_side1=p1, points_side2=p2))
-
-    req_wins = (best_of // 2) + 1 if best_of else (len(margins) // 2) + 1
+    req_wins = (best_of // 2) + 1 if best_of else (len(scores) // 2) + 1
     if side1_wins >= req_wins:
         winner = 1
     elif side2_wins >= req_wins:
         winner = 2
     else:
         winner = None
-
     return games, winner, None
 
 def insert_match_players(match_id: int, side_no: int, players: List[int], clubs: List[int], cursor: sqlite3.Cursor) -> None:
@@ -566,16 +630,110 @@ def insert_match_players(match_id: int, side_no: int, players: List[int], clubs:
         mp = MatchPlayer(match_id=match_id, side_no=side_no, player_id=p_id, player_order=order, club_id=c_id)
         mp.insert(cursor)
 
+_PLACEHOLDER_RE = re.compile(r"\b(vakant|wo)\b", re.IGNORECASE)
+
+def _is_placeholder(name: Optional[str]) -> bool:
+    return bool(name and _PLACEHOLDER_RE.search(name))
+
+def ensure_placeholder_participant(
+    cursor: sqlite3.Cursor,
+    tournament_class_id: int,
+    entry_index: Dict[str, Any],
+) -> Tuple[int, List[int], List[int]]:
+    """
+    Ensure the placeholder player (Unknown Player) has a tournament_class_entry
+    in this class so matches can reference a valid entry_id.
+
+    We lazily insert a synthetic entry/tournament_class_player the first time we
+    encounter a Vakant/WO side in this class, then reuse it for subsequent matches.
+    """
+    cache = entry_index.setdefault("_placeholder_cache", {})
+    cached_entry_id = cache.get("entry_id")
+    if cached_entry_id:
+        return cached_entry_id, [PLACEHOLDER_PLAYER_ID], [PLACEHOLDER_CLUB_ID]
+
+    cursor.execute("""
+        SELECT e.tournament_class_entry_id
+        FROM tournament_class_entry e
+        JOIN tournament_class_player tp ON tp.tournament_class_entry_id = e.tournament_class_entry_id
+        WHERE e.tournament_class_id = ? AND tp.player_id = ?
+        LIMIT 1
+    """, (tournament_class_id, PLACEHOLDER_PLAYER_ID))
+    row = cursor.fetchone()
+    if row:
+        entry_id = row[0]
+    else:
+        entry_group_id = _allocate_placeholder_entry_group(cursor, tournament_class_id)
+        entry_ext = f"placeholder-{PLACEHOLDER_PLAYER_ID}-{tournament_class_id}"
+        cursor.execute("""
+            INSERT INTO tournament_class_entry (
+                tournament_class_entry_id_ext,
+                tournament_class_entry_group_id_int,
+                tournament_class_id,
+                seed,
+                final_position
+            ) VALUES (?, ?, ?, NULL, NULL)
+        """, (entry_ext, entry_group_id, tournament_class_id))
+        entry_id = cursor.lastrowid
+
+        cursor.execute("""
+            INSERT OR IGNORE INTO tournament_class_player (
+                tournament_class_entry_id,
+                tournament_player_id_ext,
+                player_id,
+                club_id
+            ) VALUES (?, NULL, ?, ?)
+        """, (entry_id, PLACEHOLDER_PLAYER_ID, PLACEHOLDER_CLUB_ID))
+
+    placeholder_entry = {
+        "entry_id": entry_id,
+        "player_id": PLACEHOLDER_PLAYER_ID,
+        "player_name": PLACEHOLDER_PLAYER_NAME,
+        "club_id": PLACEHOLDER_CLUB_ID,
+        "club_shortname": None,
+        "group_desc": "",
+        "tpid_ext": None,
+        "club_key": None,
+        "keys": _name_keys(PLACEHOLDER_PLAYER_NAME),
+    }
+    entry_index.setdefault("entries", []).append(placeholder_entry)
+    keys = placeholder_entry.get("keys") or {}
+    entry_index.setdefault("by_ext", {})
+    entry_index.setdefault("by_first_last", {})
+    entry_index.setdefault("by_last_first", {})
+    entry_index.setdefault("by_loose", {})
+    entry_index.setdefault("by_name_any", {})
+    if "first_last" in keys:
+        entry_index["by_first_last"].setdefault(keys["first_last"], []).append(placeholder_entry)
+        entry_index["by_name_any"].setdefault(keys["first_last"], []).append(placeholder_entry)
+    if "last_first" in keys:
+        entry_index["by_last_first"].setdefault(keys["last_first"], []).append(placeholder_entry)
+        entry_index["by_name_any"].setdefault(keys["last_first"], []).append(placeholder_entry)
+    if "loose" in keys:
+        entry_index["by_loose"].setdefault(keys["loose"], []).append(placeholder_entry)
+
+    cache["entry_id"] = entry_id
+    return entry_id, [PLACEHOLDER_PLAYER_ID], [PLACEHOLDER_CLUB_ID]
+
+def _allocate_placeholder_entry_group(cursor: sqlite3.Cursor, tournament_class_id: int) -> int:
+    """Pick a unique negative group_id slot for placeholder entries to avoid collisions."""
+    cursor.execute("""
+        SELECT MIN(tournament_class_entry_group_id_int)
+        FROM tournament_class_entry
+        WHERE tournament_class_id = ?
+    """, (tournament_class_id,))
+    row = cursor.fetchone()
+    min_val = row[0] if row else None
+    if min_val is None:
+        return -1
+    return min_val - 1
+
 def is_garbage_match(raw: TournamentClassMatchRaw) -> bool:
-    # Q14: Garbage patterns like "Sets: 5", "WO WO", "Vakant Vakant"; skip if both sides garbage
-    garbage = {"sets:", "poång:", "diff:", "wo", "vakant", "wo wo", "vakant vakant"}
-    s1_lower = (raw.s1_fullname_raw or "").lower()
-    s2_lower = (raw.s2_fullname_raw or "").lower()
-    return s1_lower in garbage and s2_lower in garbage
+    # Skip rows where both sides are placeholders such as "Vakant" / "WO"
+    return _is_placeholder(raw.s1_fullname_raw) and _is_placeholder(raw.s2_fullname_raw)
 
 def is_garbage_name(name: str) -> bool:
-    garbage = {"wo", "vakant"}
-    return name.lower() in garbage
+    return _is_placeholder(name)
 
 def extract_group_sort_order(group_ext: str) -> Optional[int]:
     # Q7: Proposal - extract number from "Pool X" -> X

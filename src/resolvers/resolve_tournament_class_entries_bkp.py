@@ -16,7 +16,7 @@ from datetime import date
 from config import RESOLVE_ENTRIES_CUTOFF_DATE, RESOLVE_ENTRIES_CLASS_ID_EXTS
 import re  # For extracting sort_order
 
-# RESOLVE_ENTRIES_CLASS_ID_EXTS = ['10044', '1007', '9972', '7875']
+RESOLVE_ENTRIES_CLASS_ID_EXTS = ['10044', '1007', '9972', '7875']
 
 def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> None:
     """Resolve raw entries into tournament_class_entry, tournament_class_player, tournament_class_group, and tournament_class_group_member tables."""
@@ -114,9 +114,7 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
                         "tournament_class_entry_id_ext":        None,
                         "tournament_class_entry_group_id_int":  group_id,
                         "seed":                                 int(first_row.seed_raw) if first_row.seed_raw and first_row.seed_raw.isdigit() else None,
-                        # Final positions in the raw table may contain ordinals like "1:a".
-                        # Normalise to plain integers before storing in the resolved entry.
-                        "final_position":                       parse_final_position(first_row.final_position_raw)
+                        "final_position":                       int(first_row.final_position_raw) if first_row.final_position_raw and first_row.final_position_raw.isdigit() else None
                     }
                     entry = TournamentClassEntry.from_dict(entry_data)
                     is_valid, error_message = entry.validate()
@@ -251,20 +249,6 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
 
 
                 logger.success(logger_keys.copy(), "Class entry resolved successfully")
-
-            # After processing every entry for the class, copy any parsed
-            # final_position_raw values from the raw table to the resolved rows.
-            synced_positions = sync_final_positions_from_raw(
-                cursor,
-                tournament_class_id=tournament_class_id,
-                tournament_class_id_ext=class_ext,
-            )
-            if synced_positions:
-                logger.info(
-                    logger_keys.copy(),
-                    f"Final positions updated for {synced_positions} entries",
-                    to_console=False,
-                )
 
         except Exception as e:
             logger.failed(logger_keys.copy(), f"Exception during resolution: {str(e)}")
@@ -525,60 +509,4 @@ def get_name_candidates(fullname_raw: str, player_name_map: Dict[str, List[int]]
 
 def extract_group_sort_order(group_id_raw: str) -> Optional[int]:
     match = re.search(r'\d+', group_id_raw)
-    return int(match.group()) if match else None
-
-
-def sync_final_positions_from_raw(
-    cursor: sqlite3.Cursor,
-    *,
-    tournament_class_id: int,
-    tournament_class_id_ext: str,
-) -> int:
-    """
-    Ensure tournament_class_entry.final_position mirrors any values parsed into
-    tournament_class_entry_raw.final_position_raw.
-    This is required because final positions are added after the initial stage=1
-    scrape, so reruns must explicitly sync them.
-    """
-    cursor.execute(
-        """
-        SELECT entry_group_id_int, final_position_raw
-        FROM tournament_class_entry_raw
-        WHERE tournament_class_id_ext = ? AND final_position_raw IS NOT NULL
-        """,
-        (tournament_class_id_ext,),
-    )
-    rows = cursor.fetchall()
-    if not rows:
-        return 0
-
-    updated = 0
-    for entry_group_id_int, final_position_raw in rows:
-        if entry_group_id_int is None:
-            continue
-        final_position = parse_final_position(final_position_raw)
-        if final_position is None:
-            continue
-        cursor.execute(
-            """
-            UPDATE tournament_class_entry
-               SET final_position = ?
-             WHERE tournament_class_id = ?
-               AND tournament_class_entry_group_id_int = ?
-            """,
-            (final_position, tournament_class_id, entry_group_id_int),
-        )
-        updated += cursor.rowcount
-    return updated
-
-
-def parse_final_position(raw_value: Optional[str]) -> Optional[int]:
-    """
-    Extract the leading integer from a raw final-position string.
-    Some PDFs use ordinals like "1:a" or include punctuation; we only
-    care about the numeric ranking for persistence.
-    """
-    if not raw_value:
-        return None
-    match = re.search(r'\d+', str(raw_value))
     return int(match.group()) if match else None

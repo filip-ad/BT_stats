@@ -44,3 +44,6 @@ missing_clubs.txt
 
 # PDF cache
 /src/data/
+
+# Grok
+.grok/
