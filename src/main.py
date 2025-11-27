@@ -5,6 +5,7 @@ import uuid
 from upd_clubs              import upd_clubs
 from upd_player_data        import upd_player_data
 from upd_tournament_data    import upd_tournament_data
+from upd_league_data        import upd_league_data
 
 from utils import (
     clear_debug_tables, 
@@ -127,6 +128,9 @@ def main():
                 # 'match_side',
                 # 'tournament_class_match'
                 # 'fixture'
+                # 'league_raw',
+                # 'league_fixture_raw',
+                # 'league_fixture_match_raw'
 
                 # # Debugging tables (no FKs assumed)
                 # 'club_missing',                       # FK club
@@ -168,14 +172,19 @@ def main():
         #     do_scrape_player_transitions      = True
         # )
 
-        # Update tournament data
-        upd_tournament_data(
+        # # Update tournament data
+        # upd_tournament_data(
+        #     run_id                                                  = pipeline_run_id,
+        #     do_scrape_tournaments                                   = False,
+        #     do_scrape_tournament_classes                            = False,
+        #     do_scrape_tournament_class_entries                      = False,
+        #     do_scrape_tournament_class_group_matches_ondata         = False,
+        #     do_scrape_tournament_class_knockout_matches_ondata      = True
+        # )
+
+        upd_league_data(
             run_id                                                  = pipeline_run_id,
-            do_scrape_tournaments                                   = False,
-            do_scrape_tournament_classes                            = False,
-            do_scrape_tournament_class_entries                      = False,
-            do_scrape_tournament_class_group_matches_ondata         = False,
-            do_scrape_tournament_class_knockout_matches_ondata      = True
+            do_scrape_all_league_data_profixio                      = True
         )
 
         export_runs_to_excel()

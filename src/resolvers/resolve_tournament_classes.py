@@ -16,6 +16,10 @@ from config import RESOLVE_CLASSES_CUTOFF_DATE, RESOLVE_CLASS_ID_EXTS
 # RESOLVE_CLASS_ID_EXTS = ['30830']
 
 # RESOLVE_CLASS_ID_EXTS = ['15438']
+# RESOLVE_CLASS_ID_EXTS = ['31053']  # dubbel
+
+# RESOLVE_CLASS_ID_EXTS = ['31063']
+
 
 
 debug = False
@@ -192,6 +196,9 @@ def resolve_tournament_classes(cursor, run_id=None) -> List[TournamentClass]:
             data_source_id                  = raw.data_source_id,
         )
 
+        if debug:
+            logger.info(logger_keys.copy(), f"Inferred type_id={tournament_class.tournament_class_type_id} for tournament_class_id_ext={raw.tournament_class_id_ext}")
+
         is_valid, error_message = tournament_class.validate()
         if not is_valid:
             logger.failed(logger_keys, f"Validation failed: {error_message}")
@@ -242,8 +249,16 @@ def _detect_type_id(shortname: str, longname: str) -> int:
     l = (longname or "").lower()
     up = (shortname or "").upper()
     tokens = [t for t in re.split(r"[^A-ZÅÄÖ]+", up) if t]
+    short_lower = (shortname or "").lower()
+    short_words = re.findall(r"\b\w+\b", short_lower)
+    long_lower = (longname or "").lower()
 
     # Team (4)
+    if (
+        re.search(r"\blag\b", short_lower)
+        or re.search(r"\bteams?\b", short_lower)
+    ):
+        return 4
     if (
         re.search(r"\b(herr(?:ar)?|dam(?:er)?)\s+lag\b", l)
         or "herrlag" in l
@@ -254,13 +269,63 @@ def _detect_type_id(shortname: str, longname: str) -> int:
         return 4
     if re.search(r"\b[HD]L\d+\b", up) or re.search(r"\b[HD]LAG\d*\b", up):
         return 4
+    if short_words and any("lag" in word for word in short_words):
+        return 4
+    if "lag" in long_lower or "team" in long_lower or "teams" in long_lower:
+        return 4
 
-    # Doubles (2)
-    if up.startswith(("HD", "DD", "WD", "MD", "MXD", "FD")):
+    # Doubles (2) – robust detection for standard abbreviations, mixed variants,
+    # compound Swedish/Nordic terms (e.g., "Pojkdubbel", "Herrjuniordubbel"), and generic keywords.
+    # Prioritizes specific patterns to minimize false positives on singles or team events.
+    # Falls back to a simple substring check for "dubbel"/"double" to catch all embedded compounds reliably.
+    if up.startswith(("HD", "DD", "WD", "MD", "MXD", "FD", "PD", "HJD")):  # Expanded: PD (Pojk), HJD (Herrjunior), FD (Flick)
         return 2
-    if re.search(r"\b(doubles?|dubbel|dubble|dobbel|dobbelt|familjedubbel)\b", l):
+
+    # Catch every Swedish/Nordic mixed-doubles variant in one shot:
+    #   Mixdubbel, Mixeddubbel, Mixdedubbel, Mixad dubbel, Mix dubbel, etc.
+    #   (Handles optional spaces and common spelling variations.)
+    if re.search(r"""
+        \b
+        (?:mix(?:ed|ad|de)?|mixed)   # Prefix: mix / mixed / mixad / mixde / mixed
+        \s*                          # Optional space(s) between prefix and type
+        (?:dubbel|dubble|double)d?   # Suffix: dubbel / dubble / double + optional trailing "d"
+        \b
+    """, l + " " + short_lower, re.IGNORECASE | re.VERBOSE):
         return 2
-    if any(tag in tokens for tag in {"HD", "DD", "WD", "MD", "MXD", "FD"}):
+
+    # Standalone "Mixed" for youth/junior classes (common shorthand for mixed doubles in Nordic TT tournaments).
+    #   Only triggers if no explicit singles indicators (e.g., "singel", "single") are present to avoid false positives.
+    if re.search(r"\b mixed \b", l + " " + short_lower, re.IGNORECASE) \
+    and not any(singles_kw in l.lower() for singles_kw in ["singel", "single", "enkelt"]):
+        return 2
+
+    # Enhanced detection for compound-word doubles common in Swedish/Nordic tournaments:
+    #   Pojkdubbel, Herrdubbel, Damdubbel, Flickdubbel (and variants with age qualifiers like Herrjuniordubbel).
+    #   Allows optional age/gender modifiers (e.g., "junior", "senior") between prefix and "dubbel" for compounds.
+    #   Targets exact compounds to avoid over-matching (e.g., won't catch "subdubbel" in unrelated text).
+    compound_doubles_pattern = r"""
+        \b
+        (?:pojk|herr|dam|flick|her|da|po|fli)  # Gender/age prefix: pojk(pojkar), herr, dam, flick(flickor), shorthands
+        (?:junior|senior|vet|ungdom|veteran|\d+)?  # Optional age qualifier (junior/senior/veteran/youth + optional age digits)
+        (?:dubbel|dubble|dobbel|dobbelt)         # Doubles suffix (no optional "d" here to avoid "dubbeld" false positives)
+        \b
+    """
+    if re.search(compound_doubles_pattern, l + " " + short_lower, re.IGNORECASE | re.VERBOSE):
+        return 2
+
+    # Fallback for isolated generic doubles keywords (e.g., "Dubbel", "Doubles", "Familjedubbel").
+    #   Uses word boundaries for standalone matches.
+    if re.search(r"\b(doubles?|dubbel|dubble|dobbel|dobbelt|familjedubbel)\b", l + " " + short_lower, re.IGNORECASE):
+        return 2
+
+    # Ultimate fallback: Simple substring check for embedded "dubbel"/"double" in compounds
+    #   (e.g., "Pojkdubbel", "Herrjuniordubbel"). Safe in tournament name context—false positives rare.
+    #   Case-insensitive, non-overlapping.
+    if re.search(r"(?i)(dubbel|doubles?|double)", l + " " + short_lower):
+        return 2
+
+    # Final check for abbreviation tokens in shortname (e.g., "PD" from "PD14", "HJD" from "HJD18").
+    if any(tag in {"HD", "DD", "WD", "MD", "MXD", "FD", "PD", "HJD"} for tag in tokens):  # Expanded to match new startswith
         return 2
 
     # Unknown/garbage starting with XB/XG (9)

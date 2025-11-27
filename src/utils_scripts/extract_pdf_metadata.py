@@ -39,7 +39,7 @@ from pdfplumber.page import Page  # ← correct type import (fixes previous erro
 # ──────────────────────────────────────────────────────────────
 # Configuration – change only these two lines
 # ──────────────────────────────────────────────────────────────
-PDF_URL: str = "https://resultat.ondata.se/ViewClassPDF.php?classID=1006&stage=5"
+PDF_URL: str = "https://resultat.ondata.se/ViewClassPDF.php?classID=26159&stage=5"
 
 write_to_file: bool = True          # False → only console (if enabled)
 print_to_console: bool = False      # True → huge stdout dump, useful only for debugging

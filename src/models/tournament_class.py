@@ -75,6 +75,28 @@ class TournamentClass(CacheMixin):
 
         self.is_valid = True
         return True, ""
+
+    @classmethod
+    def set_tree_size(
+        cls,
+        cursor: sqlite3.Cursor,
+        tournament_class_id_ext: str,
+        tree_size: int,
+        data_source_id: int = 1,
+    ) -> None:
+        """Persist a corrected KO tree size for a class id ext."""
+        if not tournament_class_id_ext or not tree_size:
+            return
+        cursor.execute(
+            """
+            UPDATE tournament_class
+            SET ko_tree_size = ?, row_updated = CURRENT_TIMESTAMP
+            WHERE tournament_class_id_ext = ? AND data_source_id = ?;
+            """,
+            (tree_size, tournament_class_id_ext, data_source_id),
+        )
+        # Clear cached SELECTs for this model so future reads see the update.
+        cls.clear_cache()
     
     def upsert(self, cursor: sqlite3.Cursor) -> Optional[str]:
         """

@@ -288,15 +288,17 @@ def create_raw_tables(cursor, logger):
             CREATE TABLE IF NOT EXISTS league_raw (
                 row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
                 league_id_ext                   TEXT,
-                season_label                    TEXT,
+                season_id_ext                   TEXT,
                 league_level                    TEXT,
                 name                            TEXT,
-                organizer                       TEXT,
+                organiser                       TEXT,
+                district_id_ext                 TEXT,
+                district_description            TEXT,
                 active                          INTEGER DEFAULT 0 CHECK(active IN (0,1)),
                 url                             TEXT,
-                start_date                      DATE,
-                end_date                        DATE,
-                data_source_id                  INTEGER DEFAULT 1,
+                startdate                       DATE,
+                enddate                         DATE,
+                data_source_id                  INTEGER DEFAULT 3,
                 content_hash                    TEXT,
                 last_seen_at                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -306,6 +308,51 @@ def create_raw_tables(cursor, logger):
             );
         ''',
 
+        "league_fixture_raw":
+        '''
+            CREATE TABLE IF NOT EXISTS league_fixture_raw (
+                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_fixture_id_ext           TEXT,
+                league_id_ext                   TEXT,
+                startdate                       DATE,
+                round                           TEXT,
+                home_team_name                  TEXT,
+                away_team_name                  TEXT,
+                home_score                      INTEGER,
+                away_score                      INTEGER,
+                status                          TEXT DEFAULT 'completed',
+                url                             TEXT,
+                data_source_id                  INTEGER DEFAULT 3,
+                content_hash                    TEXT,
+                last_seen_at                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (data_source_id)    REFERENCES data_source(data_source_id)
+            );
+        ''',
+
+        "league_fixture_match_raw":
+        '''
+            CREATE TABLE IF NOT EXISTS league_fixture_match_raw (
+                row_id                          INTEGER PRIMARY KEY AUTOINCREMENT,
+                league_fixture_match_id_ext     TEXT,
+                league_fixture_id_ext           TEXT,
+                home_player_id_ext              TEXT,
+                home_player_name                TEXT,
+                away_player_id_ext              TEXT,
+                away_player_name                TEXT,
+                tokens                          TEXT,
+                fixture_standing                TEXT,
+                data_source_id                  INTEGER DEFAULT 3,
+                content_hash                    TEXT,
+                last_seen_at                    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_created                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                row_updated                     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (data_source_id)    REFERENCES data_source(data_source_id)
+            );
+        '''
     }
 
     created, skipped = [], []
@@ -321,6 +368,15 @@ def create_raw_tables(cursor, logger):
             else:
                 cursor.execute(ddl)
                 created.append(name)
+
+        # Unique indexes needed for upserts
+        index_statements = [
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_league_raw_ext_source ON league_raw (league_id_ext, data_source_id);",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_league_fixture_raw_ext_source ON league_fixture_raw (league_fixture_id_ext, data_source_id);",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_league_fixture_match_raw_ext_source ON league_fixture_match_raw (league_fixture_id_ext, league_fixture_match_id_ext, data_source_id);",
+        ]
+        for stmt in index_statements:
+            cursor.execute(stmt)
 
     except Exception as e:
         logger.failed(f"Error creating raw tables: {e}")
@@ -734,7 +790,7 @@ def create_tables(cursor):
         ### LEAGUES
         ##########################################
 
-        # League table (cannonical league data - season, level, name, organizer, url)
+        # League table (cannonical league data - season, level, name, organiser, url)
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS league (
                 league_id                       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -742,7 +798,7 @@ def create_tables(cursor):
                 season_id                       INTEGER,
                 league_level_id                 INTEGER,
                 name                            TEXT,
-                organizer                       TEXT,
+                organiser                       TEXT,
                 active                          INTEGER DEFAULT 0 CHECK(active IN (0,1)),
                 url                             TEXT,
                 start_date                      DATE,

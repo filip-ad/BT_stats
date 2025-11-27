@@ -38,3 +38,17 @@
 - Never commit credentials, browser profiles, or `.env` files; rely on `python-dotenv` and local `.env`.
 - Avoid committing new large spreadsheets, PDFs, or database files; prefer documenting how to regenerate them.
 - Agents editing this repo should respect these guidelines, preserve existing style, and avoid broad refactors unless explicitly requested.
+
+## Scraper & Resolver Guardrails
+- When editing `src/scrapers` or `src/resolvers`, take the safest approach: avoid changing working PDF handling logic or formats unless necessary and verified.
+- Any tweak that touches PDF parsing/format support should be validated against the currently working sources so nothing regresses.
+
+## Virtual Environment Setup
+- Install dependencies in the repo virtualenv: `python -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt`.
+- If commands fail because `python`/`pip` are missing, use `python3` and ensure the `.venv/bin` directory is in your `PATH` before running scripts (`source .venv/bin/activate`).
+- Some tooling (e.g., `pdfplumber`, `mutool`) is needed for scraper/resolver development, so confirm they are present in `.venv/bin` before running PDF inspection scripts.
+
+# Project pingiskollen guidelines
+- When making updates to any script, especially scrapers, be VERY careful to not mess with something that is already working. We are creating scrapers that should be able to parse a lot of different PDF formats for example, so fixing one by breaking another is NOT OK! 
+- Please test your code changes properly first, use the .venv virtual environemnt.
+- Add proper comments and documentation in the code as you review or update it.

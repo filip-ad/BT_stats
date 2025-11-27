@@ -1,9 +1,11 @@
 To do
 =======================================================
+- Fixa en AGENTS.md för Codex i ./codex (?) som beskriver venv miljön och db:n så att den kan köra kommandon i sin sandbox
 - Fixa ett script som laddar ner alla PDF:er senaste månaden, sedan ta bort force download i scrapers/resolvers
 - Fixa RO64 PDF match parser...
 - Fixa run log så att runs appendar och inte tar bort gamla rader?
 - Ordna upp filer, så att alla loggar hamnar på samma ställe, clubs_data etc ligger i proper folder names... ta bort skit som inte används
+- Fixa lika snygg debug output som i KO match scrapern för de andra scripten...
 
 
 Improvements long term

@@ -15,6 +15,13 @@ import pdfplumber
 """
 Utility script for parsing knockout brackets from resultat.ondata.se PDFs.
 
+Why this file exists
+--------------------
+This is a stand-alone, auditable sandbox used to iterate on KO-bracket parsing
+before landing changes in `scrapers/scrape_tournament_class_knockout_matches_ondata.py`.
+It deliberately keeps the parsing logic verbose and linear so each heuristic is
+easy to inspect, tweak, and back out if it hurts other formats.
+
 What the parser does (high level)
 ---------------------------------
 1) Collects all players from the left-most column (ids, names, clubs, y-centers).
@@ -44,7 +51,6 @@ Important guardrails for contributors (incl. AI agents)
 - When in doubt, bias toward not consuming tokens/winners rather than forcing
   assignments that could corrupt progression.
 """
-
 
 # -------------------------------------------------------------------
 # Project imports
@@ -104,20 +110,19 @@ from models.tournament_class_match_raw import TournamentClassMatchRaw
 # ==================================================================================================
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29834']             # Dubbel-WO + WO 
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30796']             # Dubbel-WO + WO
-# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['110']               # RO128 with some Dubbel-WO matches
-# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29631']             # RO64 with some Dubbel-WO matches
+SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['110']               # RO128 with some Dubbel-WO matches
 
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['113']               # RO64 with separate qual matches on page 2
 
 # NOT WORKING TESTCASES:
 # ==================================================================================================
-# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['28709']               # 
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['29631']
 
 
 # Map url -> md5 hash so repeated runs can detect PDF changes.
 LAST_PDF_HASHES: Dict[str, str] = {}
 
-DEBUG_OUTPUT: bool = False
+DEBUG_OUTPUT: bool = True
 
 
 def _debug_print(message: str) -> None:
@@ -2092,8 +2097,7 @@ def _run_structural_bracket_checks(
         if len(curr) != expected:
             logger.warning(
                 logger_keys.copy(),
-                # f"Structural check: round {ridx} has {len(curr)} matches, expected {expected}",
-                f"Structural check: round has more/less matches than expected",
+                f"Structural check: round {ridx} has {len(curr)} matches, expected {expected}",
             )
 
     # 2) Winner progression
@@ -2108,15 +2112,13 @@ def _run_structural_bracket_checks(
             sample = ", ".join(name for _, name, *_ in list(missing)[:3])
             logger.warning(
                 logger_keys.copy(),
-                # f"Structural check: winners missing in next round ({sample})",
-                f"Structural check: winners missing in next round",
+                f"Structural check: winners missing in next round ({sample})",
             )
         if stray:
             sample = ", ".join(name for _, name, *_ in list(stray)[:3])
             logger.warning(
                 logger_keys.copy(),
-                # f"Structural check: next round has participants without wins ({sample})",
-                f"Structural check: next round has participants without wins",
+                f"Structural check: next round has participants without wins ({sample})",
             )
 
     # 3) Appearance bounds
@@ -2131,8 +2133,7 @@ def _run_structural_bracket_checks(
         sample = ", ".join(offenders[:3])
         logger.warning(
             logger_keys.copy(),
-            # f"Structural check: player appears too many times ({sample})",
-            f"Structural check: player appears too many times",
+            f"Structural check: player appears too many times ({sample})",
         )
 
     # 4) WO integrity
