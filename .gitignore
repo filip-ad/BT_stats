@@ -47,3 +47,6 @@ missing_clubs.txt
 
 # Grok
 .grok/
+
+# Excel files (logs etc.)
+*.xlsx
