@@ -16,6 +16,23 @@ BT_stats is a data engineering pipeline for Swedish table tennis information tha
 - `src/config.py` houses runtime configuration: log destination/level, database path, PDF cache root, and fine-grained scraping limits (cut-off dates, ordering, entity whitelists). These settings gate the batch size and temporal scope for each scraper.【F:src/config.py†L3-L32】 
 - Dependencies for scraping, parsing, automation, and analytics live in `requirements.txt`, covering Selenium, Requests/BeautifulSoup, PDF parsing, and pandas/openpyxl for Excel exports.【F:requirements.txt†L1-L34】 
 
+## Setup (Virtual Environment)
+- Create and activate the project venv, then install dependencies:
+
+	```bash
+	python3 -m venv .venv
+	source .venv/bin/activate
+	pip install -r requirements.txt
+	```
+
+- Always run project commands inside the activated venv. Example:
+
+	```bash
+	python src/main.py
+	```
+
+- If `python` isn’t available, use `python3`. Ensure `.venv/bin` is on your `PATH` by activating the environment (`source .venv/bin/activate`).
+
 ## Data Ingestion Pipelines 
 
 ### Clubs 
@@ -30,7 +47,35 @@ BT_stats is a data engineering pipeline for Swedish table tennis information tha
 The listed-tournament scraper requests `https://resultat.ondata.se`, applies retry/backoff logic, filters by configurable cutoff date, and constructs raw tournament records with URL enrichment and logging.【F:src/scrapers/scrape_tournaments_ondata_listed.py†L1-L160】 
 
 ## Resolver Layer 
-`src/resolve_data.py` exposes switches for targeted resolve passes (tournaments, classes, player artifacts, participants), providing an alternate entry point when only transformation logic must run.【F:src/resolve_data.py†L1-L33】 
+`src/resolvers/` contains transformation logic that converts raw scraped data into normalized domain entities:
+- `resolve_tournaments.py` - Tournament raw → tournament
+- `resolve_tournament_classes.py` - Tournament class raw → tournament_class (includes parent-child detection for B-playoffs)
+- `resolve_tournament_class_entries.py` - Entry raw → tournament_class_entry
+- `resolve_tournament_class_matches.py` - Match raw → match/game/match_side/match_player (includes sibling resolution)
+- `resolve_player_licenses.py`, `resolve_player_rankings.py`, `resolve_player_transitions.py` - Player data normalization
+
+`src/resolve_data.py` exposes switches for targeted resolve passes, providing an alternate entry point when only transformation logic must run.【F:src/resolve_data.py†L1-L33】 
+
+## Scraper Layer
+`src/scrapers/` contains modules that fetch data from external sources and store it in raw tables:
+
+### Tournament Scrapers (OnData)
+- `scrape_tournaments_ondata_listed.py` - Scrapes tournament list from `resultat.ondata.se`
+- `scrape_tournaments_ondata_unlisted.py` - Discovers unlisted tournaments by ID probing
+- `scrape_tournament_classes_ondata.py` - Scrapes class definitions for each tournament
+- `scrape_tournament_class_entries_ondata.py` - Scrapes participant entries (PDF parsing)
+- `scrape_tournament_class_group_matches_ondata.py` - Scrapes group stage matches from PDFs
+- `scrape_tournament_class_knockout_matches_ondata.py` - Scrapes KO bracket matches from PDFs
+
+### Player Data Scrapers
+- `scrape_player_licenses.py` - Scrapes player license data from SBTF
+- `scrape_player_rankings.py` - Scrapes player ranking lists
+- `scrape_player_transitions.py` - Scrapes player club transitions
+
+### League Scrapers
+- `scrape_leagues_profixio.py` - Scrapes league fixtures from Profixio
+
+All scrapers follow a pattern of: fetch → parse → upsert to `*_raw` tables with content hashing and `last_seen_at` timestamps.
 
 ## Utilities and Shared Infrastructure 
 - `src/utils.py` configures project-wide logging, Selenium driver bootstrap, PDF caching/downloading helpers, and hashing utilities. The `OperationLogger` class aggregates successes/failures/warnings with optional DB persistence and contextual enrichment for diagnostics.【F:src/utils.py†L1-L386】 
@@ -39,10 +84,38 @@ The listed-tournament scraper requests `https://resultat.ondata.se`, applies ret
 ## Domain Models 
 `src/models/` contains dataclass-based representations for core entities (players, tournaments, matches, etc.). For example, `models/player.py` defines sanitisation, caching helpers, and persistence helpers for verified/unverified players, reusing shared normalisation utilities.【F:src/models/player.py†L1-L160】 
 
-## Supporting Assets 
-The repository includes Excel exports such as `BTstats_DB_Dictionary.xlsx` and log workbooks that are written by the utilities for documentation and run auditing. (See `/src` root listings.)【F:src/main.py†L9-L16】 
+### Parent-Child Class Relationships
+Tournament classes can have parent-child relationships via `tournament_class_id_parent` (added 2025-11-28):
+- B-playoff classes (e.g., "P12~B") contain players who didn't advance from the main class ("P12") group stage.
+- Detection: Classes with "~B" suffix in shortname are automatically linked to their parent during resolution.
+- Sibling resolution: When resolving match players, if a player isn't found in B-class entries, the resolver searches the parent class and creates a "synthetic" entry in the B-class.
+- Key files: `resolve_tournament_classes.py` (parent detection), `resolve_tournament_class_matches.py` (sibling resolution).
 
-## Current Status and Open Work 
-- Primary focus right now is tournament-class group match scraping; other update steps are staged but disabled pending verification.【F:src/main.py†L153-L172】 
-- The `_to_do.txt` backlog prioritises participant pipeline build-out (with PDF caching), final position resolution, group-stage game ingestion, and performance improvements for player-license scraping. It also captures cleanup tasks (logger usage harmonisation, transition content hashes) and longer-term scheduling/logging automation ideas.【F:_to_do.txt†L1-L23】 
-Use this document to provide high-level context for future prompts or collaborators. It summarises the architecture, operational toggles, and outstanding roadmap items without requiring a deep dive into individual modules.
+## Schema and Database Inspection
+To explore the current database schema and structure:
+
+```bash
+# List all tables
+sqlite3 data/table_tennis.db ".tables"
+
+# Show schema for a specific table
+sqlite3 data/table_tennis.db ".schema tournament_class"
+
+# Show all table schemas
+sqlite3 data/table_tennis.db ".schema"
+
+# Quick row counts
+sqlite3 data/table_tennis.db "SELECT name, (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=m.name) FROM sqlite_master m WHERE type='table';"
+```
+
+Alternatively, use Python:
+```python
+import sqlite3
+conn = sqlite3.connect('data/table_tennis.db')
+cursor = conn.cursor()
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+for row in cursor.fetchall():
+    print(row[0])
+```
+
+The project also includes `BTstats_DB_Dictionary.xlsx` in `src/` which documents table structures and field semantics.

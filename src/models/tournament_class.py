@@ -12,11 +12,26 @@ from utils import parse_date
 
 @dataclass
 class TournamentClass(CacheMixin):
+    """
+    Represents a tournament class (e.g., "P12", "H2", "D1").
+    
+    Parent-Child Relationship (added 2025-11-28):
+        B-playoff classes (e.g., "P12~B") have a parent relationship to their
+        main class ("P12"). The parent class contains entries for players who
+        didn't advance from the group stage but still appear in B-playoff matches.
+        
+        - tournament_class_id_parent: FK to parent class (NULL for main classes)
+        - Helper methods: get_by_id(), get_parent_class(), get_sibling_classes()
+        
+        Detection: Classes with "~B" suffix in shortname are detected as children.
+        See: resolve_tournament_classes.py second pass for parent detection logic.
+    """
     tournament_class_id:            Optional[int] = None
     tournament_class_id_ext:        Optional[str] = None
     tournament_id:                  int = None
     tournament_class_type_id:       Optional[int] = None
     tournament_class_structure_id:  Optional[int] = None
+    tournament_class_id_parent:     Optional[int] = None  # FK to parent class (e.g., P12 is parent of P12~B)
     ko_tree_size:                   Optional[int] = None
     startdate:                      Optional[date] = None
     longname:                       str = None
@@ -37,6 +52,7 @@ class TournamentClass(CacheMixin):
             tournament_id                   = d["tournament_id"],
             tournament_class_type_id        = d.get("tournament_class_type_id"),
             tournament_class_structure_id   = d.get("tournament_class_structure_id"),
+            tournament_class_id_parent      = d.get("tournament_class_id_parent"),
             ko_tree_size                    = d.get("ko_tree_size"),
             startdate                       = parse_date(d.get("startdate"), context="TournamentClass.from_dict"),
             longname                        = d.get("longname", ""),
@@ -120,7 +136,8 @@ class TournamentClass(CacheMixin):
                     self.tournament_id,
                     self.tournament_class_type_id,
                     self.tournament_class_structure_id,
-                    self.ko_tree_size,                     # <-- added
+                    self.tournament_class_id_parent,
+                    self.ko_tree_size,
                     self.startdate,
                     self.longname or None,
                     self.shortname or None,
@@ -137,7 +154,8 @@ class TournamentClass(CacheMixin):
                     SET tournament_id                 = ?,
                         tournament_class_type_id      = ?,
                         tournament_class_structure_id = ?,
-                        ko_tree_size                  = ?,      -- added
+                        tournament_class_id_parent    = ?,
+                        ko_tree_size                  = ?,
                         startdate                     = ?,
                         longname                      = ?,
                         shortname                     = ?,
@@ -174,7 +192,8 @@ class TournamentClass(CacheMixin):
                     self.tournament_id,
                     self.tournament_class_type_id,
                     self.tournament_class_structure_id,
-                    self.ko_tree_size,                 # <-- added
+                    self.tournament_class_id_parent,
+                    self.ko_tree_size,
                     self.startdate,
                     self.longname or None,
                     self.shortname or None,
@@ -193,7 +212,8 @@ class TournamentClass(CacheMixin):
                         tournament_id                 = ?,
                         tournament_class_type_id      = ?,
                         tournament_class_structure_id = ?,
-                        ko_tree_size                  = ?,      -- added
+                        tournament_class_id_parent    = ?,
+                        ko_tree_size                  = ?,
                         startdate                     = ?,
                         longname                      = ?,
                         shortname                     = ?,
@@ -219,7 +239,8 @@ class TournamentClass(CacheMixin):
                 self.tournament_id,
                 self.tournament_class_type_id,
                 self.tournament_class_structure_id,
-                self.ko_tree_size,                     # <-- added
+                self.tournament_class_id_parent,
+                self.ko_tree_size,
                 self.startdate,
                 self.longname or None,
                 self.shortname or None,
@@ -237,7 +258,8 @@ class TournamentClass(CacheMixin):
                     tournament_id,
                     tournament_class_type_id,
                     tournament_class_structure_id,
-                    ko_tree_size,                    -- added
+                    tournament_class_id_parent,
+                    ko_tree_size,
                     startdate,
                     longname,
                     shortname,
@@ -247,7 +269,7 @@ class TournamentClass(CacheMixin):
                     url,
                     data_source_id,
                     is_valid
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING tournament_class_id;
                 """,
                 vals,
@@ -302,6 +324,102 @@ class TournamentClass(CacheMixin):
         if not rows:
             return None
         return cls.from_dict(rows[0])
+
+    @classmethod
+    def get_by_id(cls, cursor: sqlite3.Cursor, tournament_class_id: int) -> Optional['TournamentClass']:
+        """Fetch TournamentClass by internal ID."""
+        rows = cls.cached_query(
+            cursor, 
+            "SELECT * FROM tournament_class WHERE tournament_class_id = ?", 
+            (tournament_class_id,), 
+            cache_key_extra=f"tc_by_id:{tournament_class_id}"
+        )
+        if not rows:
+            return None
+        return cls.from_dict(rows[0])
+
+    def get_parent_class(self, cursor: sqlite3.Cursor) -> Optional['TournamentClass']:
+        """
+        Get the parent class if tournament_class_id_parent is set.
+        For B-playoff classes like 'P12~B', this returns the main class 'P12'.
+        """
+        if not self.tournament_class_id_parent:
+            return None
+        return TournamentClass.get_by_id(cursor, self.tournament_class_id_parent)
+
+    def get_sibling_classes(self, cursor: sqlite3.Cursor) -> List['TournamentClass']:
+        """
+        Get sibling classes that share the same parent (excluding self).
+        If this class has no parent, returns empty list.
+        If this IS the parent, returns all child classes.
+        """
+        siblings: List['TournamentClass'] = []
+        
+        if self.tournament_class_id_parent:
+            # This is a child class - get other children of same parent
+            rows = self.__class__.cached_query(
+                cursor,
+                """
+                SELECT * FROM tournament_class 
+                WHERE tournament_class_id_parent = ? 
+                  AND tournament_class_id != ?
+                """,
+                (self.tournament_class_id_parent, self.tournament_class_id),
+                cache_key_extra=f"tc_siblings_of_child:{self.tournament_class_id}"
+            )
+            siblings = [self.__class__.from_dict(r) for r in rows]
+            
+            # Also include the parent itself as a "sibling" for lookup purposes
+            parent = self.get_parent_class(cursor)
+            if parent:
+                siblings.insert(0, parent)
+        else:
+            # This might be a parent class - get all children
+            rows = self.__class__.cached_query(
+                cursor,
+                """
+                SELECT * FROM tournament_class 
+                WHERE tournament_class_id_parent = ?
+                """,
+                (self.tournament_class_id,),
+                cache_key_extra=f"tc_children_of:{self.tournament_class_id}"
+            )
+            siblings = [self.__class__.from_dict(r) for r in rows]
+        
+        return siblings
+
+    @classmethod
+    def get_classes_in_tournament(
+        cls, 
+        cursor: sqlite3.Cursor, 
+        tournament_id: int
+    ) -> List['TournamentClass']:
+        """Get all classes belonging to a tournament."""
+        rows = cls.cached_query(
+            cursor,
+            "SELECT * FROM tournament_class WHERE tournament_id = ?",
+            (tournament_id,),
+            cache_key_extra=f"tc_by_tournament:{tournament_id}"
+        )
+        return [cls.from_dict(r) for r in rows]
+
+    @classmethod
+    def set_parent_class(
+        cls,
+        cursor: sqlite3.Cursor,
+        tournament_class_id: int,
+        parent_class_id: int,
+    ) -> None:
+        """Set the parent class for a tournament class (used during resolution)."""
+        cursor.execute(
+            """
+            UPDATE tournament_class
+            SET tournament_class_id_parent = ?, row_updated = CURRENT_TIMESTAMP
+            WHERE tournament_class_id = ?
+            """,
+            (parent_class_id, tournament_class_id),
+        )
+        cls.clear_cache()
         
     @classmethod
     def get_filtered_classes(

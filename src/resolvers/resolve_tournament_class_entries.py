@@ -17,6 +17,7 @@ from config import RESOLVE_ENTRIES_CUTOFF_DATE, RESOLVE_ENTRIES_CLASS_ID_EXTS
 import re  # For extracting sort_order
 
 # RESOLVE_ENTRIES_CLASS_ID_EXTS = ['10044', '1007', '9972', '7875']
+RESOLVE_ENTRIES_CLASS_ID_EXTS = ['31167']
 
 def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> None:
     """Resolve raw entries into tournament_class_entry, tournament_class_player, tournament_class_group, and tournament_class_group_member tables."""
@@ -31,7 +32,7 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
         run_id          = run_id
     )
 
-    debug = False
+    debug = True
 
     raw_rows = TournamentClassEntryRaw.get_all(cursor)
     if not raw_rows:

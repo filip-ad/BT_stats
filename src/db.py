@@ -440,6 +440,7 @@ def create_tables(cursor):
                 tournament_id                               INTEGER NOT NULL,
                 tournament_class_type_id                    INTEGER,
                 tournament_class_structure_id               INTEGER,
+                tournament_class_id_parent                  INTEGER,
                 ko_tree_size                                INTEGER,
                 startdate                                   DATE,
                 longname                                    TEXT,
@@ -455,6 +456,7 @@ def create_tables(cursor):
                 FOREIGN KEY (tournament_id)                 REFERENCES tournament(tournament_id)    ON DELETE CASCADE,
                 FOREIGN KEY (tournament_class_type_id)      REFERENCES tournament_class_type(tournament_class_type_id),
                 FOREIGN KEY (tournament_class_structure_id) REFERENCES tournament_class_structure(tournament_class_structure_id),
+                FOREIGN KEY (tournament_class_id_parent)    REFERENCES tournament_class(tournament_class_id)   ON DELETE SET NULL,
                 FOREIGN KEY (data_source_id)                REFERENCES data_source(data_source_id),
                 UNIQUE      (tournament_class_id_ext, data_source_id),
                 UNIQUE      (tournament_id, shortname, startdate)
@@ -1818,9 +1820,10 @@ def create_views(cursor):
                                 )
                             END, ', '
                         ) AS side1_player_name,
-                        GROUP_CONCAT(p.player_id, ', ') AS side1_player_id,
-                        GROUP_CONCAT(c.shortname, ', ') AS side1_club_name,
-                        GROUP_CONCAT(c.club_id, ', ')   AS side1_club_id
+                        GROUP_CONCAT(p.player_id, ', ')              AS side1_player_id,
+                        GROUP_CONCAT(c.shortname, ', ')              AS side1_club_name,
+                        GROUP_CONCAT(c.club_id, ', ')                AS side1_club_id,
+                        GROUP_CONCAT(p.is_verified, ', ')            AS side1_player_is_verified   -- 🔹 added
                     FROM match_side ms
                     JOIN match_player mp 
                         ON ms.match_id = mp.match_id AND ms.side_no = mp.side_no
@@ -1847,9 +1850,10 @@ def create_views(cursor):
                                 )
                             END, ', '
                         ) AS side2_player_name,
-                        GROUP_CONCAT(p.player_id, ', ') AS side2_player_id,
-                        GROUP_CONCAT(c.shortname, ', ') AS side2_club_name,
-                        GROUP_CONCAT(c.club_id, ', ')   AS side2_club_id
+                        GROUP_CONCAT(p.player_id, ', ')              AS side2_player_id,
+                        GROUP_CONCAT(c.shortname, ', ')              AS side2_club_name,
+                        GROUP_CONCAT(c.club_id, ', ')                AS side2_club_id,
+                        GROUP_CONCAT(p.is_verified, ', ')            AS side2_player_is_verified   -- 🔹 added
                     FROM match_side ms
                     JOIN match_player mp 
                         ON ms.match_id = mp.match_id AND ms.side_no = mp.side_no
@@ -1892,11 +1896,13 @@ def create_views(cursor):
                 s1.side1_player_id,
                 s1.side1_club_name,
                 s1.side1_club_id,
+                s1.side1_player_is_verified,   -- 🔹 new field
 
                 s2.side2_player_name,
                 s2.side2_player_id,
                 s2.side2_club_name,
                 s2.side2_club_id,
+                s2.side2_player_is_verified,   -- 🔹 new field
 
                 -- Results
                 gs.games_score,
@@ -1943,7 +1949,7 @@ def create_views(cursor):
 
             ORDER BY t.startdate, tc.startdate, tcs.round_order, tcm.stage_round_no, m.match_id;
         '''
-)
+  )
 
     ]
 

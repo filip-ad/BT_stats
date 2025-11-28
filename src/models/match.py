@@ -25,7 +25,8 @@ class Match:
 
     def validate(self) -> Tuple[bool, str]:
         missing = []
-        if self.best_of is None:
+        # best_of is optional for walkover matches (no games played)
+        if self.best_of is None and self.walkover_side is None:
             missing.append("best_of")
         if missing:
             return False, f"Missing fields: {', '.join(missing)}"

@@ -1,4 +1,18 @@
 # src/resolvers/resolve_tournament_classes.py
+"""
+Resolver for tournament classes.
+
+This module handles the resolution of tournament_class_raw -> tournament_class,
+including type/structure detection, validation, and parent-child relationships.
+
+Parent-Child Relationship Detection (added 2025-11-28):
+    After upserting all classes, a second pass detects B-playoff classes by looking
+    for "~B" suffix in shortname (e.g., "P12~B"). These are linked to their parent
+    class ("P12") via tournament_class_id_parent foreign key.
+    
+    This relationship is used by resolve_tournament_class_matches.py to find
+    players in the parent class when they're not found in the B-class entry list.
+"""
 
 import sqlite3
 from typing import Optional, List
@@ -240,6 +254,68 @@ def resolve_tournament_classes(cursor, run_id=None) -> List[TournamentClass]:
                 f"Upsert failed due to integrity error: {e}",
             )
             continue
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # SECOND PASS: Detect and set parent class relationships
+    # ─────────────────────────────────────────────────────────────────────────
+    # B-playoff classes (e.g., "P12~B", "H2~B") have players who didn't advance 
+    # from the main class group stage. We detect these by looking for the "~B" 
+    # suffix in shortname and linking them to their parent class.
+    # ─────────────────────────────────────────────────────────────────────────
+    parent_links_set = 0
+    if valid_classes:
+        # Group classes by tournament_id for efficient parent lookup
+        classes_by_tournament: dict[int, list[TournamentClass]] = {}
+        for tc in valid_classes:
+            classes_by_tournament.setdefault(tc.tournament_id, []).append(tc)
+        
+        for tournament_id, tournament_classes in classes_by_tournament.items():
+            # Build lookup: shortname -> tournament_class for this tournament
+            shortname_to_class: dict[str, TournamentClass] = {}
+            for tc in tournament_classes:
+                if tc.shortname:
+                    shortname_to_class[tc.shortname] = tc
+            
+            # Find B-playoff classes and link to parent
+            for tc in tournament_classes:
+                if not tc.shortname:
+                    continue
+                
+                # Detect B-playoff pattern: shortname contains "~B" (e.g., "P12~B")
+                # Also check longname for " B" suffix (e.g., "P12 B")
+                parent_shortname = None
+                
+                if "~B" in tc.shortname:
+                    # Extract base shortname: "P12~B" -> "P12"
+                    parent_shortname = tc.shortname.replace("~B", "")
+                elif tc.shortname.endswith(" B") and len(tc.shortname) > 2:
+                    # Fallback: "P12 B" -> "P12"
+                    parent_shortname = tc.shortname[:-2]
+                
+                if not parent_shortname:
+                    continue
+                
+                # Look up parent class in same tournament
+                parent_class = shortname_to_class.get(parent_shortname)
+                if parent_class and parent_class.tournament_class_id:
+                    # Set parent relationship
+                    TournamentClass.set_parent_class(
+                        cursor,
+                        tc.tournament_class_id,
+                        parent_class.tournament_class_id
+                    )
+                    tc.tournament_class_id_parent = parent_class.tournament_class_id
+                    parent_links_set += 1
+                    
+                    if debug:
+                        logger.info(
+                            {"tournament_class_id_ext": tc.tournament_class_id_ext},
+                            f"Set parent class: '{tc.shortname}' -> '{parent_class.shortname}' "
+                            f"(parent_id={parent_class.tournament_class_id})"
+                        )
+    
+    if parent_links_set > 0:
+        logger.info(f"Set {parent_links_set} parent class relationships")
 
     logger.summarize()
 

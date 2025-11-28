@@ -68,7 +68,7 @@ def upd_tournament_data(
                 print(f"Error in scrape_tournament_class_entries_ondata: {e}")
                 pass
 
-            resolve_tournament_class_entries(cursor, run_id=run_id)
+        resolve_tournament_class_entries(cursor, run_id=run_id)
 
         if do_scrape_tournament_class_group_matches_ondata:
             # Collect group-stage match data so raw rows are ready for resolving.
@@ -91,7 +91,7 @@ def upd_tournament_data(
                 pass
 
         # Optional: resolving KO match rows once both group/KO raw data is available.
-        # resolve_tournament_class_matches(cursor, run_id=run_id)
+        resolve_tournament_class_matches(cursor, run_id=run_id)
 
 
     

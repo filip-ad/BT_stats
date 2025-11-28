@@ -19,11 +19,11 @@ SCRAPE_TRANSITIONS_ORDER                = "newest"  # Order of seasons to scrape
 # Profixio leagues
 SCRAPE_LEAGUES_SEASON_IDS               = None      # List like ['768'] to force specific seasons (None = auto/current)
 SCRAPE_LEAGUES_ONLY_CURRENT             = False     # When True, only scrape the current season (starred in nav)
-SCRAPE_LEAGUES_MAX_SEASONS              = None         # Max seasons to process (applied after filters), None for all
-SCRAPE_LEAGUES_MAX_LEAGUES_PER_SEASON   = None         # Limit leagues per season (for testing), None for all
+SCRAPE_LEAGUES_MAX_SEASONS              = 1      # Max seasons to process (applied after filters), None for all
+SCRAPE_LEAGUES_MAX_LEAGUES_PER_SEASON   = 5      # Limit leagues per season (for testing), None for all
 SCRAPE_LEAGUES_MAX_FIXTURES             = None      # Optional cap per league when testing
-SCRAPE_LEAGUES_SKIP_SEEN_MATCHES        = True      # If True, skip fetching match reports already seen and older than the freshness window
-SCRAPE_LEAGUES_SKIP_SEEN_MATCHES_DAYS   = 7         # Always refetch fixtures within the last N days; older fixtures can be skipped if already seen
+SCRAPE_LEAGUES_SKIP_SEEN_MATCHES        = False      # If True, skip fetching match reports already seen and older than the freshness window
+SCRAPE_LEAGUES_SKIP_SEEN_MATCHES_DAYS   = 0         # Always refetch fixtures within the last N days; older fixtures can be skipped if already seen
 SCRAPE_LEAGUES_REQUEST_DELAY            = 0       # Seconds to sleep between HTTP requests to Profixio (helps avoid hammering)
 SCRAPE_LEAGUES_SEASONS_ORDER            = "newest"  # "newest" or "oldest" when ordering seasons
 SCRAPE_LEAGUES_CACHE_HTML               = True      # Cache raw HTML for match reports locally to reduce re-fetching

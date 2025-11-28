@@ -172,20 +172,20 @@ def main():
         #     do_scrape_player_transitions      = True
         # )
 
-        # # Update tournament data
-        # upd_tournament_data(
-        #     run_id                                                  = pipeline_run_id,
-        #     do_scrape_tournaments                                   = False,
-        #     do_scrape_tournament_classes                            = False,
-        #     do_scrape_tournament_class_entries                      = False,
-        #     do_scrape_tournament_class_group_matches_ondata         = False,
-        #     do_scrape_tournament_class_knockout_matches_ondata      = True
-        # )
-
-        upd_league_data(
+        # Update tournament data
+        upd_tournament_data(
             run_id                                                  = pipeline_run_id,
-            do_scrape_all_league_data_profixio                      = True
+            do_scrape_tournaments                                   = False,
+            do_scrape_tournament_classes                            = False,
+            do_scrape_tournament_class_entries                      = False,
+            do_scrape_tournament_class_group_matches_ondata         = False,
+            do_scrape_tournament_class_knockout_matches_ondata      = False
         )
+
+        # upd_league_data(
+        #     run_id                                                  = pipeline_run_id,
+        #     do_scrape_all_league_data_profixio                      = True
+        # )
 
         export_runs_to_excel()
         export_logs_to_excel()
