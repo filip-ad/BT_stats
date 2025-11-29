@@ -169,33 +169,90 @@ def normalize_key(
         preserve_nordic: bool = True
     ) -> str:
     """
-    Normalize for matching.
+    Normalize a name/club string for fuzzy matching.
+
+    This function standardizes strings to improve matching between variations
+    that represent the same entity (e.g., "Virum-Sorgenfri" vs "Virum Sorgenfri").
+
+    Processing steps:
+    1. Strip leading/trailing whitespace
+    2. Replace separators (hyphens, slashes) with spaces for consistent word boundaries
+    3. Collapse multiple spaces into single space
+    4. Convert to lowercase
+    5. Normalize equivalent Nordic characters (ö ↔ ø, when not preserving diacritics)
+    6. Optionally strip diacritics (accents) from characters
 
     Parameters
     ----------
-    preserve_diacritics : bool
-        If True, keep all diacritics (Å, Ä, Ö, Ø, É, etc.)
-    preserve_nordic : bool
-        When stripping diacritics, optionally preserve å, ä, ö, ø
+    name : str
+        The input string to normalize (player name, club name, etc.)
+    preserve_diacritics : bool, default False
+        If True, keep all diacritics exactly as-is (Å, Ä, Ö, Ø, É, etc.)
+        If False, strip diacritics (é → e, ñ → n) except Nordic chars if preserve_nordic=True
+    preserve_nordic : bool, default True
+        When preserve_diacritics=False, still keep Nordic vowels (å, ä, ö, ø).
+        Nordic chars ö and ø are normalized to ö for consistent matching.
+
+    Returns
+    -------
+    str
+        Normalized lowercase string suitable for dictionary key lookups.
 
     Examples
     --------
-    "Virum"             -> "virum"
-    "Nørre"             -> "norre"  (unless preserve_diacritics=True)
-    "Åby"               -> "åby"    (if preserve_nordic=True)
+    >>> normalize_key("Virum-Sorgenfri BTK")
+    'virum sorgenfri btk'
+    >>> normalize_key("Virum Sorgenfri BTK")
+    'virum sorgenfri btk'
+    >>> normalize_key("Hillerød GI")  # Danish ø
+    'hillerød gi'
+    >>> normalize_key("Hilleröd GI")  # Swedish ö
+    'hillerød gi'
+    >>> normalize_key("Nørre Å")
+    'nørre å'
+    >>> normalize_key("Café", preserve_nordic=False)
+    'cafe'
+
+    Notes
+    -----
+    - Hyphens and slashes are replaced with spaces so "Virum-Sorgenfri" matches
+      "Virum Sorgenfri" after normalization.
+    - Danish ø and Swedish ö are treated as equivalent (both normalized to ø when
+      preserve_nordic=True) since they represent the same sound and clubs may be
+      spelled with either depending on the source system.
+    - This function is used for both player names and club names throughout the
+      codebase. Changes here affect all matching logic.
+
+    See Also
+    --------
+    name_keys_for_lookup_all_splits : Generates multiple key variations for name matching
+    Club.resolve : Uses this function for club name lookups
     """
     s = name.strip()
+    
+    # Replace common separators with spaces for consistent word boundaries
+    # This allows "Virum-Sorgenfri" to match "Virum Sorgenfri"
+    s = re.sub(r"[-/]", " ", s)
+    
+    # Collapse multiple whitespace into single space
     s = re.sub(r"\s+", " ", s)
     s = s.lower()
 
     if preserve_diacritics:
         return s
 
+    # Normalize equivalent Nordic characters: ö ↔ ø (Swedish vs Danish)
+    # We standardize to ø so "Hilleröd" matches "Hillerød"
+    if preserve_nordic:
+        s = s.replace("ö", "ø")
+
     normalized = []
     for ch in s:
-        if preserve_nordic and ch in "åäöø":
+        if preserve_nordic and ch in "åäøæ":
+            # Keep Nordic vowels (note: ö already converted to ø above)
             normalized.append(ch)
         else:
+            # Strip diacritics: decompose and remove combining marks
             decomp = unicodedata.normalize("NFKD", ch)
             normalized.append("".join(c for c in decomp if not unicodedata.combining(c)))
     return "".join(normalized)

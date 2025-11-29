@@ -1,3 +1,27 @@
+# clubs_data
+Add clubs_data_add 
+
+# Saturday Dec 1:
+- Data quality checks. Ask Claude Opus to 
+
+- Review full codebase and understand the intentions, 
+- Full log to see results
+- Access and query the db with read only mode
+- Then analyze:
+  - Where are the major data quality issues
+  - Do we have any low hanging fruit to fix quickly?
+  - Any bugs in the ETL flow? Inconsistencies or logical errors?
+  - Any bugs in the code/scripts?
+  - Any functionality we are not using?
+  - What can be streamlined? Used as common utils?
+  - Ideas for more clever ways of running the flow, while keeping it modular and customizable with filters/variables?
+  - Reporting, like the excel output as is. Review where we can utilize OperationLogger and logger_keys better?
+  - Are we missing any obvious functionality? 
+  - Do we clean up properly, orphan records etc? 
+  - Do we have a flow where new data of better quality always replaces old? Like replacing an unverified player in touraments and matches with verified if we had update player license data?
+  - I want to deploy to the website fairly soon (with prepared db for player profiles etc), what should we prioritize before doing that? Wanna get to at least 95%+ correct data.
+  
+
 To do
 =======================================================
 - Fixa en AGENTS.md för Codex i ./codex (?) som beskriver venv miljön och db:n så att den kan köra kommandon i sin sandbox

@@ -30,16 +30,16 @@ SCRAPE_LEAGUES_CACHE_HTML               = True      # Cache raw HTML for match r
 SCRAPE_LEAGUES_CACHE_HTML_DIR           = "data/profixio_league_data_cache"
 SCRAPE_LEAGUES_CACHE_HTML_DAYS          = 30        # Consider cached HTML fresh for N days (None = always use cache)
 
-SCRAPE_TOURNAMENTS_CUTOFF_DATE          = "2000-10-01"  # Date format: YYYY-MM-DD
+SCRAPE_TOURNAMENTS_CUTOFF_DATE          = "2025-11-01"  # Date format: YYYY-MM-DD
 SCRAPE_TOURNAMENTS_ORDER                = "newest"      # Order of tournaments to scrape, "oldest" or "newest"
 SCRAPE_TOURNAMENT_SBTFOTT_URL           = "https://sbtfott.stupaevents.com/#/events"
 
-SCRAPE_CLASSES_MAX_TOURNAMENTS          = None         # Maximum number of tournaments to scrape classes from
+SCRAPE_CLASSES_MAX_TOURNAMENTS          = 50         # Maximum number of tournaments to scrape classes from
 SCRAPE_CLASSES_TOURNAMENT_ID_EXTS       = None       # List (TEXT) ['123', '234'], None for all
 RESOLVE_CLASS_ID_EXTS                   = None       # List (TEXT) ['123', '234
 
 # Update defaults to use None for "no limit/all"
-SCRAPE_PARTICIPANTS_CUTOFF_DATE         = '2000-06-01'          # Date format: YYYY-MM-DD, None for all
+SCRAPE_PARTICIPANTS_CUTOFF_DATE         = '2025-11-01'          # Date format: YYYY-MM-DD, None for all
 SCRAPE_PARTICIPANTS_MAX_CLASSES         = None                  # Maximum number of classes to scrape participants from, None for all classes
 SCRAPE_PARTICIPANTS_CLASS_ID_EXTS       = None                 # List (TEXT) ['123', '234'], None for all
 SCRAPE_PARTICIPANTS_TNMT_ID_EXTS        = None                  # List (TEXT) ['123', '234'], None for all

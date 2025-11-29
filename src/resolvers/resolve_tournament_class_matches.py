@@ -51,13 +51,13 @@ from config import (
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS =['30834']  # Edge case, with duplicate matches in 2-page PDF - https://resultat.ondata.se/ViewClassPDF.php?classID=30834&stage=3
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30284']
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['557']
-RESOLVE_MATCHES_CUTOFF_DATE = '2025-11-01'
+# RESOLVE_MATCHES_CUTOFF_DATE = '2025-11-01'
 
-SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['31167']
+# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['31167']
 
 # TO-DO: Fix the doubles counter, does it do anything at all right now? Just searching for '/' is not enough.
 
-debug = True
+debug = False
 
 def _format_table(headers: List[str], rows: List[List[str]]) -> List[str]:
     if not rows:

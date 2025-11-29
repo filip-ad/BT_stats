@@ -1,0 +1,811 @@
+# BT_STATS COMPREHENSIVE ANALYSIS
+# Date: November 29, 2025
+# Scope: Full codebase review, log analysis, database inspection
+
+================================================================================
+## EXECUTIVE SUMMARY
+================================================================================
+
+BT_stats is a well-structured Swedish table tennis ETL pipeline with:
+- 58 database tables (1,238 tournaments, 77K players, 685K matches, 2.4M games)
+- 15 years of data (2010-2025)
+- Good resolution rates overall (97-99.8% for most entity types)
+- Key problem areas: player transitions (68% success), Norwegian club data pollution
+
+OVERALL DATA QUALITY: ~95% for core entities, ~68% for transitions
+
+
+================================================================================
+## 1. MAJOR DATA QUALITY ISSUES
+================================================================================
+
+### 1.1 Error Breakdown (from log_details table)
+┌─────────────────────────────┬───────────┬──────────────────────────────────────────────┐
+│ Object Type                 │ Count     │ Primary Issue                                │
+├─────────────────────────────┼───────────┼──────────────────────────────────────────────┤
+│ player_transition           │ 4,169     │ Cannot resolve player or club                │
+│ match                       │ 1,762     │ Failed player matching in matches            │
+│ tournament_class            │ 644       │ PDF download failures, structure validation  │
+│ player_license              │ 63        │ Season edge cases, unknown clubs             │
+└─────────────────────────────┴───────────┴──────────────────────────────────────────────┘
+
+### 1.2 Critical Issues
+
+**A. Player Transition Resolution (68% success - 7,712/11,380)**
+Root causes:
+- "No valid licensed players found in departing club" - player never had license in from-club
+- "No players found matching name/year/fullname" - name mismatch or unverified player
+- "Could not resolve club_from or club_to" - missing club mappings
+- "Multiple valid players found" - duplicate player_id_ext records needing deduplication
+RECOMMENDATION: Run deduplication script, add missing club mappings, consider fuzzy name matching
+
+**B. Norwegian/Foreign Club Pollution**
+- 2,713 log entries mention "Kameraterne" (Norwegian club)
+- Players from this club consistently fail matching ("Irgens Atle", "Thomas Låte", etc.)
+- Low scores in match resolution: "score 0 < 4 (too low for 'Kameraterne')"
+RECOMMENDATION: Either add these clubs/players to DB, or add filter to exclude non-Swedish data
+
+**C. License Overlap Issues (45 errors)**
+- "Overlaps existing license period" - multiple licenses for same period
+- Edge case: "No season found for valid_from date" (5 errors) - dates falling exactly on June 30
+RECOMMENDATION: Review season boundary logic (currently July 1 - June 30)
+
+**D. Missing Club Mappings**
+- Unknown club_id_ext 32532: SK Hakoah (3 errors)
+- Unknown club_id_ext 32674: Unknown club (10 errors)
+- 547 clubs without external ID mappings (1388 total - 841 mapped)
+RECOMMENDATION: Add these to club_id_ext table
+
+### 1.3 Warning Breakdown (from log_details table)
+┌──────────────────────────────────────────────────────────────────────────────────┬────────┐
+│ Warning Message                                                                  │ Count  │
+├──────────────────────────────────────────────────────────────────────────────────┼────────┤
+│ Matched by name with license in club, but not necessarily valid on class date   │ 22,679 │
+│ Club not found, using fallback Unknown (id=9999)                                 │ 14,590 │
+│ Club matched by prefix similarity                                                │ 7,350  │
+│ Season reassigned to proper season based on valid_from date                      │ 770    │
+│ Matched by substring with license in club, but not necessarily valid on date    │ 644    │
+│ Low match scores for specific players (Soploher, Wadsten, etc.)                  │ ~200   │
+└──────────────────────────────────────────────────────────────────────────────────┴────────┘
+
+The 14,590 "Club not found" warnings are significant - these entries use fallback club_id=9999
+
+
+================================================================================
+## 2. LOW-HANGING FRUIT TO FIX QUICKLY
+================================================================================
+
+### 2.1 HIGH IMPACT, LOW EFFORT
+
+1. **Add Missing Club Mappings** [EFFORT: 30 min]
+   - Add SK Hakoah (32532) → club_id_ext table
+   - Add club 32674 → investigate and add mapping
+   - Will fix 13 license errors immediately
+
+2. **Season Boundary Edge Case** [EFFORT: 1 hour]
+   - In resolve_player_licenses.py, dates exactly on June 30 fail
+   - Change: valid_from <= season.end_date (inclusive) or adjust June 30 → July 1
+
+3. **Norwegian Club Filter** [EFFORT: 1 hour]
+   - Add config flag: EXCLUDE_NON_SWEDISH_CLUBS = True
+   - Filter out "Kameraterne" and other Norwegian clubs during scraping
+   - Or: Add Norwegian clubs to DB if you want to keep this data
+
+4. **License Overlap Detection** [EFFORT: 2 hours]
+   - Before insert, check for overlapping periods
+   - Add merge strategy: extend existing license vs reject new one
+
+### 2.2 MEDIUM IMPACT, MEDIUM EFFORT
+
+5. **Club Prefix Matching Improvements** [EFFORT: 2-3 hours]
+   - 7,350 clubs matched by prefix - review these for accuracy
+   - Add more specific aliases to club_name_alias table
+   - Log the actual prefix matches for manual review
+
+6. **Player Name Normalization Edge Cases** [EFFORT: 2 hours]
+   - Names like "Felix Olofsson Munoz" not matching - triple-barreled names
+   - Names like "Norén Nils" (surname first) need reverse matching
+   - Enhance name_keys_for_lookup_all_splits() in utils.py
+
+
+================================================================================
+## 3. ETL BUGS IDENTIFIED
+================================================================================
+
+### 3.1 Critical Bugs
+
+**A. Exception in Match Resolution**
+Log shows: "Exception: list indices must be integers or slices, not str"
+Location: resolve_tournament_class_matches.py
+Cause: Likely accessing dict as list when parsing game scores
+RECOMMENDATION: Add type checking before access, improve parse_scores() error handling
+
+**B. PDF Download Failures (4 errors)**
+Tournaments 001284, 001303, 001310 have missing PDFs
+URLs: https://resultat.ondata.se/ViewClassPDF.php?tournamentID=...
+Cause: PDFs may no longer exist on source, or URL format changed
+RECOMMENDATION: Mark these classes as "pdf_unavailable" status, skip on rerun
+
+**C. Structure Validation Failure**
+"Validation failed: Missing/invalid fields: tournament_class_structure_id (unknown)"
+Cause: Some tournament classes have structures not in tournament_class_structure table
+RECOMMENDATION: Add catch-all structure type or expand structure enum
+
+### 3.2 Logic Issues
+
+**A. Season Reassignment Logic**
+770 licenses "Season reassigned to proper season based on valid_from date"
+This is by design but may indicate upstream data quality issues
+RECOMMENDATION: Validate that reassignment is correct, not masking errors
+
+**B. Fallback Unknown Club Overuse**
+14,590 entries using club_id=9999 (Unknown)
+This pollutes analytics with placeholder data
+RECOMMENDATION: After batch run, generate report of Unknown clubs for manual mapping
+
+
+================================================================================
+## 4. UNUSED/DEAD CODE
+================================================================================
+
+### 4.1 Backup Files to Remove
+- src/resolvers/resolve_tournament_class_entries_bkp.py
+- src/resolvers/resolve_tournament_classes_bkp.py
+- src/scrapers/scrape_tournament_class_entries_ondata_bkp.py
+- src/scrapers/scrape_tournament_classes_ondata_bkp.py
+- src/scrapers/scrape_tournament_class_knockout_matches_ondata_bkp.py
+- src/scrapers/scrape_tournament_class_knockout_matches_ondata_bkp_v2.py
+
+### 4.2 Old/Unused Update Scripts
+- src/upd_participant_positions_old.py (has "old" in name)
+- src/upd_player_licenses.py (duplicate of functionality in upd_player_data.py?)
+- src/upd_player_rankings.py / src/upd_player_rankings_raw.py (same question)
+- src/upd_player_transitions.py (may be superseded)
+- src/upd_tournaments.py / src/upd_tournament_classes.py (vs upd_tournament_data.py)
+- src/upd_participants.py (replaced by resolve_tournament_class_entries?)
+- src/upd_tournament_group_stage.py (integrated elsewhere?)
+
+### 4.3 Files to Investigate
+- src/scrapers/kalkylatorn.py - unclear purpose, may be obsolete
+- src/models/participant.py / participant_player.py - legacy models?
+- src/models/participant_player_raw_tournament.py - still used?
+
+### 4.4 TODO Files
+- src/utils_scripts/__to-do_find_duplicate_non_verified_players_and_merge.py
+- src/utils_scripts/__to-do_find_orphaned_non_verified_players.py
+These should either be completed or removed
+
+### 4.5 Empty Tables (Potentially Dead Code)
+- fixture: 0 rows
+- fixture_match: 0 rows
+- league: 0 rows
+- league_team: 0 rows
+- league_team_player: 0 rows
+- series_season: 0 rows
+These suggest league functionality is incomplete/unused
+
+
+================================================================================
+## 5. CODE STREAMLINING OPPORTUNITIES
+================================================================================
+
+### 5.1 Consolidate Update Scripts
+Current state: Many upd_*.py files with overlapping functionality
+Proposal: 
+- Keep only: main.py, upd_clubs.py, upd_player_data.py, upd_tournament_data.py, upd_league_data.py
+- Move others to archive/ folder or delete if truly unused
+
+### 5.2 Resolver Pattern Consistency
+All resolvers follow similar pattern - could extract base class:
+```python
+class BaseResolver:
+    def __init__(self, cursor, run_id):
+        self.logger = OperationLogger(...)
+    
+    @abstractmethod
+    def resolve(self): pass
+    
+    def run(self):
+        try:
+            self.resolve()
+            self.logger.summarize()
+        except Exception as e:
+            self.logger.failed({}, str(e))
+```
+
+### 5.3 Model Boilerplate Reduction
+- cache_mixin.py exists but not universally used
+- Each model has similar from_dict/to_dict/upsert patterns
+- Consider using dataclasses more consistently, or Pydantic
+
+### 5.4 Config Management
+- config.py has many fine-grained settings
+- Consider grouping into ConfigGroup dataclasses for better organization
+- Add config validation on startup
+
+
+================================================================================
+## 6. OPERATIONLOGGER IMPROVEMENTS
+================================================================================
+
+### 6.1 Current State
+- Verbosity levels: 0-3 (good)
+- DB logging: optional (good)
+- Excel export: available (good)
+- Context JSON: per-record detail (good)
+
+### 6.2 Suggested Improvements
+
+**A. Add Structured Error Codes**
+Instead of free-text messages, use error codes:
+```python
+ERROR_CODES = {
+    "E001": "No season found for date",
+    "E002": "Club not found",
+    "E003": "Player not matched",
+    ...
+}
+```
+Benefits: Easier aggregation, filtering, automated handling
+
+**B. Add Progress Tracking**
+```python
+logger.set_total(len(items))
+for item in items:
+    logger.inc_processed()  # Already exists
+    # logger.estimated_time_remaining()  # New
+```
+
+**C. Add Summary Statistics Cache**
+```python
+logger.get_summary()  # Returns dict with success/fail/warning counts
+# Useful for dashboard/monitoring without full log_details query
+```
+
+**D. Add Retry Suggestion Field**
+For failed items, indicate if retry would help:
+```python
+logger.failed(keys, message, retryable=True)
+```
+
+**E. Consider log_details Partitioning**
+60,315 rows growing fast - consider monthly partitioning or archival
+
+
+================================================================================
+## 7. MISSING FUNCTIONALITY
+================================================================================
+
+### 7.1 Data Validation Layer
+No pre-flight validation of raw data before resolution
+RECOMMENDATION: Add data validation step that checks:
+- All referenced clubs exist
+- All referenced seasons exist
+- Name formats are parseable
+- Dates are within expected range
+
+### 7.2 Data Reconciliation Reports
+Missing automated reports for:
+- Player deduplication candidates
+- Orphaned records (unverified players with no matches)
+- Data freshness (last scrape date per source)
+- Resolution success rates over time
+
+### 7.3 Rollback Capability
+No transaction rollback on batch failures
+RECOMMENDATION: Wrap resolver runs in savepoints, allow partial rollback
+
+### 7.4 Incremental Processing
+Currently: Full reprocess on each run (with cutoff dates)
+Missing: True incremental based on content_hash changes
+RECOMMENDATION: Only process raw records with updated content_hash
+
+### 7.5 Data Export for Analytics
+No easy way to export clean data for external analysis
+RECOMMENDATION: Add views or export scripts for common queries
+
+### 7.6 Monitoring/Alerting
+No automated checks for:
+- Unusual error rates
+- Missing expected data
+- Scraper failures
+RECOMMENDATION: Add simple health check script, optionally with email alerts
+
+
+================================================================================
+## 8. CLEANUP / ORPHAN RECORDS
+================================================================================
+
+### 8.1 Current State
+- 17,549 unverified players (vs 60,130 verified)
+- 60,770 unverified player appearances
+- 2,144 B-playoff classes (properly linked to parents)
+
+### 8.2 Orphan Detection Queries (READ-ONLY)
+
+```sql
+-- Unverified players with no appearances
+SELECT p.player_id, p.firstname, p.lastname 
+FROM player p 
+WHERE p.is_verified = 0 
+AND NOT EXISTS (
+    SELECT 1 FROM player_unverified_appearance a WHERE a.player_id = p.player_id
+)
+AND NOT EXISTS (
+    SELECT 1 FROM tournament_class_player tcp WHERE tcp.player_id = p.player_id
+);
+
+-- Tournament classes with no entries
+SELECT tc.tournament_class_id, tc.shortname, t.name
+FROM tournament_class tc
+JOIN tournament t ON tc.tournament_id = t.tournament_id
+WHERE NOT EXISTS (
+    SELECT 1 FROM tournament_class_entry tce WHERE tce.tournament_class_id = tc.tournament_class_id
+);
+
+-- Matches with no sides
+SELECT m.match_id 
+FROM match m
+WHERE NOT EXISTS (
+    SELECT 1 FROM match_side ms WHERE ms.match_id = m.match_id
+);
+```
+
+### 8.3 Recommended Cleanup Actions
+
+1. **Merge Duplicate Unverified Players**
+   - Run the TODO script: __to-do_find_duplicate_non_verified_players_and_merge.py
+   - Estimate: ~5000 duplicates based on identical names
+
+2. **Remove Orphaned Unverified Players**
+   - After merge, remove players with no appearances/matches
+   - Estimate: ~2000 orphans
+
+3. **Archive Old Raw Data**
+   - player_license_raw_bkp: 151,167 rows (appears to be backup)
+   - Consider removing if no longer needed
+
+
+================================================================================
+## 9. DATA REPLACEMENT FLOW (RAW → RESOLVED)
+================================================================================
+
+### 9.1 Current Flow
+```
+External Source → Scraper → *_raw table → Resolver → Clean table
+                    ↓
+               content_hash (dedup)
+               last_seen_at (freshness)
+```
+
+### 9.2 Resolution Success Rates
+┌────────────────────────────┬──────────┬──────────┬─────────┐
+│ Entity                     │ Raw      │ Resolved │ Rate    │
+├────────────────────────────┼──────────┼──────────┼─────────┤
+│ tournament                 │ 1,236    │ 1,238    │ 100.2%* │
+│ tournament_class           │ 26,093   │ 25,427   │ 97.4%   │
+│ tournament_class_match     │ 690,409  │ 683,813  │ 99.0%   │
+│ player_license             │ 162,691  │ 162,130  │ 99.7%   │
+│ player_transition          │ 11,380   │ 7,712    │ 67.8%** │
+│ player_ranking             │ 3,546,456│ 3,499,946│ 98.7%   │
+└────────────────────────────┴──────────┴──────────┴─────────┘
+* >100% indicates unlisted tournaments discovered
+** Major issue - needs investigation
+
+### 9.3 Recommended Improvements
+
+1. **Add Resolution Status to Raw**
+   - Add column: resolution_status ENUM('pending', 'resolved', 'failed', 'skipped')
+   - Allows reprocessing only failed records
+
+2. **Add Foreign Key References**
+   - Raw tables could store resolved IDs after first pass
+   - Enables faster re-resolution without full reprocessing
+
+3. **Version Raw Data**
+   - Track changes to raw records over time
+   - Enables rollback if source data was corrupted
+
+
+================================================================================
+## 10. DEPLOYMENT PRIORITIES FOR 95%+ CORRECT DATA
+================================================================================
+
+### 10.1 Current State: ~95% (excluding transitions which are 68%)
+
+### 10.2 Priority Actions (in order)
+
+**PHASE 1: Quick Wins (1-2 days work)**
+1. ✅ Add missing club mappings (32532, 32674)
+2. ✅ Fix season boundary edge case
+3. ✅ Add Norwegian club filter OR add Norwegian data
+4. ✅ Remove/archive backup files
+
+Impact: Reduces errors by ~50 (license), eliminates Norwegian noise
+
+**PHASE 2: Data Quality (3-5 days work)**
+5. Run player deduplication script
+6. Add more club name aliases (review 14,590 Unknown fallbacks)
+7. Improve name matching for triple-barreled names
+8. Mark unfixable raw records as 'failed' to skip on rerun
+
+Impact: Improves transition rate to ~80%, reduces Unknown club usage
+
+**PHASE 3: Robustness (1 week work)**
+9. Add structured error codes to OperationLogger
+10. Create data quality dashboard (simple HTML report)
+11. Add pre-flight validation for raw data
+12. Add incremental processing based on content_hash
+
+Impact: Operational stability, faster reruns, easier debugging
+
+**PHASE 4: Polish (ongoing)**
+13. Consolidate upd_*.py scripts
+14. Add unit tests for resolvers
+15. Create CLI for common operations
+16. Document schema and data flows
+
+
+================================================================================
+## 11. TEST CASE RECOMMENDATIONS
+================================================================================
+
+### 11.1 Unit Tests (Priority: HIGH)
+
+**A. Name Matching (utils.py)**
+```python
+def test_normalize_key():
+    assert normalize_key("Göran Allvin") == "goran allvin"
+    assert normalize_key("O'Connor") == "oconnor"
+    
+def test_name_keys_for_lookup_all_splits():
+    keys = name_keys_for_lookup_all_splits("Anna-Karin Svensson")
+    assert "anna-karin svensson" in keys
+    assert "svensson anna-karin" in keys
+```
+
+**B. Season Resolution**
+```python
+def test_season_contains_date():
+    season = Season(start_date="2024-07-01", end_date="2025-06-30")
+    assert season.contains_date(date(2024, 10, 15)) == True
+    assert season.contains_date(date(2024, 6, 30)) == False  # Edge case!
+    assert season.contains_date(date(2025, 6, 30)) == True   # Inclusive
+```
+
+**C. Club Resolution**
+```python
+def test_club_resolve_exact():
+    club = Club.resolve(cursor, "Spårvägens BTK")
+    assert club.club_id == expected_id
+    
+def test_club_resolve_prefix():
+    club = Club.resolve(cursor, "Spårvägens", allow_prefix=True)
+    assert club.club_id == expected_id
+```
+
+### 11.2 Integration Tests (Priority: MEDIUM)
+
+**A. Full Resolution Pipeline**
+```python
+def test_resolve_tournament_class_entries_simple():
+    # Insert minimal raw data
+    # Run resolver
+    # Verify clean tables populated correctly
+```
+
+**B. PDF Parsing**
+```python
+def test_parse_group_stage_pdf():
+    pdf_path = "test_fixtures/sample_group.pdf"
+    result = parse_group_stage_pdf(pdf_path)
+    assert len(result.matches) == expected_count
+```
+
+### 11.3 Regression Tests (Priority: HIGH)
+
+- Test the specific failing cases from logs:
+  - "Felix Olofsson Munoz" name matching
+  - License overlap detection
+  - June 30 season boundary
+
+
+================================================================================
+## 12. FOLDER STRUCTURE RECOMMENDATIONS
+================================================================================
+
+### 12.1 Current Structure (Flat)
+```
+src/
+├── main.py
+├── config.py
+├── db.py
+├── utils.py
+├── upd_*.py (many files)
+├── clubs_data.py
+├── models/
+├── resolvers/
+├── scrapers/
+├── utils_scripts/
+└── data/
+```
+
+### 12.2 Recommended Structure
+```
+src/
+├── __init__.py
+├── main.py                    # Entry point only
+├── config.py                  # Keep as-is
+├── db.py                      # Keep as-is
+│
+├── core/                      # Core utilities
+│   ├── __init__.py
+│   ├── logging.py             # OperationLogger
+│   ├── normalization.py       # Name/text normalization
+│   ├── pdf_utils.py           # PDF download/cache
+│   └── web_utils.py           # Selenium/requests helpers
+│
+├── models/                    # Keep as-is, well organized
+│
+├── scrapers/                  # Keep as-is
+│   └── archive/               # Move *_bkp.py files here
+│
+├── resolvers/                 # Keep as-is
+│   └── archive/               # Move *_bkp.py files here
+│
+├── pipelines/                 # Consolidate upd_*.py
+│   ├── __init__.py
+│   ├── clubs.py               # From upd_clubs.py
+│   ├── players.py             # From upd_player_data.py
+│   ├── tournaments.py         # From upd_tournament_data.py
+│   └── leagues.py             # From upd_league_data.py
+│
+├── reports/                   # New: data quality reports
+│   ├── __init__.py
+│   ├── data_quality.py
+│   └── templates/
+│
+├── scripts/                   # Rename from utils_scripts
+│   ├── download_pdf.py
+│   └── public_db_migration.py
+│
+├── tests/                     # New
+│   ├── __init__.py
+│   ├── test_utils.py
+│   ├── test_models.py
+│   └── fixtures/
+│
+└── data/                      # Keep as-is (runtime data)
+    ├── pdfs/
+    └── profixio_cache/
+```
+
+
+================================================================================
+## 13. CLI FUNCTIONALITY SUGGESTIONS
+================================================================================
+
+### 13.1 Current State
+- Single entry point: `python main.py`
+- Config flags control what runs
+- No command-line arguments
+
+### 13.2 Recommended CLI Design
+
+```bash
+# Using argparse or click
+
+# Full pipeline
+python -m btstats run --all
+
+# Selective runs
+python -m btstats run --scrape-tournaments --since 2024-01-01
+python -m btstats run --resolve-only --entity matches
+
+# Data operations
+python -m btstats validate --check-orphans
+python -m btstats export --format csv --table player
+
+# Utilities
+python -m btstats download-pdf --tournament 001284
+python -m btstats stats  # Quick DB summary
+
+# Reports
+python -m btstats report --data-quality --output report.html
+```
+
+### 13.3 Implementation Approach
+
+```python
+# cli.py
+import click
+
+@click.group()
+def cli():
+    """BT_stats - Swedish Table Tennis Data Pipeline"""
+    pass
+
+@cli.command()
+@click.option('--all', is_flag=True, help='Run full pipeline')
+@click.option('--scrape-tournaments', is_flag=True)
+@click.option('--since', type=str, help='Cutoff date (YYYY-MM-DD)')
+def run(all, scrape_tournaments, since):
+    """Run data pipeline"""
+    if since:
+        config.SCRAPE_TOURNAMENTS_CUTOFF_DATE = since
+    # ...
+
+if __name__ == '__main__':
+    cli()
+```
+
+
+================================================================================
+## 14. PDF FETCHING SCRIPT REVIEW
+================================================================================
+
+### 14.1 Current Implementation (in utils.py)
+- download_pdf_cached(): Downloads with cache
+- PDF_CACHE_DIR: src/data/pdfs/
+- 57,311 PDFs cached (~961 MB)
+- Per-tournament subdirectories
+
+### 14.2 Current Issues
+
+**A. No Retry on Failure**
+If PDF download fails, no retry logic
+RECOMMENDATION: Add exponential backoff retry (3 attempts)
+
+**B. No Timeout Configuration**
+HTTP requests may hang indefinitely
+RECOMMENDATION: Add timeout parameter (default 30s)
+
+**C. No Cache Invalidation**
+PDFs never expire from cache
+RECOMMENDATION: Add optional cache_ttl_days parameter
+
+**D. No Parallel Downloads**
+Downloads are sequential
+RECOMMENDATION: Add asyncio/concurrent downloads for batch operations
+
+**E. Error Reporting**
+Failed downloads logged but not tracked in DB
+RECOMMENDATION: Add pdf_download_failures table for retry management
+
+### 14.3 Suggested Enhanced Implementation
+
+```python
+def download_pdf_cached(
+    url: str,
+    cache_dir: str,
+    filename: str = None,
+    timeout: int = 30,
+    max_retries: int = 3,
+    retry_delay: float = 1.0,
+    cache_ttl_days: int = None,  # None = never expire
+    force_refresh: bool = False
+) -> Optional[Path]:
+    """
+    Download PDF with caching, retry logic, and timeout.
+    """
+    cache_path = Path(cache_dir) / filename
+    
+    # Check cache validity
+    if cache_path.exists() and not force_refresh:
+        if cache_ttl_days is None:
+            return cache_path
+        age = (datetime.now() - datetime.fromtimestamp(cache_path.stat().st_mtime)).days
+        if age < cache_ttl_days:
+            return cache_path
+    
+    # Download with retry
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+            cache_path.write_bytes(response.content)
+            return cache_path
+        except requests.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (2 ** attempt))  # Exponential backoff
+            else:
+                logger.error(f"PDF download failed after {max_retries} attempts: {url}")
+                return None
+    
+    return None
+```
+
+
+================================================================================
+## 15. ADDITIONAL OBSERVATIONS
+================================================================================
+
+### 15.1 Strengths of Current Codebase
+- Clean separation of concerns (scrapers/resolvers/models)
+- Consistent logging with OperationLogger
+- Content hashing for deduplication
+- Good use of dataclasses for models
+- Reasonable resolution rates for most entities
+
+### 15.2 Technical Debt Priorities
+1. Remove backup files
+2. Consolidate upd_*.py scripts
+3. Add tests for critical paths
+4. Document schema properly
+
+### 15.3 Scalability Notes
+- SQLite is sufficient for current data volume
+- PDF cache may grow large over time (consider S3 for archival)
+- log_details table needs archival strategy
+
+### 15.4 Security Considerations
+- No sensitive data in config.py
+- Database is local file, no auth needed
+- Scrapers use public URLs only
+
+
+================================================================================
+## APPENDIX A: KEY DATABASE METRICS
+================================================================================
+
+Table                         | Row Count    | Notes
+------------------------------|--------------|----------------------------------
+player                        | 77,679       | 60,130 verified, 17,549 unverified
+tournament                    | 1,238        | 2010-present
+tournament_class              | 25,427       | Singles, doubles, etc.
+match                         | 685,262      | All match types
+game                          | 2,463,618    | Individual games within matches
+player_license                | 162,130      | License periods
+player_ranking                | 3,499,946    | Historical rankings
+player_transition             | 7,712        | Club transfers
+club                          | 1,388        | All known clubs
+season                        | 16           | 2010-2026
+
+
+================================================================================
+## APPENDIX B: LOG FILE STATISTICS
+================================================================================
+
+Total log lines: 539,570
+ERROR lines: 6,683 (1.2%)
+WARNING lines: 53,943 (10%)
+
+Top error categories:
+- player_transition resolution: 4,169
+- match resolution: 1,762
+- tournament_class: 644
+- player_license: 63
+
+
+================================================================================
+## APPENDIX C: RECOMMENDED NEXT STEPS (PRIORITIZED)
+================================================================================
+
+IMMEDIATE (this week):
+□ Add missing club mappings (32532, 32674)
+□ Fix season boundary edge case (June 30)
+□ Remove *_bkp.py files (or move to archive/)
+□ Add Norwegian club handling (filter or include)
+
+SHORT-TERM (2 weeks):
+□ Run player deduplication
+□ Add structured error codes
+□ Create simple data quality report
+□ Add timeout to PDF downloads
+
+MEDIUM-TERM (1 month):
+□ Consolidate upd_*.py files
+□ Reorganize folder structure
+□ Add unit tests for utils.py
+□ Implement CLI
+
+LONG-TERM (ongoing):
+□ Improve name matching accuracy
+□ Add incremental processing
+□ Create monitoring/alerting
+□ Document API and schema
+
+
+================================================================================
+END OF ANALYSIS
+================================================================================
