@@ -84,6 +84,15 @@ All scrapers follow a pattern of: fetch → parse → upsert to `*_raw` tables w
 ## Domain Models 
 `src/models/` contains dataclass-based representations for core entities (players, tournaments, matches, etc.). For example, `models/player.py` defines sanitisation, caching helpers, and persistence helpers for verified/unverified players, reusing shared normalisation utilities.【F:src/models/player.py†L1-L160】 
 
+### Verified vs Unverified Players
+Players exist in two states:
+- **Verified** (`is_verified = 1`): Players with license data from SBTF. These have authoritative `player_id_ext`, club affiliations, and can be reliably linked across tournaments.
+- **Unverified** (`is_verified = 0`): Players created during entry/match resolution when no verified match is found. These are essentially name containers—a `player_id` plus `fullname_raw` for display purposes.
+
+**Current behavior:** When resolving entries, the resolver first attempts to match against verified players (by name + club). If no match is found, a new unverified player record is created. No deduplication is performed on unverified players—slight name variations (e.g., "GAMBORG NILSEN Carine" vs "GAMBORG-NILSEN Carine") create separate records.
+
+**Design decision:** Unverified players are display-only on the frontend (not searchable or clickable). This means duplicates are acceptable—each match appearance simply shows the scraped name as text. Future work could add deduplication or promotion workflows if unverified players need to become first-class entities.
+
 ### Parent-Child Class Relationships
 Tournament classes can have parent-child relationships via `tournament_class_id_parent` (added 2025-11-28):
 - B-playoff classes (e.g., "P12~B") contain players who didn't advance from the main class ("P12") group stage.

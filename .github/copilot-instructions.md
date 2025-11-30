@@ -9,7 +9,8 @@ BT_stats is a data engineering pipeline for Swedish table tennis information tha
 - The "new workflow" section in `main.py` is staged for modular updates. Club and player updates are currently commented out, while the tournament pipeline runs with tournament-class group match scraping enabled and other collectors disabled. Each run exports log metadata to Excel for auditing.【F:src/main.py†L149-L176】 
 
 ## Database Management 
-- `src/db.py` centralises database access. `get_conn` applies WAL journaling, normal synchronous writes, in-memory temp storage, and foreign-key enforcement for the SQLite database defined in `config.py`. Adapter/convertor registration preserves Python `date`/`datetime` fidelity.【F:src/db.py†L12-L61】 
+- `src/db.py` centralises database access. `get_conn` applies WAL journaling, normal synchronous writes, in-memory temp storage, and foreign-key enforcement for the SQLite database defined in `config.py`. Adapter/convertor registration preserves Python `date`/`datetime` fidelity.【F:src/db.py†L12-L61】
+- **`get_conn()` returns a tuple `(conn, cursor)`** - always unpack it: `conn, cur = get_conn()`. Do not call `conn.cursor()` separately.
 - Schema provisioning helpers (`create_raw_tables`, `create_tables`, `create_indexes`, etc.) are invoked from the entry point. Raw-layer DDL includes tournament, player license, and ranking staging tables with uniqueness constraints and metadata such as content hashes and `last_seen_at` timestamps.【F:src/db.py†L84-L199】 
 - Maintenance helpers provide table drop logic, optional custom SQL execution, and database compaction through WAL checkpointing and vacuuming.【F:src/main.py†L55-L140】【F:src/db.py†L36-L45】 
 
@@ -37,6 +38,12 @@ BT_stats is a data engineering pipeline for Swedish table tennis information tha
 ## Agent Permissions
 - **Virtual Environment**: You are free to use the project's `.venv` for running Python scripts and tests. Activate with `source .venv/bin/activate` before running commands.
 - **Database Queries**: You are always permitted to run **read-only** SQL queries against `data/table_tennis.db` to inspect data, verify results, or answer questions. Use `sqlite3 data/table_tennis.db "SELECT ..."` or Python with `sqlite3.connect()`. Do not modify data without explicit user approval.
+- **Query Timeouts**: Always use a timeout when running database queries to avoid getting stuck. For sqlite3 CLI, use `timeout 30 sqlite3 ...`. For Python, set `conn.execute("PRAGMA busy_timeout = 30000;")` after connecting (30 seconds). Prefer short timeouts for exploratory queries.
+- **Schema Discovery**: Before writing queries, check the schema first to avoid guessing column names. Use `PRAGMA table_info(table_name)` to get column definitions, or query the DDL in `db.py`. Common pattern:
+  ```python
+  cur.execute("PRAGMA table_info(tournament_class_entry)")
+  for col in cur.fetchall(): print(col[1], col[2])  # name, type
+  ```
 - **Testing**: You may run scripts in the venv to test code changes before presenting them to the user.
 
 ## Data Ingestion Pipelines 
