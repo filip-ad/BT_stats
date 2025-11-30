@@ -1,44 +1,24 @@
 # clubs_data
 Add clubs_data_add 
 
-# Saturday Dec 1:
-- Data quality checks. Ask Claude Opus to 
+# statistics for data quality
 
-- Review full codebase and understand the intentions, 
-- Full log to see results
-- Access and query the db with read only mode
-- Then analyze:
-  - Where are the major data quality issues
-  - Do we have any low hanging fruit to fix quickly?
-  - Any bugs in the ETL flow? Inconsistencies or logical errors?
-  - Any bugs in the code/scripts?
-  - Any functionality we are not using?
-  - What can be streamlined? Used as common utils?
-  - Ideas for more clever ways of running the flow, while keeping it modular and customizable with filters/variables?
-  - Reporting, like the excel output as is. Review where we can utilize OperationLogger and logger_keys better?
-  - Are we missing any obvious functionality? 
-  - Do we clean up properly, orphan records etc? 
-  - Do we have a flow where new data of better quality always replaces old? Like replacing an unverified player in touraments and matches with verified if we had update player license data?
-  - I want to deploy to the website fairly soon (with prepared db for player profiles etc), what should we prioritize before doing that? Wanna get to at least 95%+ correct data.
-  
 
 To do
 =======================================================
-- Fixa en AGENTS.md för Codex i ./codex (?) som beskriver venv miljön och db:n så att den kan köra kommandon i sin sandbox
 - Fixa ett script som laddar ner alla PDF:er senaste månaden, sedan ta bort force download i scrapers/resolvers
 - Fixa RO64 PDF match parser...
-- Fixa run log så att runs appendar och inte tar bort gamla rader?
 - Ordna upp filer, så att alla loggar hamnar på samma ställe, clubs_data etc ligger i proper folder names... ta bort skit som inte används
 - Fixa lika snygg debug output som i KO match scrapern för de andra scripten...
 
 
 Improvements long term
 =======================================================
-- Run the Codex code review from Github
 - When scheduling, implement a logfunction that writes the task (eg scrape_tournaments_ondata) and the results (updated/inserted/failed) - in single file that can be read in the morning
 - How to "upgrade" player to verified? With a separate script?
   - Create a script for identifying non verified players that now have a license...?    
 - Fix the pathing/packages whatever so everything doesnt have to be in /src
+ - Refactor and split code in db.py etc
 - Figure out how to deal with transitions - currently raw transitions are not used 
   - Should be able to search the transtion RAW tables for players not found. Then I can resolve firstname and lastname, even though I dont have player_id_ext!
 - Add DEBUG = True/False INSIDE key methods, and IF DEBUG statements, to debug certain parts of the code...!

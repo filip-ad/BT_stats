@@ -32,7 +32,12 @@ BT_stats is a data engineering pipeline for Swedish table tennis information tha
 	python src/main.py
 	```
 
-- If `python` isn’t available, use `python3`. Ensure `.venv/bin` is on your `PATH` by activating the environment (`source .venv/bin/activate`).
+- If `python` isn't available, use `python3`. Ensure `.venv/bin` is on your `PATH` by activating the environment (`source .venv/bin/activate`).
+
+## Agent Permissions
+- **Virtual Environment**: You are free to use the project's `.venv` for running Python scripts and tests. Activate with `source .venv/bin/activate` before running commands.
+- **Database Queries**: You are always permitted to run **read-only** SQL queries against `data/table_tennis.db` to inspect data, verify results, or answer questions. Use `sqlite3 data/table_tennis.db "SELECT ..."` or Python with `sqlite3.connect()`. Do not modify data without explicit user approval.
+- **Testing**: You may run scripts in the venv to test code changes before presenting them to the user.
 
 ## Data Ingestion Pipelines 
 

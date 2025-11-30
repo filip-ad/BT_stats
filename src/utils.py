@@ -1110,7 +1110,7 @@ def export_logs_to_excel(run_id=None):
         )
     else:
         df = pd.read_sql_query(
-            "SELECT * FROM log_details WHERE run_id = (SELECT MAX(run_id) FROM log_details)",
+            "SELECT * FROM log_details WHERE run_id = (SELECT run_id FROM log_details ORDER BY run_date DESC LIMIT 1)",
             conn
         )
     conn.close()
@@ -1146,16 +1146,24 @@ def export_logs_to_excel(run_id=None):
     logging.info("Exported latest run logs to logs.xlsx")
 
 
-def export_runs_to_excel():
+def export_runs_to_excel(export_latest_only: bool = False):
     """
-    Export the latest run-level summary (log_runs) to run_log.xlsx.
-    Always rewrites the file, so it only contains the most recent run.
+    Export run-level summaries (log_runs) to run_log.xlsx.
+    
+    Parameters:
+    - export_latest_only (bool): If True, exports only the latest run (overwrites file).
+                                  If False, exports full history from DB.
     """
     conn, cursor = get_conn()
-    df = pd.read_sql_query(
-        "SELECT * FROM log_runs WHERE run_id = (SELECT MAX(run_id) FROM log_runs)",
-        conn
-    )
+    
+    if export_latest_only:
+        df = pd.read_sql_query(
+            "SELECT * FROM log_runs WHERE run_id = (SELECT run_id FROM log_runs ORDER BY run_date DESC LIMIT 1)",
+            conn
+        )
+    else:
+        df = pd.read_sql_query("SELECT * FROM log_runs ORDER BY run_date DESC", conn)
+    
     conn.close()
 
     if df.empty:
@@ -1163,11 +1171,15 @@ def export_runs_to_excel():
         logging.info("No run summaries to export.")
         return
 
-    with pd.ExcelWriter("run_log.xlsx", engine='openpyxl') as writer:
+    excel_path = "run_log.xlsx"
+
+    with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
         df.to_excel(writer, sheet_name='Run_Summary', index=False)
 
-    print("ℹ️  Exported latest run summary to run_log.xlsx")
-    logging.info("Exported latest run summary to run_log.xlsx")
+    row_count = len(df)
+    mode_msg = "latest run" if export_latest_only else f"full history ({row_count} rows)"
+    print(f"ℹ️  Exported {mode_msg} to run_log.xlsx")
+    logging.info(f"Exported {mode_msg} to run_log.xlsx")
 
 
 def clear_debug_tables(cursor: sqlite3.Cursor, clear_logs: bool = True, clear_runs: bool = False):

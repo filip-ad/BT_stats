@@ -475,7 +475,7 @@ def create_tables(cursor):
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-                FOREIGN KEY (tournament_class_id)           REFERENCES tournament_class(tournament_class_id)
+                FOREIGN KEY (tournament_class_id)           REFERENCES tournament_class(tournament_class_id)    ON DELETE CASCADE,
                        
                 UNIQUE (tournament_class_id, tournament_class_entry_id_ext),
                 UNIQUE (tournament_class_id, tournament_class_entry_group_id_int)
@@ -492,7 +492,7 @@ def create_tables(cursor):
                 row_created                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 row_updated                                 TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-                FOREIGN KEY (tournament_class_entry_id)     REFERENCES tournament_class_entry(tournament_class_entry_id),
+                FOREIGN KEY (tournament_class_entry_id)     REFERENCES tournament_class_entry(tournament_class_entry_id)    ON DELETE CASCADE,
                 FOREIGN KEY (player_id)                     REFERENCES player(player_id),
                 FOREIGN KEY (club_id)                       REFERENCES club(club_id),
 
@@ -552,9 +552,9 @@ def create_tables(cursor):
 
                 PRIMARY KEY (match_id, side_no),            
 
-                FOREIGN KEY (match_id)                      REFERENCES match(match_id)                  ON DELETE CASCADE,
+                FOREIGN KEY (match_id)                      REFERENCES match(match_id)                              ON DELETE CASCADE,
                 FOREIGN KEY (represented_league_team_id)    REFERENCES league_team(league_team_id),
-                FOREIGN KEY (represented_entry_id)          REFERENCES tournament_class_entry(tournament_class_entry_id),           
+                FOREIGN KEY (represented_entry_id)          REFERENCES tournament_class_entry(tournament_class_entry_id)    ON DELETE CASCADE,           
 
                 CHECK (side_no IN (1, 2)),
                 CHECK (
@@ -1949,7 +1949,333 @@ def create_views(cursor):
 
             ORDER BY t.startdate, tc.startdate, tcs.round_order, tcm.stage_round_no, m.match_id;
         '''
-  )
+        ),
+
+        # =====================================================================
+        # DATA QUALITY VIEWS (v_dq_*)
+        # These views measure resolution rates from raw → resolved tables
+        # Optimized with pre-aggregated JOINs instead of correlated subqueries
+        # =====================================================================
+
+        (
+            "v_dq_summary",
+            '''
+            CREATE VIEW IF NOT EXISTS v_dq_summary AS
+            WITH counts AS (
+                SELECT
+                    (SELECT COUNT(*) FROM tournament_raw) AS tournaments_raw,
+                    (SELECT COUNT(*) FROM tournament) AS tournaments_resolved,
+                    (SELECT COUNT(*) FROM tournament_class_raw) AS classes_raw,
+                    (SELECT COUNT(*) FROM tournament_class) AS classes_resolved,
+                    (SELECT COUNT(*) FROM tournament_class_entry_raw) AS entries_raw,
+                    (SELECT COUNT(*) FROM tournament_class_entry) AS entries_resolved,
+                    (SELECT COUNT(*) FROM tournament_class_match_raw) AS matches_raw,
+                    (SELECT COUNT(*) FROM match) AS matches_resolved,
+                    (SELECT COUNT(*) FROM match WHERE winner_side IS NOT NULL) AS matches_with_winner,
+                    (SELECT COUNT(*) FROM match WHERE walkover_side IS NOT NULL) AS matches_walkover,
+                    (SELECT COUNT(*) FROM match_player) AS match_players_total,
+                    (SELECT COUNT(*) FROM match_player WHERE club_id = 9999) AS match_clubs_unknown,
+                    (SELECT COUNT(*) FROM match_player WHERE player_id = 99999) AS match_players_unknown
+            ),
+            player_counts AS (
+                SELECT
+                    SUM(CASE WHEN p.is_verified = 1 THEN 1 ELSE 0 END) AS match_players_verified,
+                    SUM(CASE WHEN p.is_verified = 0 AND mp.player_id != 99999 THEN 1 ELSE 0 END) AS match_players_unverified
+                FROM match_player mp
+                JOIN player p ON mp.player_id = p.player_id
+            )
+            SELECT
+                c.tournaments_raw,
+                c.tournaments_resolved,
+                ROUND(100.0 * c.tournaments_resolved / NULLIF(c.tournaments_raw, 0), 1) AS tournaments_pct,
+                c.classes_raw,
+                c.classes_resolved,
+                ROUND(100.0 * c.classes_resolved / NULLIF(c.classes_raw, 0), 1) AS classes_pct,
+                c.entries_raw,
+                c.entries_resolved,
+                ROUND(100.0 * c.entries_resolved / NULLIF(c.entries_raw, 0), 1) AS entries_pct,
+                c.matches_raw,
+                c.matches_resolved,
+                ROUND(100.0 * c.matches_resolved / NULLIF(c.matches_raw, 0), 1) AS matches_pct,
+                c.matches_with_winner,
+                c.matches_walkover,
+                ROUND(100.0 * c.matches_with_winner / NULLIF(c.matches_resolved, 0), 1) AS matches_winner_pct,
+                pc.match_players_verified,
+                pc.match_players_unverified,
+                c.match_players_unknown,
+                c.match_players_total,
+                ROUND(100.0 * pc.match_players_verified / NULLIF(c.match_players_total, 0), 1) AS match_players_verified_pct,
+                c.match_players_total - c.match_clubs_unknown AS match_clubs_known,
+                c.match_clubs_unknown,
+                ROUND(100.0 * (c.match_players_total - c.match_clubs_unknown) / NULLIF(c.match_players_total, 0), 1) AS match_clubs_known_pct
+            FROM counts c, player_counts pc;
+            '''
+        ),
+
+        (
+            "v_dq_tournaments",
+            '''
+            CREATE VIEW IF NOT EXISTS v_dq_tournaments AS
+            WITH raw_class_counts AS (
+                SELECT tournament_id_ext, COUNT(*) AS cnt
+                FROM tournament_class_raw
+                GROUP BY tournament_id_ext
+            ),
+            resolved_class_counts AS (
+                SELECT tournament_id, COUNT(*) AS cnt
+                FROM tournament_class
+                GROUP BY tournament_id
+            )
+            SELECT
+                tr.tournament_id_ext,
+                tr.shortname AS raw_shortname,
+                tr.startdate AS raw_startdate,
+                CASE WHEN t.tournament_id IS NOT NULL THEN 1 ELSE 0 END AS is_resolved,
+                t.tournament_id,
+                t.shortname AS resolved_shortname,
+                COALESCE(rcc.cnt, 0) AS classes_raw_count,
+                COALESCE(rsc.cnt, 0) AS classes_resolved_count
+            FROM tournament_raw tr
+            LEFT JOIN tournament t ON t.tournament_id_ext = tr.tournament_id_ext
+            LEFT JOIN raw_class_counts rcc ON rcc.tournament_id_ext = tr.tournament_id_ext
+            LEFT JOIN resolved_class_counts rsc ON rsc.tournament_id = t.tournament_id
+            ORDER BY tr.startdate DESC;
+            '''
+        ),
+
+        (
+            "v_dq_classes",
+            '''
+            CREATE VIEW IF NOT EXISTS v_dq_classes AS
+            WITH entry_raw_counts AS (
+                SELECT tournament_class_id_ext, COUNT(*) AS cnt
+                FROM tournament_class_entry_raw
+                GROUP BY tournament_class_id_ext
+            ),
+            entry_resolved_counts AS (
+                SELECT tournament_class_id, COUNT(*) AS cnt
+                FROM tournament_class_entry
+                GROUP BY tournament_class_id
+            ),
+            match_raw_counts AS (
+                SELECT tournament_class_id_ext, COUNT(*) AS cnt
+                FROM tournament_class_match_raw
+                GROUP BY tournament_class_id_ext
+            ),
+            match_resolved_counts AS (
+                SELECT tournament_class_id, COUNT(*) AS cnt
+                FROM tournament_class_match
+                GROUP BY tournament_class_id
+            )
+            SELECT
+                tcr.tournament_id_ext,
+                tcr.tournament_class_id_ext,
+                tcr.shortname AS raw_shortname,
+                t.shortname AS tournament_name,
+                t.startdate AS tournament_date,
+                CASE WHEN tc.tournament_class_id IS NOT NULL THEN 1 ELSE 0 END AS is_resolved,
+                tc.tournament_class_id,
+                COALESCE(erc.cnt, 0) AS entries_raw_count,
+                COALESCE(ers.cnt, 0) AS entries_resolved_count,
+                COALESCE(mrc.cnt, 0) AS matches_raw_count,
+                COALESCE(mrs.cnt, 0) AS matches_resolved_count
+            FROM tournament_class_raw tcr
+            LEFT JOIN tournament_class tc ON tc.tournament_class_id_ext = tcr.tournament_class_id_ext
+            LEFT JOIN tournament t ON t.tournament_id_ext = tcr.tournament_id_ext
+            LEFT JOIN entry_raw_counts erc ON erc.tournament_class_id_ext = tcr.tournament_class_id_ext
+            LEFT JOIN entry_resolved_counts ers ON ers.tournament_class_id = tc.tournament_class_id
+            LEFT JOIN match_raw_counts mrc ON mrc.tournament_class_id_ext = tcr.tournament_class_id_ext
+            LEFT JOIN match_resolved_counts mrs ON mrs.tournament_class_id = tc.tournament_class_id
+            ORDER BY t.startdate DESC, tcr.shortname;
+            '''
+        ),
+
+        (
+            "v_dq_classes_with_issues",
+            '''
+            CREATE VIEW IF NOT EXISTS v_dq_classes_with_issues AS
+            SELECT
+                tournament_id_ext,
+                tournament_class_id_ext,
+                raw_shortname AS class_shortname,
+                tournament_name,
+                tournament_date,
+                CASE WHEN is_resolved = 0 THEN 'Not resolved' ELSE 'Resolved' END AS resolution_status,
+                entries_raw_count AS entries_raw,
+                entries_resolved_count AS entries_resolved,
+                matches_raw_count AS matches_raw,
+                matches_resolved_count AS matches_resolved,
+                CASE 
+                    WHEN is_resolved = 0 THEN 'CLASS_NOT_RESOLVED'
+                    WHEN entries_raw_count > entries_resolved_count THEN 'ENTRIES_MISSING'
+                    WHEN matches_raw_count > matches_resolved_count THEN 'MATCHES_MISSING'
+                    ELSE NULL
+                END AS issue_type
+            FROM v_dq_classes
+            WHERE 
+                is_resolved = 0
+                OR entries_raw_count > entries_resolved_count
+                OR matches_raw_count > matches_resolved_count
+            ORDER BY tournament_date DESC, issue_type, class_shortname;
+            '''
+        ),
+
+        (
+            "v_dq_matches",
+            '''
+            CREATE VIEW IF NOT EXISTS v_dq_matches AS
+            WITH game_counts AS (
+                SELECT match_id, COUNT(*) AS game_count
+                FROM game
+                GROUP BY match_id
+            )
+            SELECT
+                m.match_id,
+                t.shortname AS tournament_name,
+                t.startdate AS tournament_date,
+                tc.shortname AS class_shortname,
+                m.winner_side,
+                m.walkover_side,
+                m.status,
+                mp1.player_id AS side1_player_id,
+                p1.is_verified AS side1_is_verified,
+                CASE WHEN mp1.player_id = 99999 THEN 1 ELSE 0 END AS side1_is_unknown_player,
+                CASE WHEN mp1.club_id = 9999 THEN 1 ELSE 0 END AS side1_is_unknown_club,
+                mp2.player_id AS side2_player_id,
+                p2.is_verified AS side2_is_verified,
+                CASE WHEN mp2.player_id = 99999 THEN 1 ELSE 0 END AS side2_is_unknown_player,
+                CASE WHEN mp2.club_id = 9999 THEN 1 ELSE 0 END AS side2_is_unknown_club,
+                COALESCE(gc.game_count, 0) AS game_count,
+                COALESCE(p1.is_verified, 0) + COALESCE(p2.is_verified, 0) +
+                CASE WHEN COALESCE(mp1.club_id, 9999) != 9999 THEN 1 ELSE 0 END +
+                CASE WHEN COALESCE(mp2.club_id, 9999) != 9999 THEN 1 ELSE 0 END AS quality_score
+            FROM match m
+            JOIN tournament_class_match tcm ON tcm.match_id = m.match_id
+            JOIN tournament_class tc ON tc.tournament_class_id = tcm.tournament_class_id
+            JOIN tournament t ON t.tournament_id = tc.tournament_id
+            LEFT JOIN match_player mp1 ON mp1.match_id = m.match_id AND mp1.side = 1 AND mp1.player_order = 1
+            LEFT JOIN match_player mp2 ON mp2.match_id = m.match_id AND mp2.side = 2 AND mp2.player_order = 1
+            LEFT JOIN player p1 ON p1.player_id = mp1.player_id
+            LEFT JOIN player p2 ON p2.player_id = mp2.player_id
+            LEFT JOIN game_counts gc ON gc.match_id = m.match_id;
+            '''
+        ),
+
+        (
+            "v_dq_matches_quality_summary",
+            '''
+            CREATE VIEW IF NOT EXISTS v_dq_matches_quality_summary AS
+            WITH match_scores AS (
+                SELECT
+                    COALESCE(p1.is_verified, 0) + COALESCE(p2.is_verified, 0) +
+                    CASE WHEN COALESCE(mp1.club_id, 9999) != 9999 THEN 1 ELSE 0 END +
+                    CASE WHEN COALESCE(mp2.club_id, 9999) != 9999 THEN 1 ELSE 0 END AS quality_score
+                FROM match m
+                LEFT JOIN match_player mp1 ON mp1.match_id = m.match_id AND mp1.side = 1 AND mp1.player_order = 1
+                LEFT JOIN match_player mp2 ON mp2.match_id = m.match_id AND mp2.side = 2 AND mp2.player_order = 1
+                LEFT JOIN player p1 ON p1.player_id = mp1.player_id
+                LEFT JOIN player p2 ON p2.player_id = mp2.player_id
+            ),
+            total AS (SELECT COUNT(*) AS cnt FROM match_scores)
+            SELECT
+                quality_score,
+                COUNT(*) AS match_count,
+                ROUND(100.0 * COUNT(*) / t.cnt, 1) AS pct
+            FROM match_scores, total t
+            GROUP BY quality_score
+            ORDER BY quality_score DESC;
+            '''
+        ),
+
+        (
+            "v_dq_matches_by_tournament",
+            '''
+            CREATE VIEW IF NOT EXISTS v_dq_matches_by_tournament AS
+            WITH match_quality AS (
+                SELECT
+                    t.shortname AS tournament_name,
+                    t.startdate AS tournament_date,
+                    m.match_id,
+                    COALESCE(p1.is_verified, 0) + COALESCE(p2.is_verified, 0) +
+                    CASE WHEN COALESCE(mp1.club_id, 9999) != 9999 THEN 1 ELSE 0 END +
+                    CASE WHEN COALESCE(mp2.club_id, 9999) != 9999 THEN 1 ELSE 0 END AS quality_score,
+                    CASE WHEN mp1.player_id = 99999 OR mp2.player_id = 99999 THEN 1 ELSE 0 END AS has_unknown_player,
+                    CASE WHEN COALESCE(mp1.club_id, 9999) = 9999 OR COALESCE(mp2.club_id, 9999) = 9999 THEN 1 ELSE 0 END AS has_unknown_club
+                FROM match m
+                JOIN tournament_class_match tcm ON tcm.match_id = m.match_id
+                JOIN tournament_class tc ON tc.tournament_class_id = tcm.tournament_class_id
+                JOIN tournament t ON t.tournament_id = tc.tournament_id
+                LEFT JOIN match_player mp1 ON mp1.match_id = m.match_id AND mp1.side = 1 AND mp1.player_order = 1
+                LEFT JOIN match_player mp2 ON mp2.match_id = m.match_id AND mp2.side = 2 AND mp2.player_order = 1
+                LEFT JOIN player p1 ON p1.player_id = mp1.player_id
+                LEFT JOIN player p2 ON p2.player_id = mp2.player_id
+            )
+            SELECT
+                tournament_name,
+                tournament_date,
+                COUNT(*) AS total_matches,
+                SUM(CASE WHEN quality_score = 4 THEN 1 ELSE 0 END) AS perfect_matches,
+                SUM(has_unknown_player) AS matches_with_unknown_player,
+                SUM(has_unknown_club) AS matches_with_unknown_club,
+                ROUND(100.0 * SUM(CASE WHEN quality_score = 4 THEN 1 ELSE 0 END) / COUNT(*), 1) AS perfect_pct,
+                ROUND(AVG(quality_score), 2) AS avg_quality_score
+            FROM match_quality
+            GROUP BY tournament_name, tournament_date
+            ORDER BY tournament_date DESC;
+            '''
+        ),
+
+        (
+            "v_dq_players",
+            '''
+            CREATE VIEW IF NOT EXISTS v_dq_players AS
+            WITH player_stats AS (
+                SELECT
+                    COUNT(*) FILTER (WHERE is_verified = 1) AS verified_players,
+                    COUNT(*) FILTER (WHERE is_verified = 0 AND player_id != 99999) AS unverified_players,
+                    COUNT(*) AS total_players
+                FROM player
+            ),
+            appearance_stats AS (
+                SELECT
+                    SUM(CASE WHEN p.is_verified = 1 THEN 1 ELSE 0 END) AS verified_match_appearances,
+                    SUM(CASE WHEN p.is_verified = 0 THEN 1 ELSE 0 END) AS unverified_match_appearances,
+                    COUNT(*) AS total_match_appearances
+                FROM match_player mp
+                JOIN player p ON mp.player_id = p.player_id
+            )
+            SELECT
+                ps.verified_players,
+                ps.unverified_players,
+                ps.total_players,
+                ROUND(100.0 * ps.verified_players / NULLIF(ps.total_players, 0), 1) AS verified_pct,
+                a.verified_match_appearances,
+                a.unverified_match_appearances,
+                a.total_match_appearances
+            FROM player_stats ps, appearance_stats a;
+            '''
+        ),
+
+        (
+            "v_dq_unverified_players_by_appearances",
+            '''
+            CREATE VIEW IF NOT EXISTS v_dq_unverified_players_by_appearances AS
+            SELECT
+                p.player_id,
+                p.firstname,
+                p.lastname,
+                p.yearborn,
+                COUNT(mp.match_id) AS match_count,
+                COUNT(DISTINCT mp.club_id) AS clubs_count,
+                GROUP_CONCAT(DISTINCT c.shortname) AS clubs
+            FROM player p
+            JOIN match_player mp ON mp.player_id = p.player_id
+            LEFT JOIN club c ON c.club_id = mp.club_id
+            WHERE p.is_verified = 0 AND p.player_id != 99999
+            GROUP BY p.player_id, p.firstname, p.lastname, p.yearborn
+            ORDER BY match_count DESC;
+            '''
+        )
 
     ]
 

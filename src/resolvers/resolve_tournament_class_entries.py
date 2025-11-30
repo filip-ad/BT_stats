@@ -96,7 +96,14 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
             class_date = tc.startdate if tc.startdate else date.today()
             logger_keys.update({'tournament_class_shortname': tc.shortname})
 
-            logger.info(f"[{idx}/{len(groups)}] Resolving entries for tournament_class_id_ext={class_ext} (tournament_class_id={tournament_class_id}) with {len(class_groups)} groups...", to_console=True)
+            # ── CLEAR ALL EXISTING ENTRIES FOR THIS CLASS ──────────────────────────
+            # This ensures orphan entries (no longer in raw) are removed on re-resolve.
+            # With ON DELETE CASCADE, this also removes tournament_class_player,
+            # tournament_class_group_member, and match_side rows for these entries.
+            removed_count = TournamentClassEntry.remove_for_class(cursor, tournament_class_id)
+            # ───────────────────────────────────────────────────────────────────────
+
+            logger.info(f"[{idx}/{len(groups)}] Resolving entries for tournament_class_id_ext={class_ext} (tournament_class_id={tournament_class_id}) with {len(class_groups)} groups (removed {removed_count} existing)...", to_console=True)
 
             for group_id, group_rows in class_groups.items():   
                 if not group_rows:
@@ -130,13 +137,10 @@ def resolve_tournament_class_entries(cursor: sqlite3.Cursor, run_id=None) -> Non
                         logger.failed(logger_keys.copy(), f"Entry upsert failed for group {group_id} (row_id={first_row.row_id})")
 
                         continue
-                    # ── CLEAR EXISTING ROWS FOR THIS ENTRY (run ONCE per group) ────────────────
-                    # 1) Remove all players linked to this entry
-                    TournamentClassPlayer.remove_for_entry(cursor, entry.tournament_class_entry_id)
-
-                    # 2) Remove group-membership for this entry (prevents PK conflicts on rerun)
-                    TournamentClassGroupMember.remove_for_entry(cursor, entry.tournament_class_entry_id)
-                    # ───────────────────────────────────────────────────────────────────────────
+                    # Note: No need to remove players/members per-entry since we clear the whole class
+                    # at the start of resolution via TournamentClassEntry.remove_for_class().
+                    # The ON DELETE CASCADE handles cleanup of tournament_class_player and
+                    # tournament_class_group_member automatically.
 
                     logger_keys.update({
                         'fullname_raw': first_row.fullname_raw,

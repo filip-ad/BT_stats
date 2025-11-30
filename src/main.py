@@ -161,33 +161,33 @@ def main():
         ### NEW WORKFLOW
         ################################################################################################
         
-        # # Update club data
-        upd_clubs(dry_run=False)
+        # # # Update club data
+        # upd_clubs(dry_run=False)
 
-        # Update player data
-        upd_player_data(
-            run_id                            = pipeline_run_id,
-            do_scrape_player_licenses         = True,
-            do_scrape_player_rankings         = True,
-            do_scrape_player_transitions      = True
-        )
-
-        # Update tournament data
-        upd_tournament_data(
-            run_id                                                  = pipeline_run_id,
-            do_scrape_tournaments                                   = True,
-            do_scrape_tournament_classes                            = True,
-            do_scrape_tournament_class_entries                      = True,
-            do_scrape_tournament_class_group_matches_ondata         = True,
-            do_scrape_tournament_class_knockout_matches_ondata      = True
-        )
-
-        # upd_league_data(
-        #     run_id                                                  = pipeline_run_id,
-        #     do_scrape_all_league_data_profixio                      = True
+        # # Update player data
+        # upd_player_data(
+        #     run_id                            = pipeline_run_id,
+        #     do_scrape_player_licenses         = True,
+        #     do_scrape_player_rankings         = True,
+        #     do_scrape_player_transitions      = True
         # )
 
-        export_runs_to_excel()
+        # # Update tournament data
+        # upd_tournament_data(
+        #     run_id                                                  = pipeline_run_id,
+        #     do_scrape_tournaments                                   = True,
+        #     do_scrape_tournament_classes                            = True,
+        #     do_scrape_tournament_class_entries                      = True,
+        #     do_scrape_tournament_class_group_matches_ondata         = True,
+        #     do_scrape_tournament_class_knockout_matches_ondata      = True
+        # )
+
+        upd_league_data(
+            run_id                                                  = pipeline_run_id,
+            do_scrape_all_league_data_profixio                      = True
+        )
+
+        export_runs_to_excel(export_latest_only=False)   # Set to True to export only latest run
         export_logs_to_excel()
 
     except Exception as e:

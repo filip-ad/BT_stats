@@ -123,3 +123,22 @@ class TournamentClassEntry(CacheMixin):
         """, (tournament_class_id,))
         cols = [col[0] for col in cursor.description]
         return [{col: val for col, val in zip(cols, rec)} for rec in cursor.fetchall()]
+
+    @classmethod
+    def remove_for_class(cls, cursor: sqlite3.Cursor, tournament_class_id: int) -> int:
+        """
+        Remove all entries for a given tournament_class_id.
+        
+        With ON DELETE CASCADE on tournament_class_player and match_side,
+        this will also remove:
+          - tournament_class_player rows for these entries
+          - tournament_class_group_member rows for these entries
+          - match_side rows referencing these entries
+        
+        Returns the number of entries deleted.
+        """
+        cursor.execute("""
+            DELETE FROM tournament_class_entry
+            WHERE tournament_class_id = ?
+        """, (tournament_class_id,))
+        return cursor.rowcount

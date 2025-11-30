@@ -540,10 +540,6 @@ CLUB_ALIASES_ADD = [
     # St Petersburg → St Petersburg TT (id=1248) - same club
     (1248, 'St Petersburg', 'short'),
     
-    # Island BTF → Iceland (id=5000) - federation alias
-    (5000, 'Island BTF', 'short'),
-    (5000, 'Íslands Borðtennissamband', 'long'),
-    
     # Finland TTA → Finland (id=5059) - federation alias
     (5059, 'Finland TTA', 'short'),
     (5059, 'Finland Table Tennis Association', 'long'),
@@ -955,11 +951,3 @@ CLUB_ALIASES_NEW = [
     (1119, 'Mejlans BF/Fi', 'short'),
     (1119, 'Mejlans', 'short'),
     
-    # Island BTF → Iceland (id=5000)
-    (5000, 'Island', 'short'),
-    (5000, 'ISL', 'short'),
-    
-    # Finland TTA → Finland (id=5059)
-    (5059, 'FIN TTA', 'short'),
-]
-
