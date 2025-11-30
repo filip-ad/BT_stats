@@ -1466,9 +1466,9 @@ def create_views(cursor):
 
     views = [
         (
-            "v_tnmt_class",
+            "v_tc_overview",
             """
-            CREATE VIEW IF NOT EXISTS v_tnmt_class AS
+            CREATE VIEW IF NOT EXISTS v_tc_overview AS
             SELECT
                 tc.tournament_class_id,
                 tc.tournament_class_id_ext,
@@ -1510,9 +1510,9 @@ def create_views(cursor):
             '''
         ),
         (
-            "v_clubs",
+            "v_club_overview",
             '''
-            CREATE VIEW IF NOT EXISTS v_clubs AS
+            CREATE VIEW IF NOT EXISTS v_club_overview AS
                 SELECT 
                     c.club_id,
                     c.shortname        AS club_shortname,
@@ -1539,9 +1539,9 @@ def create_views(cursor):
             '''
         ),
         (
-        "v_tournament_class_entries",
+        "v_tc_entry_detail",
         '''
-        CREATE VIEW IF NOT EXISTS v_tournament_class_entries AS
+        CREATE VIEW IF NOT EXISTS v_tc_entry_detail AS
             SELECT
                 -- Tournament context
                 t.shortname          AS tournament_shortname,
@@ -1590,9 +1590,9 @@ def create_views(cursor):
         '''
     ),
     (
-        "v_player_profile",
+        "v_plyr_profile",
         '''
-        CREATE VIEW IF NOT EXISTS v_player_profile AS
+        CREATE VIEW IF NOT EXISTS v_plyr_profile AS
         WITH recent_license AS (
             SELECT pl.player_id,
                 c.club_id,
@@ -1642,32 +1642,14 @@ def create_views(cursor):
             GROUP BY prg.player_id
         ),
         recent_ranking_points AS (
-            SELECT pie.player_id,
+            SELECT 
+                pie.player_id,
                 pr.points,
-                pr.run_date
+                pr.run_date,
+                ROW_NUMBER() OVER (PARTITION BY pie.player_id ORDER BY pr.run_date DESC, pr.points DESC) AS rn
             FROM player_id_ext pie
-            JOIN (
-                SELECT player_id_ext, MAX(run_date) AS max_run_date
-                FROM player_ranking
-                GROUP BY player_id_ext
-            ) latest
-            ON pie.player_id_ext = latest.player_id_ext
             JOIN player_ranking pr
-            ON pr.player_id_ext = latest.player_id_ext
-            AND pr.run_date = latest.max_run_date
-        ),
-        ranking_points_per_player AS (
-            SELECT rrp.player_id,
-                rrp.points,
-                rrp.run_date
-            FROM recent_ranking_points rrp
-            JOIN (
-                SELECT player_id, MAX(run_date) AS max_date
-                FROM recent_ranking_points
-                GROUP BY player_id
-            ) maxed
-            ON rrp.player_id = maxed.player_id
-            AND rrp.run_date = maxed.max_date
+                ON pr.player_id_ext = pie.player_id_ext
         )
         SELECT
             -- Player context
@@ -1711,15 +1693,15 @@ def create_views(cursor):
             ON p.player_id = rg.player_id
         LEFT JOIN recent_transition tr
             ON p.player_id = tr.player_id AND tr.rn = 1
-        LEFT JOIN ranking_points_per_player rpp
-            ON p.player_id = rpp.player_id;
+        LEFT JOIN recent_ranking_points rpp
+            ON p.player_id = rpp.player_id AND rpp.rn = 1;
         '''
     ),
 
     (
-        "v_trnmt_entry",
+        "v_tc_entry_grouped",
         '''
-        CREATE VIEW IF NOT EXISTS v_trnmt_entry AS
+        CREATE VIEW IF NOT EXISTS v_tc_entry_grouped AS
             SELECT
                 -- Tournament context
                 t.shortname          AS tournament_shortname,
@@ -1791,9 +1773,9 @@ def create_views(cursor):
 ),
 
 (
-        "v_trnmt_matches",
+        "v_tc_match_detail",
         '''
-            CREATE VIEW IF NOT EXISTS v_trnmt_matches AS
+            CREATE VIEW IF NOT EXISTS v_tc_match_detail AS
             WITH
                 game_summary AS (
                     SELECT
@@ -1951,6 +1933,147 @@ def create_views(cursor):
         '''
         ),
 
+        (
+            "v_plyr_match_history",
+            '''
+            CREATE VIEW IF NOT EXISTS v_plyr_match_history AS
+            WITH
+                game_summary AS (
+                    SELECT
+                        g.match_id,
+                        GROUP_CONCAT(g.points_side1 || '-' || g.points_side2, ', ') AS games_score,
+                        SUM(CASE WHEN g.points_side1 > g.points_side2 THEN 1 ELSE 0 END) AS games_won_side1,
+                        SUM(CASE WHEN g.points_side2 > g.points_side1 THEN 1 ELSE 0 END) AS games_won_side2
+                    FROM game g
+                    GROUP BY g.match_id
+                ),
+                player_side AS (
+                    SELECT 
+                        mp.match_id,
+                        mp.player_id,
+                        mp.side_no,
+                        mp.club_id
+                    FROM match_player mp
+                )
+            SELECT
+                -- Player context (filter field)
+                ps.player_id,
+                
+                -- Tournament context
+                t.shortname             AS tournament_shortname,
+                --t.startdate             AS tournament_startdate,
+                --t.city                  AS tournament_city,
+                
+                -- Class context
+                -- tc.shortname            AS class_shortname,
+                tc.longname             AS class_longname,
+                tc.startdate            AS date,
+
+                -- Win/loss for this player
+                CASE 
+                    WHEN m.winner_side = ps.side_no THEN 'WIN'
+                    WHEN m.winner_side IS NOT NULL AND m.winner_side != ps.side_no THEN 'LOSS'
+                    ELSE NULL
+                END AS result,
+
+                -- Opponent info
+                CASE 
+                    WHEN p_opp.is_verified = 1 
+                    THEN TRIM(p_opp.firstname || ' ' || p_opp.lastname)
+                    ELSE TRIM(
+                        CASE 
+                            WHEN INSTR(p_opp.fullname_raw, ' ') > 0 
+                            THEN SUBSTR(p_opp.fullname_raw, INSTR(p_opp.fullname_raw, ' ') + 1) 
+                                || ' ' || SUBSTR(p_opp.fullname_raw, 1, INSTR(p_opp.fullname_raw, ' ') - 1)
+                            ELSE p_opp.fullname_raw
+                        END
+                    )
+                END AS opponent_name,
+                p_opp.player_id         AS opponent_player_id,
+                c_opp.shortname         AS opponent_club,
+
+                -- Match result
+                CASE 
+                    WHEN gs.games_won_side1 IS NOT NULL AND gs.games_won_side2 IS NOT NULL
+                    THEN gs.games_won_side1 || '-' || gs.games_won_side2
+                    ELSE NULL
+                END AS match_score_summary,
+                gs.games_score,
+                --gs.games_won_side1,
+                --gs.games_won_side2,
+                
+
+                
+                -- Stage / group context
+                -- tcs.shortname           AS stage_shortname,
+                tcs.description         AS stage_description,
+                -- tcm.stage_round_no      AS stage_round_no,
+                -- tcg.description         AS group_name,
+                
+                -- Match info
+                m.match_id,
+                m.best_of,
+                m.date                  AS match_date,
+                m.status                AS match_status,
+                m.winner_side,
+                m.walkover_side,
+                
+                -- Player's side info
+                ps.side_no              AS player_side_no,
+                c_player.shortname      AS player_club,
+                
+                -- Match result
+                gs.games_score,
+                gs.games_won_side1,
+                gs.games_won_side2,
+                CASE 
+                    WHEN gs.games_won_side1 IS NOT NULL AND gs.games_won_side2 IS NOT NULL
+                    THEN gs.games_won_side1 || '-' || gs.games_won_side2
+                    ELSE NULL
+                END AS match_score_summary,
+                
+                -- Win/loss for this player
+                CASE 
+                    WHEN m.winner_side = ps.side_no THEN 'WIN'
+                    WHEN m.winner_side IS NOT NULL AND m.winner_side != ps.side_no THEN 'LOSS'
+                    ELSE NULL
+                END AS result,
+                
+                -- IDs
+                t.tournament_id,
+                tc.tournament_class_id
+                
+            FROM player_side ps
+            JOIN match m
+                ON m.match_id = ps.match_id
+            JOIN tournament_class_match tcm
+                ON tcm.match_id = m.match_id
+            JOIN tournament_class tc
+                ON tc.tournament_class_id = tcm.tournament_class_id
+            JOIN tournament t
+                ON t.tournament_id = tc.tournament_id
+            LEFT JOIN club c_player
+                ON c_player.club_id = ps.club_id
+            LEFT JOIN tournament_class_stage tcs
+                ON tcs.tournament_class_stage_id = tcm.tournament_class_stage_id
+            LEFT JOIN tournament_class_group tcg
+                ON tcg.tournament_class_group_id = tcm.tournament_class_group_id
+            LEFT JOIN game_summary gs
+                ON gs.match_id = m.match_id
+            -- Opponent join (other side)
+            LEFT JOIN match_player mp_opp
+                ON mp_opp.match_id = m.match_id 
+                AND mp_opp.side_no != ps.side_no 
+                AND mp_opp.player_order = 1
+            LEFT JOIN player p_opp
+                ON p_opp.player_id = mp_opp.player_id
+            LEFT JOIN club c_opp
+                ON c_opp.club_id = mp_opp.club_id
+                
+            ORDER BY t.startdate DESC, tc.startdate DESC, m.match_id;
+            '''
+        ),
+
         # =====================================================================
         # DATA QUALITY VIEWS (v_dq_*)
         # These views measure resolution rates from raw → resolved tables
@@ -1961,7 +2084,24 @@ def create_views(cursor):
             "v_dq_summary",
             '''
             CREATE VIEW IF NOT EXISTS v_dq_summary AS
-            WITH counts AS (
+            WITH match_stats AS (
+                SELECT
+                    COUNT(*) AS matches_resolved,
+                    SUM(CASE WHEN winner_side IS NOT NULL THEN 1 ELSE 0 END) AS matches_with_winner,
+                    SUM(CASE WHEN walkover_side IS NOT NULL THEN 1 ELSE 0 END) AS matches_walkover
+                FROM match
+            ),
+            player_stats AS (
+                SELECT
+                    COUNT(*) AS match_players_total,
+                    SUM(CASE WHEN mp.club_id = 9999 THEN 1 ELSE 0 END) AS match_clubs_unknown,
+                    SUM(CASE WHEN mp.player_id = 99999 THEN 1 ELSE 0 END) AS match_players_unknown,
+                    SUM(CASE WHEN p.is_verified = 1 THEN 1 ELSE 0 END) AS match_players_verified,
+                    SUM(CASE WHEN p.is_verified = 0 AND mp.player_id != 99999 THEN 1 ELSE 0 END) AS match_players_unverified
+                FROM match_player mp
+                LEFT JOIN player p ON mp.player_id = p.player_id
+            ),
+            counts AS (
                 SELECT
                     (SELECT COUNT(*) FROM tournament_raw) AS tournaments_raw,
                     (SELECT COUNT(*) FROM tournament) AS tournaments_resolved,
@@ -1969,20 +2109,7 @@ def create_views(cursor):
                     (SELECT COUNT(*) FROM tournament_class) AS classes_resolved,
                     (SELECT COUNT(*) FROM tournament_class_entry_raw) AS entries_raw,
                     (SELECT COUNT(*) FROM tournament_class_entry) AS entries_resolved,
-                    (SELECT COUNT(*) FROM tournament_class_match_raw) AS matches_raw,
-                    (SELECT COUNT(*) FROM match) AS matches_resolved,
-                    (SELECT COUNT(*) FROM match WHERE winner_side IS NOT NULL) AS matches_with_winner,
-                    (SELECT COUNT(*) FROM match WHERE walkover_side IS NOT NULL) AS matches_walkover,
-                    (SELECT COUNT(*) FROM match_player) AS match_players_total,
-                    (SELECT COUNT(*) FROM match_player WHERE club_id = 9999) AS match_clubs_unknown,
-                    (SELECT COUNT(*) FROM match_player WHERE player_id = 99999) AS match_players_unknown
-            ),
-            player_counts AS (
-                SELECT
-                    SUM(CASE WHEN p.is_verified = 1 THEN 1 ELSE 0 END) AS match_players_verified,
-                    SUM(CASE WHEN p.is_verified = 0 AND mp.player_id != 99999 THEN 1 ELSE 0 END) AS match_players_unverified
-                FROM match_player mp
-                JOIN player p ON mp.player_id = p.player_id
+                    (SELECT COUNT(*) FROM tournament_class_match_raw) AS matches_raw
             )
             SELECT
                 c.tournaments_raw,
@@ -1995,20 +2122,20 @@ def create_views(cursor):
                 c.entries_resolved,
                 ROUND(100.0 * c.entries_resolved / NULLIF(c.entries_raw, 0), 1) AS entries_pct,
                 c.matches_raw,
-                c.matches_resolved,
-                ROUND(100.0 * c.matches_resolved / NULLIF(c.matches_raw, 0), 1) AS matches_pct,
-                c.matches_with_winner,
-                c.matches_walkover,
-                ROUND(100.0 * c.matches_with_winner / NULLIF(c.matches_resolved, 0), 1) AS matches_winner_pct,
-                pc.match_players_verified,
-                pc.match_players_unverified,
-                c.match_players_unknown,
-                c.match_players_total,
-                ROUND(100.0 * pc.match_players_verified / NULLIF(c.match_players_total, 0), 1) AS match_players_verified_pct,
-                c.match_players_total - c.match_clubs_unknown AS match_clubs_known,
-                c.match_clubs_unknown,
-                ROUND(100.0 * (c.match_players_total - c.match_clubs_unknown) / NULLIF(c.match_players_total, 0), 1) AS match_clubs_known_pct
-            FROM counts c, player_counts pc;
+                ms.matches_resolved,
+                ROUND(100.0 * ms.matches_resolved / NULLIF(c.matches_raw, 0), 1) AS matches_pct,
+                ms.matches_with_winner,
+                ms.matches_walkover,
+                ROUND(100.0 * ms.matches_with_winner / NULLIF(ms.matches_resolved, 0), 1) AS matches_winner_pct,
+                ps.match_players_verified,
+                ps.match_players_unverified,
+                ps.match_players_unknown,
+                ps.match_players_total,
+                ROUND(100.0 * ps.match_players_verified / NULLIF(ps.match_players_total, 0), 1) AS match_players_verified_pct,
+                ps.match_players_total - ps.match_clubs_unknown AS match_clubs_known,
+                ps.match_clubs_unknown,
+                ROUND(100.0 * (ps.match_players_total - ps.match_clubs_unknown) / NULLIF(ps.match_players_total, 0), 1) AS match_clubs_known_pct
+            FROM counts c, match_stats ms, player_stats ps;
             '''
         ),
 

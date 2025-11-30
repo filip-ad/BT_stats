@@ -53,11 +53,11 @@ from config import (
 # SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['557']
 # RESOLVE_MATCHES_CUTOFF_DATE = '2025-11-01'
 
-# SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['31167']
+SCRAPE_PARTICIPANTS_CLASS_ID_EXTS = ['30921']
 
 # TO-DO: Fix the doubles counter, does it do anything at all right now? Just searching for '/' is not enough.
 
-debug = False
+debug = True
 
 def _format_table(headers: List[str], rows: List[List[str]]) -> List[str]:
     if not rows:
